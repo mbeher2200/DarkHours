@@ -63,7 +63,7 @@ def sky_events(lat: float, lon: float, target_date: date) -> list:
     for i, (t, phase) in enumerate(zip(times_tw, phases_tw)):
         prev = phases_tw[i - 1] if i > 0 else None
         if prev is not None and {int(phase), int(prev)} == {0, 1}:
-            label = "Astronomical Night Begins" if phase == 0 else "Astronomical Night Ends"
+            label = "Astronomical night begins" if phase == 0 else "Astronomical night ends"
             events.append({"time": t.utc_datetime(), "label": label})
 
     events.sort(key=lambda e: e["time"])
@@ -150,7 +150,7 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
     for i, (t, phase) in enumerate(zip(times_tw, phases_tw)):
         prev = phases_tw[i - 1] if i > 0 else None
         if prev is not None and {int(phase), int(prev)} == {0, 1}:
-            label = "Astronomical Night Begins" if phase == 0 else "Astronomical Night Ends"
+            label = "Astronomical night begins" if phase == 0 else "Astronomical night ends"
             all_events.append({"time": t.utc_datetime(), "label": label})
 
     all_events.sort(key=lambda e: e["time"])
@@ -171,8 +171,8 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
         if not sunrise:
             hours.append(0.0)
             continue
-        night_start = find_event(all_events, "Astronomical Night Begins", after=sunset, before=sunrise)
-        night_end   = find_event(all_events, "Astronomical Night Ends", after=night_start or sunset, before=sunrise)
+        night_start = find_event(all_events, "Astronomical night begins", after=sunset, before=sunrise)
+        night_end   = find_event(all_events, "Astronomical night ends", after=night_start or sunset, before=sunrise)
         if not night_start or not night_end:
             hours.append(0.0)
             continue

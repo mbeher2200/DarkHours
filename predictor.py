@@ -101,8 +101,8 @@ def assemble_night(
 
     moonrise    = se.find_last_event(events, "Moonrise", before=sunrise)
     moonset     = se.find_event(events, "Moonset", after=sunset)
-    night_start = se.find_event(events, "Astronomical Night Begins", after=sunset, before=sunrise)
-    night_end   = se.find_event(events, "Astronomical Night Ends",   after=night_start or sunset, before=sunrise)
+    night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise)
+    night_end   = se.find_event(events, "Astronomical night ends",   after=night_start or sunset, before=sunrise)
 
     # Events within the display window (sunset/moonrise → sunrise/moonset)
     window_start = min(sunset, moonrise) if moonrise and moonrise < sunset else sunset

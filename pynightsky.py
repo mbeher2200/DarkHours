@@ -85,12 +85,12 @@ def _lp_line(report: NightReport) -> str | None:
 
 
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
-    """Classify peak_time as 'Dark Sky', 'Astro Night', or 'Twilight'."""
+    """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
         if s <= peak_time <= e:
-            return "Dark Sky"
+            return "Dark sky"
     if night_start and night_end and night_start <= peak_time <= night_end:
-        return "Astro Night"
+        return "Astro night"
     return "Twilight"
 
 
@@ -223,15 +223,15 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
         dark_str = "None (no astronomical darkness at this latitude/date)"
 
     # Header
-    print(f"\nDate:      {report.date}")
-    print(f"Location:  {report.display_name}  ({report.lat:.4f}°)")
-    print(f"Moon:      {report.phase_name}  |  {report.illumination_pct}% illuminated")
+    print(f"\nDate:               {report.date}")
+    print(f"Location:           {report.display_name}  ({report.lat:.4f}°)")
     lp = _lp_line(report)
     if lp:
-        print(f"Darkness:  {lp}")
+        print(f"Light Pollution:    {lp}")
+    print(f"Moon:               {report.phase_name}  |  {report.illumination_pct}% illuminated")
     cycle     = report.dark_cycle
     cycle_str = f"avg {cycle['mean_hours']}h  ±{cycle['stdev_hours']}h over lunar cycle"
-    print(f"Dark sky:  {dark_str}  ·  {cycle_str}")
+    print(f"Prime Dark Sky Hours:  {dark_str}  ·  {cycle_str}")
 
     if report.score is not None:
         comp  = report.score_components
@@ -246,7 +246,7 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
             wx_part,
             f"Bortle {comp.get('bortle', '—') if report.bortle_score is not None else '—'}",
         ]
-        print(f"Night score:  {report.score}/10  ({' · '.join(parts)})")
+        print(f"Night Quality Score:  {report.score}/10  ({' · '.join(parts)})")
     print()
 
     # Sky Events
