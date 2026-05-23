@@ -1,0 +1,11 @@
+{
+  "targets": {
+    "min_elevation_deg": 20,
+    "moon_min_separation_deg": 30,
+    "moon_max_illumination_pct": 50
+  },
+  "prime_targets": {
+    "min_peak_altitude_deg": 40,
+    "min_window_hours": 1.0
+  }
+}

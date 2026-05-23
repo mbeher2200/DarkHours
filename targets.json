@@ -1,0 +1,324 @@
+[
+  {
+    "name": "Orion Nebula",
+    "type": "nebula",
+    "ra": "05h 35m 17s",
+    "dec": "-05° 23' 28\""
+  },
+  {
+    "name": "Lagoon Nebula",
+    "type": "nebula",
+    "ra": "18h 03m 37s",
+    "dec": "-24° 23' 12\""
+  },
+  {
+    "name": "Eagle Nebula",
+    "type": "nebula",
+    "ra": "18h 18m 48s",
+    "dec": "-13° 49' 00\""
+  },
+  {
+    "name": "Swan Nebula",
+    "type": "nebula",
+    "ra": "18h 20m 26s",
+    "dec": "-16° 10' 36\""
+  },
+  {
+    "name": "Trifid Nebula",
+    "type": "nebula",
+    "ra": "18h 02m 23s",
+    "dec": "-23° 01' 48\""
+  },
+  {
+    "name": "Ring Nebula",
+    "type": "nebula",
+    "ra": "18h 53m 35s",
+    "dec": "+33° 01' 45\""
+  },
+  {
+    "name": "Dumbbell Nebula",
+    "type": "nebula",
+    "ra": "19h 59m 36s",
+    "dec": "+22° 43' 16\""
+  },
+  {
+    "name": "Veil Nebula",
+    "type": "nebula",
+    "ra": "20h 45m 38s",
+    "dec": "+30° 42' 30\""
+  },
+  {
+    "name": "North America Nebula",
+    "type": "nebula",
+    "ra": "20h 58m 47s",
+    "dec": "+44° 20' 00\""
+  },
+  {
+    "name": "Crab Nebula",
+    "type": "nebula",
+    "ra": "05h 34m 32s",
+    "dec": "+22° 00' 52\""
+  },
+  {
+    "name": "Helix Nebula",
+    "type": "nebula",
+    "ra": "22h 29m 38s",
+    "dec": "-20° 50' 13\""
+  },
+  {
+    "name": "Carina Nebula",
+    "type": "nebula",
+    "ra": "10h 43m 48s",
+    "dec": "-59° 52' 04\""
+  },
+  {
+    "name": "Rosette Nebula",
+    "type": "nebula",
+    "ra": "06h 31m 55s",
+    "dec": "+04° 56' 00\""
+  },
+  {
+    "name": "Andromeda Galaxy",
+    "type": "galaxy",
+    "ra": "00h 42m 44s",
+    "dec": "+41° 16' 09\""
+  },
+  {
+    "name": "Triangulum Galaxy",
+    "type": "galaxy",
+    "ra": "01h 33m 51s",
+    "dec": "+30° 39' 37\""
+  },
+  {
+    "name": "Whirlpool Galaxy",
+    "type": "galaxy",
+    "ra": "13h 29m 53s",
+    "dec": "+47° 11' 43\""
+  },
+  {
+    "name": "Sombrero Galaxy",
+    "type": "galaxy",
+    "ra": "12h 39m 59s",
+    "dec": "-11° 37' 23\""
+  },
+  {
+    "name": "Pinwheel Galaxy",
+    "type": "galaxy",
+    "ra": "14h 03m 13s",
+    "dec": "+54° 20' 57\""
+  },
+  {
+    "name": "Bode's Galaxy",
+    "type": "galaxy",
+    "ra": "09h 55m 33s",
+    "dec": "+69° 03' 55\""
+  },
+  {
+    "name": "Sculptor Galaxy",
+    "type": "galaxy",
+    "ra": "00h 47m 33s",
+    "dec": "-25° 17' 18\""
+  },
+  {
+    "name": "Centaurus A",
+    "type": "galaxy",
+    "ra": "13h 25m 28s",
+    "dec": "-43° 01' 09\""
+  },
+  {
+    "name": "Large Magellanic Cloud",
+    "type": "galaxy",
+    "ra": "05h 23m 34s",
+    "dec": "-69° 45' 22\""
+  },
+  {
+    "name": "Small Magellanic Cloud",
+    "type": "galaxy",
+    "ra": "00h 52m 38s",
+    "dec": "-72° 48' 01\""
+  },
+  {
+    "name": "Leo Triplet",
+    "type": "galaxy",
+    "ra": "11h 20m 15s",
+    "dec": "+12° 59' 29\""
+  },
+  {
+    "name": "Pleiades",
+    "type": "cluster",
+    "ra": "03h 47m 24s",
+    "dec": "+24° 07' 00\""
+  },
+  {
+    "name": "Hercules Cluster",
+    "type": "cluster",
+    "ra": "16h 41m 42s",
+    "dec": "+36° 27' 36\""
+  },
+  {
+    "name": "Omega Centauri",
+    "type": "cluster",
+    "ra": "13h 26m 47s",
+    "dec": "-47° 28' 47\""
+  },
+  {
+    "name": "Double Cluster",
+    "type": "cluster",
+    "ra": "02h 19m 00s",
+    "dec": "+57° 07' 42\""
+  },
+  {
+    "name": "Beehive Cluster",
+    "type": "cluster",
+    "ra": "08h 40m 22s",
+    "dec": "+19° 41' 17\""
+  },
+  {
+    "name": "47 Tucanae",
+    "type": "cluster",
+    "ra": "00h 24m 06s",
+    "dec": "-72° 04' 52\""
+  },
+  {
+    "name": "Wild Duck Cluster",
+    "type": "cluster",
+    "ra": "18h 51m 05s",
+    "dec": "-06° 16' 00\""
+  },
+  {
+    "name": "Jewel Box",
+    "type": "cluster",
+    "ra": "12h 53m 42s",
+    "dec": "-60° 21' 24\""
+  },
+  {
+    "name": "Galactic Core",
+    "type": "milky_way",
+    "ra": "17h 45m 40s",
+    "dec": "-29° 00' 28\""
+  },
+  {
+    "name": "Cygnus Star Cloud",
+    "type": "milky_way",
+    "ra": "20h 22m 00s",
+    "dec": "+40° 15' 00\""
+  },
+  {
+    "name": "Mercury",
+    "type": "planet"
+  },
+  {
+    "name": "Venus",
+    "type": "planet"
+  },
+  {
+    "name": "Mars",
+    "type": "planet"
+  },
+  {
+    "name": "Jupiter",
+    "type": "planet"
+  },
+  {
+    "name": "Saturn",
+    "type": "planet"
+  },
+  {
+    "name": "Uranus",
+    "type": "planet"
+  },
+  {
+    "name": "Neptune",
+    "type": "planet"
+  },
+  {
+    "name": "Quadrantids",
+    "type": "meteor_shower",
+    "radiant_ra": "15h 18m 00s",
+    "radiant_dec": "+49° 30' 00\"",
+    "peak_month": 1,
+    "peak_day": 3,
+    "active_window_days": 6,
+    "peak_zhr": 120
+  },
+  {
+    "name": "Lyrids",
+    "type": "meteor_shower",
+    "radiant_ra": "18h 08m 00s",
+    "radiant_dec": "+32° 00' 00\"",
+    "peak_month": 4,
+    "peak_day": 22,
+    "active_window_days": 10,
+    "peak_zhr": 18
+  },
+  {
+    "name": "Eta Aquariids",
+    "type": "meteor_shower",
+    "radiant_ra": "22h 20m 00s",
+    "radiant_dec": "-01° 00' 00\"",
+    "peak_month": 5,
+    "peak_day": 5,
+    "active_window_days": 18,
+    "peak_zhr": 50
+  },
+  {
+    "name": "Delta Aquariids",
+    "type": "meteor_shower",
+    "radiant_ra": "22h 40m 00s",
+    "radiant_dec": "-16° 00' 00\"",
+    "peak_month": 7,
+    "peak_day": 28,
+    "active_window_days": 20,
+    "peak_zhr": 25
+  },
+  {
+    "name": "Perseids",
+    "type": "meteor_shower",
+    "radiant_ra": "03h 04m 00s",
+    "radiant_dec": "+58° 00' 00\"",
+    "peak_month": 8,
+    "peak_day": 12,
+    "active_window_days": 14,
+    "peak_zhr": 100
+  },
+  {
+    "name": "Orionids",
+    "type": "meteor_shower",
+    "radiant_ra": "06h 20m 00s",
+    "radiant_dec": "+15° 00' 00\"",
+    "peak_month": 10,
+    "peak_day": 21,
+    "active_window_days": 14,
+    "peak_zhr": 20
+  },
+  {
+    "name": "Leonids",
+    "type": "meteor_shower",
+    "radiant_ra": "10h 08m 00s",
+    "radiant_dec": "+21° 42' 00\"",
+    "peak_month": 11,
+    "peak_day": 17,
+    "active_window_days": 10,
+    "peak_zhr": 15
+  },
+  {
+    "name": "Geminids",
+    "type": "meteor_shower",
+    "radiant_ra": "07h 28m 00s",
+    "radiant_dec": "+32° 00' 00\"",
+    "peak_month": 12,
+    "peak_day": 14,
+    "active_window_days": 10,
+    "peak_zhr": 150
+  },
+  {
+    "name": "Ursids",
+    "type": "meteor_shower",
+    "radiant_ra": "14h 28m 00s",
+    "radiant_dec": "+76° 00' 00\"",
+    "peak_month": 12,
+    "peak_day": 22,
+    "active_window_days": 6,
+    "peak_zhr": 10
+  }
+]

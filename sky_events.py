@@ -77,8 +77,8 @@ def dark_moon_intervals(events: list, night_start, night_end, illumination: floa
     """Return (start, end) UTC datetime pairs when moon is below horizon within [night_start, night_end]."""
     log.debug("Night window (UTC): %s → %s", night_start.strftime("%H:%M"), night_end.strftime("%H:%M"))
     log.debug("Illumination: %.1f%%", illumination)
-    if illumination < 5:
-        log.debug("New moon — treating full night as dark")
+    if illumination < 10:
+        log.debug("Near new moon (%.1f%%) — treating full night as dark", illumination)
         return [(night_start, night_end)]
 
     moon_events = [(e["time"], e["label"]) for e in events

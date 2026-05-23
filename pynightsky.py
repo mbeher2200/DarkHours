@@ -9,6 +9,7 @@ from datetime import date
 
 from zoneinfo import ZoneInfo
 
+import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
@@ -44,11 +45,13 @@ def _local(dt):
 def _fmt(dt):
     local = _local(dt)
     hour  = int(local.strftime("%I"))
-    return local.strftime(f"%b %-d, {hour:>2}:%M %p %Z")
+    return local.strftime(f"%b %-d, {hour:>2}:%M %p")
 
 
 def _fmt_time(dt):
-    return _local(dt).strftime("%-I:%M %p")
+    local = _local(dt)
+    hour  = int(local.strftime("%I"))
+    return local.strftime(f"{hour:>2}:%M %p")
 
 
 def _temp(c):
@@ -79,6 +82,129 @@ def _lp_line(report: NightReport) -> str | None:
     return (f"SQM {info['sqm']}  ·  Zone {info['lp_zone']}"
             f"  ·  Bortle {info['bortle_class']}"
             f"  ({info['bortle_desc']})  [{info['source']}]")
+
+
+def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
+    """Classify peak_time as 'dark sky', 'astro night', or 'twilight'."""
+    for s, e in (dark_intervals or []):
+        if s <= peak_time <= e:
+            return "dark sky"
+    if night_start and night_end and night_start <= peak_time <= night_end:
+        return "astro night"
+    return "twilight"
+
+
+def _is_prime(target, min_peak_alt: float, min_window_hours: float) -> bool:
+    """True if the target has a clean window meeting altitude and duration thresholds.
+
+    Milky Way targets are prime whenever they're visible during dark sky
+    without moon interference — no altitude or duration threshold applied.
+    """
+    clean = [w for w in target.windows if not w.moon_interference]
+    if not clean:
+        return False
+    if target.type == "milky_way":
+        return True
+    best = max(clean, key=lambda w: w.peak_alt_deg)
+    duration_h = (best.end - best.start).total_seconds() / 3600
+    return best.peak_alt_deg >= min_peak_alt and duration_h >= min_window_hours
+
+
+def _print_targets(report: NightReport, prime_only: bool = False) -> None:
+    targets = report.visible_targets
+
+    if prime_only:
+        cfg = _cfg.load()["prime_targets"]
+        min_alt = cfg["min_peak_altitude_deg"]
+        min_hrs = cfg["min_window_hours"]
+        targets = [t for t in targets if _is_prime(t, min_alt, min_hrs)]
+
+    label = "Prime Targets" if prime_only else "Visible Targets"
+
+    if not targets:
+        print(f"{label}:  none found for this night.\n")
+        return
+
+    _TYPE_ORDER = {
+        "meteor_shower": 0,
+        "milky_way":     1,
+        "cluster":       2,
+        "planet":        3,
+        "nebula":        4,
+        "galaxy":        5,
+    }
+    _TYPE_LABELS = {
+        "meteor_shower": "Meteor Showers",
+        "milky_way":     "Milky Way",
+        "cluster":       "Clusters",
+        "planet":        "Planets",
+        "nebula":        "Nebulae",
+        "galaxy":        "Galaxies",
+    }
+
+    def _best_window(t):
+        clean = [w for w in t.windows if not w.moon_interference]
+        pool  = clean if clean else t.windows
+        return max(pool, key=lambda w: w.peak_alt_deg)
+
+    # Group by type order, then sort each group chronologically by peak time
+    targets = sorted(
+        targets,
+        key=lambda t: (_TYPE_ORDER.get(t.type, 99), _best_window(t).peak_time),
+    )
+
+    tz_label  = _local(report.sunset).strftime("%Z")
+    hdr_range = f"{_fmt_time(report.sunset)} – {_fmt_time(report.sunrise)} {tz_label}"
+    print(f"{label}  ({hdr_range}):\n")
+
+    # Pre-build rows tagged with type so we can insert group headers
+    tagged_rows = []
+    for target in targets:
+        window = _best_window(target)
+        condition = _sky_condition(window.peak_time,
+                                   report.dark_intervals,
+                                   report.night_start,
+                                   report.night_end)
+        flags = []
+        if window.moon_interference:
+            flags.append("moon")
+        if target.note:
+            flags.append(target.note)
+        display_name = target.name + " Meteor Shower" if target.type == "meteor_shower" else target.name
+        tagged_rows.append((
+            target.type,
+            display_name,
+            f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°",
+            condition,
+            f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}° – {_fmt_time(window.end)} @ {window.end_alt_deg:.0f}°",
+            "  ".join(flags),
+        ))
+
+    data_rows = [(name, peak, cond, win, flags) for _, name, peak, cond, win, flags in tagged_rows]
+    headers   = ("Target", "Best Viewing", "Sky", "Window", "")
+    widths    = [
+        max(len(headers[i]), max(len(r[i]) for r in data_rows))
+        for i in range(len(headers))
+    ]
+
+    def _row(vals):
+        name, peak, cond, win, flags = vals
+        print(f"  {name:<{widths[0]}}  {peak:<{widths[1]}}  {cond:<{widths[2]}}  {win:<{widths[3]}}"
+              + (f"   {flags}" if flags else ""))
+
+    _row(headers)
+    print(f"  {'-' * widths[0]}  {'-' * widths[1]}  {'-' * widths[2]}  {'-' * widths[3]}")
+
+    current_type = None
+    for ttype, name, peak, cond, win, flags in tagged_rows:
+        if ttype != current_type:
+            if current_type is not None:
+                print()
+            print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
+            current_type = ttype
+        _row((name, peak, cond, win, flags))
+
+    print()
 
 
 def _print_report(report: NightReport, show_weather: bool) -> None:
@@ -123,8 +249,13 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
         print(f"Night score:  {report.score}/10  ({' · '.join(parts)})")
     print()
 
-    # Timeline
-    col_w = max((len(_fmt(e["time"])) for e in report.events), default=25)
+    # Sky Events
+    tz_label = _local(report.sunset).strftime("%Z")
+    col_w    = max((len(_fmt(e["time"])) for e in report.events), default=25)
+    ev_w     = max(len("Event"), max(len(e["label"]) for e in report.events))
+    print("Sky Events:\n")
+    print(f"  {f'Time ({tz_label})':<{col_w}}  {'Event':<{ev_w}}")
+    print(f"  {'-' * col_w}  {'-' * ev_w}")
     for e in report.events:
         print(f"  {_fmt(e['time']):<{col_w}}  {e['label']}")
     print()
@@ -149,7 +280,9 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
             has_seeing = any(p.seeing_arcsec  is not None for p in pts)
             has_transp = any(p.transparency   is not None for p in pts)
 
-            cols  = [("Time", "l"), ("Wx Rating", "r"), ("Cloud", "r")]
+            wx_tz = _local(pts[0].time).strftime("%Z")
+            print("Weather:\n")
+            cols  = [(f"Time ({wx_tz})", "l"), ("Wx Rating", "r"), ("Cloud", "r")]
             cols += [("Temp",   "r")] if has_temp   else []
             cols += [("Feels",  "r")] if has_feels  else []
             cols += [("Seeing", "r")] if has_seeing else []
@@ -211,6 +344,10 @@ def main():
                         help="Show all saved/cached locations and exit")
     parser.add_argument("--weather", "-w", action="store_true",
                         help="Include weather forecast for the night (requires internet)")
+    parser.add_argument("--targets", "-t", action="store_true",
+                        help="Show visible targets summary for the night")
+    parser.add_argument("--prime-targets", "-p", action="store_true",
+                        help="Show only prime targets (no moon interference, peak ≥40°, window ≥1h)")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -263,13 +400,18 @@ def main():
         print(f"Error: '{args.date}' is not a valid date (expected YYYY-MM-DD).")
         raise SystemExit(1)
 
+    fetch_targets = args.targets or args.prime_targets
+
     try:
-        report = assemble_night(lat, lon, target, _TZ, display_name=display_name)
+        report = assemble_night(lat, lon, target, _TZ, display_name=display_name,
+                                fetch_targets=fetch_targets)
     except ValueError as e:
         print(f"Error: {e}")
         raise SystemExit(1)
 
     _print_report(report, show_weather=args.weather)
+    if fetch_targets:
+        _print_targets(report, prime_only=args.prime_targets)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 """Night sky prediction engine — assembles a NightReport for a given location and date."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from zoneinfo import ZoneInfo
@@ -62,6 +62,9 @@ class NightReport:
     score: float | None
     score_components: dict  # {moon, dark, weather, bortle}
 
+    # Visible targets (populated when fetch_targets=True)
+    visible_targets: list = field(default_factory=list)
+
 
 def assemble_night(
     lat: float,
@@ -70,6 +73,7 @@ def assemble_night(
     tz: ZoneInfo,
     display_name: str = "",
     fetch_weather: bool = True,
+    fetch_targets: bool = False,
 ) -> NightReport:
     """
     Compute a complete NightReport for the given location and date.
@@ -192,6 +196,13 @@ def assemble_night(
         except RuntimeError as e:
             wx_error = str(e)
 
+    # --- Visible targets ---
+    target_list = []
+    if fetch_targets:
+        import targets as _tgt
+        target_list = _tgt.visible_targets(lat, lon, sunset, sunrise, illumination,
+                                            night_start=night_start, night_end=night_end)
+
     # --- Overall rating ---
     rating = scoring.rate_night(moon_score, dark_score, weather_score, bortle_score)
 
@@ -225,4 +236,5 @@ def assemble_night(
         wx_error=wx_error,
         score=rating["score"],
         score_components=rating["components"],
+        visible_targets=target_list,
     )
