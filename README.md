@@ -13,6 +13,7 @@ The tool displays:
 - **Dark Time** — Total hours of astronomical darkness
 - **Light Pollution** — Bortle classification and SQM reading
 - **Weather** — Cloud cover, seeing, transparency, temperature (with `--weather`)
+- **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
 
 Example output:
 ```
@@ -92,6 +93,22 @@ python pynightsky.py --coords 40.7128 -74.0060
 python pynightsky.py --location "New York" --weather
 ```
 
+### Visible targets
+
+```bash
+# All visible targets tonight, grouped by type
+python pynightsky.py --location "Death Valley" --targets
+
+# Prime targets only — no moon interference, peak ≥40°, visible window ≥1h
+python pynightsky.py --location "Death Valley" --prime-targets
+```
+
+Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude, the full window with start/end elevations, and a **sky condition** — `dark sky`, `astro night`, or `twilight` — indicating what lighting conditions the target peaks in.
+
+Milky Way targets (Galactic Core, Cygnus Star Cloud) are automatically included in prime results whenever they're visible during astronomical darkness.
+
+The target catalog lives in [`targets.json`](targets.json) and is easy to extend — see [`TARGETS.md`](TARGETS.md) for the schema. Prime target thresholds and global observation defaults are in [`config.json`](config.json).
+
 ### Specific date
 
 ```bash
@@ -132,6 +149,8 @@ python pynightsky.py --list-locations
 --coords, -c LAT LON       Decimal-degree coordinates (e.g., -c 40.7128 -74.0060)
 --date, -d YYYY-MM-DD      Date to predict (default: today)
 --weather, -w              Include weather forecast (requires internet)
+--targets, -t              Show all visible targets for the night
+--prime-targets, -p        Show only prime targets (see config.json for thresholds)
 --list-locations           Show all saved/cached locations
 --save-location NAME       Save coordinates under a name for future use
 --units imperial|si        Temperature/wind units (default: auto-detect from locale)
@@ -148,6 +167,9 @@ The project is structured as a layered engine with a thin CLI on top, making it 
 | `predictor.py` | Engine — assembles a `NightReport` dataclass from all data sources |
 | `scoring.py` | Scoring logic — night rating and weather score calculations |
 | `sky_events.py` | Astronomical primitives — sun/moon events, dark intervals, moon phase |
+| `targets.py` | Visible targets engine — window computation, moon interference, per-type clipping |
+| `targets.json` | Curated target catalog — nebulae, galaxies, clusters, Milky Way, planets, meteor showers |
+| `config.py` | Configuration loader — reads `config.json` with built-in defaults |
 | `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
 | `weather.py` | Weather forecast abstraction (Open-Meteo providers) |
 | `location.py` | Geocoding and timezone resolution |
