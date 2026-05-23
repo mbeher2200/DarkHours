@@ -77,29 +77,29 @@ pip install -r requirements.txt
 ### Basic: Today at your location
 
 ```bash
-python sky_events.py --location "New York"
+python pynightsky.py --location "New York"
 ```
 
 Or use coordinates:
 
 ```bash
-python sky_events.py --coords 40.7128 -74.0060
+python pynightsky.py --coords 40.7128 -74.0060
 ```
 
 ### With weather forecast
 
 ```bash
-python sky_events.py --location "New York" --weather
+python pynightsky.py --location "New York" --weather
 ```
 
 ### Specific date
 
 ```bash
 # Future date
-python sky_events.py --location "Sedona, Arizona" --date 2026-06-21
+python pynightsky.py --location "Sedona, Arizona" --date 2026-06-21
 
 # Past date (for reference/analysis)
-python sky_events.py --location "Sedona, Arizona" --date 2025-06-21 --weather
+python pynightsky.py --location "Sedona, Arizona" --date 2025-06-21 --weather
 ```
 
 Note: Past dates up to ~92 days ago can include weather data via historical records. Older dates show astronomical events only.
@@ -116,13 +116,13 @@ The `--location` argument accepts any OpenStreetMap geocoding format:
 
 ```bash
 # Save coordinates under a name
-python sky_events.py --coords 40.7128 -74.0060 --save-location "home"
+python pynightsky.py --coords 40.7128 -74.0060 --save-location "home"
 
 # Use saved location next time
-python sky_events.py --location "home"
+python pynightsky.py --location "home"
 
 # List all saved locations
-python sky_events.py --list-locations
+python pynightsky.py --list-locations
 ```
 
 ## Options
@@ -136,6 +136,39 @@ python sky_events.py --list-locations
 --save-location NAME       Save coordinates under a name for future use
 --units imperial|si        Temperature/wind units (default: auto-detect from locale)
 --verbose, -v              Print debug information
+```
+
+## Architecture
+
+The project is structured as a layered engine with a thin CLI on top, making it straightforward to drive from a future web or application frontend.
+
+| Module | Role |
+|--------|------|
+| `pynightsky.py` | CLI entry point — argument parsing, formatting, and output |
+| `predictor.py` | Engine — assembles a `NightReport` dataclass from all data sources |
+| `scoring.py` | Scoring logic — night rating and weather score calculations |
+| `sky_events.py` | Astronomical primitives — sun/moon events, dark intervals, moon phase |
+| `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
+| `weather.py` | Weather forecast abstraction (Open-Meteo providers) |
+| `location.py` | Geocoding and timezone resolution |
+
+To use the engine directly (e.g. from a backend service), call `predictor.assemble_night()`:
+
+```python
+from datetime import date
+from zoneinfo import ZoneInfo
+from predictor import assemble_night
+
+report = assemble_night(
+    lat=36.4229, lon=-116.9137,
+    target=date.today(),
+    tz=ZoneInfo("America/Los_Angeles"),
+    display_name="Death Valley",
+)
+print(report.score)           # overall 0–10 score
+print(report.phase_name)      # e.g. "First Quarter"
+print(report.dark_hours)      # moon-free dark hours tonight
+print(report.weather_points)  # list of WeatherPoint dataclasses
 ```
 
 ## License
