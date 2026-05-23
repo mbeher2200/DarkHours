@@ -1,94 +1,98 @@
 # PyNightSkyPredictor
 
-A night sky prediction tool for astronomy and astrophotography planning.
+A night sky prediction tool for astronomy and astrophotography planning. For a given location and date, PyNightSkyPredictor predicts:
 
-Predicts **sun and moon rise/set times**, **total night sky availability**, **moon phase, and percent illumination**, **light pollution levels**, and **weather conditions** to generate an an Night Quality Score (1-10) for any date and location. Great for planning dark sky observations, astrophotography sessions, and trips.
+- A Night Quality Score (1-10) by taking into consideration **sun and moon rise/set times**, **total night sky availability**, **moon phase, and percent illumination**, **light pollution levels**, and **weather conditions**.
+
+- Visible major targets, and prime target times and elevation.
+
+Perfect for dark sky observations, astrophotography sessions, and trips.
 
 ## Output
 
 The tool displays:
-- **Astronomy Score (1-10)** — Overall night sky quality
-- **Sky Events** — Sunset, night begins, night ends, sunrise
-- **Moon Info** — Phase, illumination, rise/set times
-- **Dark Time** — Total hours of astronomical darkness
+- **Night Quality Score (1-10)** — Overall night sky quality
+- **Night Timeline** — Sunset, astronomical night begins/ends, moonrise/set, sunrise
 - **Light Pollution** — Bortle classification and SQM reading
+- **Moon** — Phase, illumination
+- **Prime Dark Sky Hours** — Total moon-free dark hours and typical range over the lunar cycle
 - **Weather** — Cloud cover, seeing, transparency, temperature (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
 
-Example output:
+Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --weather --prime-targets`):
 ```
-Date:      2026-05-23
-Location:  Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°)
-Moon:      First Quarter  |  56.8% illuminated
-Darkness:  SQM 21.9  ·  Zone 2a  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
-Dark sky:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.0h  ±2.4h over lunar cycle
-Night score:  3.1/10  (Moon 4.3 · Dark 3.3 · Wx 7.2 · Bortle 10.0)
+Date:               2026-05-23
+Location:           Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°)
+Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
+Moon:               First Quarter  |  56.8% illuminated
+Prime Dark Sky Hours:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.0h  ±2.4h over lunar cycle
+Night Quality Score:  3.1/10  (Moon 4.3 · Dark 3.3 · Wx 7.1 · Bortle 10.0)
 
 Night Timeline:
 
-  Time (MST)        Event                       
-  ----------------  ----------------------------
+  Time (MST)        Event                    
+  ----------------  -------------------------
   May 23, 12:33 PM  Moonrise
   May 23,  7:33 PM  Sunset
-  May 23,  9:18 PM  Astronomical Night Begins
+  May 23,  9:18 PM  Astronomical night begins
   May 24,  1:34 AM  Moonset
-  May 24,  3:32 AM  Astronomical Night Ends
+  May 24,  3:32 AM  Astronomical night ends
   May 24,  5:16 AM  Sunrise
 
 Weather:
 
   Time (MST)        Wx Rating  Cloud  Temp  Feels  Humid     Wind  Precip
   ----------------  ---------  -----  ----  -----  -----  -------  ------
-  May 23,  7:00 PM       3/10    71%  69°F   59°F    11%   9.4mph  None  
-  May 23,  8:00 PM       2/10   100%  65°F   55°F    13%   8.5mph  None  
-  May 23,  9:00 PM       2/10   100%  64°F   54°F    16%  10.7mph  None  
-  May 23, 10:00 PM       2/10   100%  63°F   53°F    17%  11.0mph  None  
-  May 23, 11:00 PM       6/10    34%  59°F   49°F    19%  10.8mph  None  
-  May 24, 12:00 AM       9/10     0%  58°F   48°F    22%   9.8mph  None  
-  May 24,  1:00 AM       9/10     0%  56°F   47°F    23%   9.0mph  None  
+  May 23,  7:00 PM       3/10    71%  69°F   59°F    11%   8.8mph  None  
+  May 23,  8:00 PM       2/10   100%  65°F   56°F    13%   7.6mph  None  
+  May 23,  9:00 PM       2/10   100%  64°F   54°F    16%  10.5mph  None  
+  May 23, 10:00 PM       2/10   100%  63°F   52°F    17%  12.1mph  None  
+  May 23, 11:00 PM       6/10    34%  59°F   49°F    19%  10.5mph  None  
+  May 24, 12:00 AM       9/10     0%  58°F   48°F    22%  10.5mph  None  
+  May 24,  1:00 AM       9/10     0%  56°F   47°F    23%   9.4mph  None  
   May 24,  2:00 AM       9/10     0%  55°F   46°F    24%   8.9mph  None  
-  May 24,  3:00 AM      10/10     0%  54°F   45°F    25%   8.3mph  None  
-  May 24,  4:00 AM      10/10     0%  52°F   43°F    27%   8.1mph  None  
-  May 24,  5:00 AM      10/10     0%  52°F   44°F    26%   5.9mph  None  
-  May 24,  6:00 AM      10/10     0%  52°F   44°F    26%   7.0mph  None  
+  May 24,  3:00 AM      10/10     0%  54°F   45°F    25%   8.7mph  None  
+  May 24,  4:00 AM       9/10     0%  52°F   43°F    27%   9.2mph  None  
+  May 24,  5:00 AM      10/10     0%  52°F   44°F    26%   7.2mph  None  
+  May 24,  6:00 AM      10/10     0%  52°F   44°F    26%   6.2mph  None  
 
 Prime Targets  ( 7:33 PM –  5:16 AM MST):
 
   Target                Best Viewing    Sky          Window                         
   --------------------  --------------  -----------  -------------------------------
   Milky Way
-  Galactic Core          2:03 AM @ 25°  Dark Sky     12:23 AM @ 20° –  3:23 AM @ 22°
-  Cygnus Star Cloud      3:23 AM @ 74°  Dark Sky     10:33 PM @ 21° –  3:23 AM @ 74°
+  Galactic Core          2:03 AM @ 25°  Dark sky     12:23 AM @ 20° –  3:23 AM @ 22°
+  Cygnus Star Cloud      3:23 AM @ 74°  Dark sky     10:33 PM @ 21° –  3:23 AM @ 74°
 
   Clusters
-  Hercules Cluster       1:03 AM @ 90°  Astro Night   9:23 PM @ 46° –  3:23 AM @ 62°
-  Wild Duck Cluster      3:13 AM @ 48°  Dark Sky     11:23 PM @ 22° –  3:23 AM @ 48°
+  Hercules Cluster       1:03 AM @ 90°  Astro night   9:23 PM @ 46° –  3:23 AM @ 62°
+  Wild Duck Cluster      3:13 AM @ 48°  Dark sky     11:23 PM @ 22° –  3:23 AM @ 48°
 
   Planets
   Jupiter                7:33 PM @ 42°  Twilight      7:33 PM @ 42° –  9:13 PM @ 22°
 
   Nebulae
-  Eagle Nebula           2:43 AM @ 40°  Dark Sky     11:13 PM @ 20° –  3:23 AM @ 39°
-  Ring Nebula            3:13 AM @ 87°  Dark Sky      9:23 PM @ 20° –  3:23 AM @ 86°
-  Dumbbell Nebula        3:23 AM @ 72°  Dark Sky     11:03 PM @ 21° –  3:23 AM @ 72°
-  Veil Nebula            3:23 AM @ 68°  Dark Sky     11:23 PM @ 21° –  3:23 AM @ 68°
-  North America Nebula   3:23 AM @ 66°  Dark Sky     10:53 PM @ 20° –  3:23 AM @ 66°
+  Eagle Nebula           2:43 AM @ 40°  Dark sky     11:13 PM @ 20° –  3:23 AM @ 39°
+  Ring Nebula            3:13 AM @ 87°  Dark sky      9:23 PM @ 20° –  3:23 AM @ 86°
+  Dumbbell Nebula        3:23 AM @ 72°  Dark sky     11:03 PM @ 21° –  3:23 AM @ 72°
+  Veil Nebula            3:23 AM @ 68°  Dark sky     11:23 PM @ 21° –  3:23 AM @ 68°
+  North America Nebula   3:23 AM @ 66°  Dark sky     10:53 PM @ 20° –  3:23 AM @ 66°
 
   Galaxies
-  Bode's Galaxy          9:23 PM @ 49°  Astro Night   9:23 PM @ 49° –  3:13 AM @ 20°
-  Sombrero Galaxy        9:23 PM @ 42°  Astro Night   9:23 PM @ 42° – 12:33 AM @ 21°
-  Whirlpool Galaxy       9:53 PM @ 79°  Astro Night   9:23 PM @ 78° –  3:23 AM @ 30°
-  Pinwheel Galaxy       10:23 PM @ 72°  Astro Night   9:23 PM @ 69° –  3:23 AM @ 37°
+  Bode's Galaxy          9:23 PM @ 49°  Astro night   9:23 PM @ 49° –  3:13 AM @ 20°
+  Sombrero Galaxy        9:23 PM @ 42°  Astro night   9:23 PM @ 42° – 12:33 AM @ 21°
+  Whirlpool Galaxy       9:53 PM @ 79°  Astro night   9:23 PM @ 78° –  3:23 AM @ 30°
+  Pinwheel Galaxy       10:23 PM @ 72°  Astro night   9:23 PM @ 69° –  3:23 AM @ 37°
 ```
 
-## Astronomy Score (1–10)
+## Night Quality Score (1–10)
 
 The tool evaluates four factors and produces a composite score:
 
 | Factor | Weight | Scoring |
 |--------|--------|---------|
 | **Moon Phase** | 30% | 10 = new moon, 0 = full moon |
-| **Dark Time** | 30% | Based on your location's typical lunar cycle; scores relative to best conditions |
+| **Dark Sky Hours** | 30% | Based on your location's typical lunar cycle; scores relative to best conditions |
 | **Light Pollution** | 25% | 10 = no pollution (Bortle 1), decreases with light-polluted skies (Bortle 9) |
 | **Weather** | 15% | Cloud cover, seeing, transparency, humidity, and precipitation |
 
@@ -137,7 +141,7 @@ python pynightsky.py --location "Death Valley" --targets
 python pynightsky.py --location "Death Valley" --prime-targets
 ```
 
-Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude, the full window with start/end elevations, and a **sky condition** — `dark sky`, `astro night`, or `twilight` — indicating what lighting conditions the target peaks in.
+Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude, the full window with start/end elevations, and a **sky condition** — `Dark sky`, `Astro night`, or `Twilight` — indicating what lighting conditions the target peaks in.
 
 Milky Way targets (Galactic Core, Cygnus Star Cloud) are automatically included in prime results whenever they're visible during astronomical darkness.
 
