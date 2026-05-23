@@ -1,12 +1,12 @@
 # PyNightSkyPredictor
 
-A comprehensive night sky prediction tool for astronomy and astrophotography planning.
+A night sky prediction tool for astronomy and astrophotography planning.
 
-Predicts **sun and moon rise/set times**, **total night sky availability**, **moon phase**, **light pollution levels**, and **weather conditions** to generate an astronomy quality score (1-10) for any date and location. Perfect for planning dark sky observations, astrophotography sessions, and observing campaigns.
+Predicts **sun and moon rise/set times**, **total night sky availability**, **moon phase, and percent illumination**, **light pollution levels**, and **weather conditions** to generate an an Night Quality Score (1-10) for any date and location. Great for planning dark sky observations, astrophotography sessions, and trips.
 
 ## Data Download & Caching
 
-This project automatically downloads and caches external datasets:
+The application automatically downloads and caches external datasets:
 
 - **VIIRS Black Marble 2025** (Satellite light pollution data)
 - **Falchi World Atlas 2016** (Physical light pollution model)
@@ -103,20 +103,34 @@ The tool displays:
 
 Example output:
 ```
-Astronomy Score: 7.2 / 10
+Date:      2026-05-23
+Location:  Death Valley, California, 92328, United States  (36.4229°)
+Moon:      First Quarter  |  56.9% illuminated
+Darkness:  SQM 22.0  ·  Zone 0  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
+Dark sky:  1h 55m  (1:54 AM – 3:49 AM PDT)  ·  avg 3.0h  ±2.4h over lunar cycle
+Night score:  3.5/10  (Moon 4.3 · Dark 3.3 · Wx 9.8 · Bortle 10.0)
 
-New York — 40.7128°N, 74.0060°W
+  May 23, 12:53 PM PDT  Moonrise
+  May 23,  7:54 PM PDT  Sunset
+  May 23,  9:39 PM PDT  Night begins
+  May 24,  1:54 AM PDT  Moonset
+  May 24,  3:49 AM PDT  Night ends
+  May 24,  5:34 AM PDT  Sunrise
 
-Moon phase: Waxing Crescent (12% illuminated)
-Dark time: 8h 45m
-Light pollution: Bortle 5 (Suburban sky)
-
-Tonight's schedule:
-  Sunset          19:45
-  Night begins    21:15
-  Moonrise        04:22
-  Night ends      05:30
-  Sunrise         06:45
+  Time                  Wx Rating  Cloud   Temp  Feels  Humid     Wind  Precip
+  --------------------  ---------  -----  -----  -----  -----  -------  ------
+  May 23,  7:00 PM PDT       9/10     0%  102°F   91°F     5%  13.0mph  None  
+  May 23,  8:00 PM PDT       9/10     0%   96°F   87°F     7%   8.8mph  None  
+  May 23,  9:00 PM PDT      10/10     0%   92°F   85°F     7%   6.1mph  None  
+  May 23, 10:00 PM PDT      10/10     0%   89°F   83°F     8%   3.4mph  None  
+  May 23, 11:00 PM PDT       9/10     0%   87°F   80°F    17%   9.2mph  None  
+  May 24, 12:00 AM PDT      10/10     0%   86°F   79°F    18%   8.1mph  None  
+  May 24,  1:00 AM PDT      10/10     0%   84°F   79°F    18%   5.2mph  None  
+  May 24,  2:00 AM PDT      10/10     0%   83°F   77°F    17%   5.7mph  None  
+  May 24,  3:00 AM PDT      10/10     0%   82°F   76°F    18%   6.0mph  None  
+  May 24,  4:00 AM PDT      10/10     0%   81°F   76°F    20%   4.5mph  None  
+  May 24,  5:00 AM PDT      10/10     0%   80°F   73°F    21%   8.4mph  None  
+  May 24,  6:00 AM PDT      10/10     0%   79°F   73°F    23%   8.2mph  None  
 ```
 
 ## Astronomy Score (1–10)
