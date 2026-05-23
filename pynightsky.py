@@ -85,13 +85,13 @@ def _lp_line(report: NightReport) -> str | None:
 
 
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
-    """Classify peak_time as 'dark sky', 'astro night', or 'twilight'."""
+    """Classify peak_time as 'Dark Sky', 'Astro Night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
         if s <= peak_time <= e:
-            return "dark sky"
+            return "Dark Sky"
     if night_start and night_end and night_start <= peak_time <= night_end:
-        return "astro night"
-    return "twilight"
+        return "Astro Night"
+    return "Twilight"
 
 
 def _is_prime(target, min_peak_alt: float, min_window_hours: float) -> bool:
@@ -253,7 +253,7 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
     tz_label = _local(report.sunset).strftime("%Z")
     col_w    = max((len(_fmt(e["time"])) for e in report.events), default=25)
     ev_w     = max(len("Event"), max(len(e["label"]) for e in report.events))
-    print("Sky Events:\n")
+    print("Night Timeline:\n")
     print(f"  {f'Time ({tz_label})':<{col_w}}  {'Event':<{ev_w}}")
     print(f"  {'-' * col_w}  {'-' * ev_w}")
     for e in report.events:
