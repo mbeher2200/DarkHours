@@ -18,33 +18,67 @@ The tool displays:
 Example output:
 ```
 Date:      2026-05-23
-Location:  Death Valley, California, 92328, United States  (36.4229°)
-Moon:      First Quarter  |  56.9% illuminated
-Darkness:  SQM 22.0  ·  Zone 0  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
-Dark sky:  1h 55m  (1:54 AM – 3:49 AM PDT)  ·  avg 3.0h  ±2.4h over lunar cycle
-Night score:  3.5/10  (Moon 4.3 · Dark 3.3 · Wx 9.8 · Bortle 10.0)
+Location:  Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°)
+Moon:      First Quarter  |  56.8% illuminated
+Darkness:  SQM 21.9  ·  Zone 2a  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
+Dark sky:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.0h  ±2.4h over lunar cycle
+Night score:  3.1/10  (Moon 4.3 · Dark 3.3 · Wx 7.2 · Bortle 10.0)
 
-  May 23, 12:53 PM PDT  Moonrise
-  May 23,  7:54 PM PDT  Sunset
-  May 23,  9:39 PM PDT  Night begins
-  May 24,  1:54 AM PDT  Moonset
-  May 24,  3:49 AM PDT  Night ends
-  May 24,  5:34 AM PDT  Sunrise
+Sky Events:
 
-  Time                  Wx Rating  Cloud   Temp  Feels  Humid     Wind  Precip
-  --------------------  ---------  -----  -----  -----  -----  -------  ------
-  May 23,  7:00 PM PDT       9/10     0%  102°F   91°F     5%  13.0mph  None  
-  May 23,  8:00 PM PDT       9/10     0%   96°F   87°F     7%   8.8mph  None  
-  May 23,  9:00 PM PDT      10/10     0%   92°F   85°F     7%   6.1mph  None  
-  May 23, 10:00 PM PDT      10/10     0%   89°F   83°F     8%   3.4mph  None  
-  May 23, 11:00 PM PDT       9/10     0%   87°F   80°F    17%   9.2mph  None  
-  May 24, 12:00 AM PDT      10/10     0%   86°F   79°F    18%   8.1mph  None  
-  May 24,  1:00 AM PDT      10/10     0%   84°F   79°F    18%   5.2mph  None  
-  May 24,  2:00 AM PDT      10/10     0%   83°F   77°F    17%   5.7mph  None  
-  May 24,  3:00 AM PDT      10/10     0%   82°F   76°F    18%   6.0mph  None  
-  May 24,  4:00 AM PDT      10/10     0%   81°F   76°F    20%   4.5mph  None  
-  May 24,  5:00 AM PDT      10/10     0%   80°F   73°F    21%   8.4mph  None  
-  May 24,  6:00 AM PDT      10/10     0%   79°F   73°F    23%   8.2mph  None  
+  Time (MST)        Event       
+  ----------------  ------------
+  May 23, 12:33 PM  Moonrise
+  May 23,  7:33 PM  Sunset
+  May 23,  9:18 PM  Night begins
+  May 24,  1:34 AM  Moonset
+  May 24,  3:32 AM  Night ends
+  May 24,  5:16 AM  Sunrise
+
+Weather:
+
+  Time (MST)        Wx Rating  Cloud  Temp  Feels  Humid     Wind  Precip
+  ----------------  ---------  -----  ----  -----  -----  -------  ------
+  May 23,  7:00 PM       3/10    71%  69°F   59°F    11%   9.4mph  None  
+  May 23,  8:00 PM       2/10   100%  65°F   55°F    13%   8.5mph  None  
+  May 23,  9:00 PM       2/10   100%  64°F   54°F    16%  10.7mph  None  
+  May 23, 10:00 PM       2/10   100%  63°F   53°F    17%  11.0mph  None  
+  May 23, 11:00 PM       6/10    34%  59°F   49°F    19%  10.8mph  None  
+  May 24, 12:00 AM       9/10     0%  58°F   48°F    22%   9.8mph  None  
+  May 24,  1:00 AM       9/10     0%  56°F   47°F    23%   9.0mph  None  
+  May 24,  2:00 AM       9/10     0%  55°F   46°F    24%   8.9mph  None  
+  May 24,  3:00 AM      10/10     0%  54°F   45°F    25%   8.3mph  None  
+  May 24,  4:00 AM      10/10     0%  52°F   43°F    27%   8.1mph  None  
+  May 24,  5:00 AM      10/10     0%  52°F   44°F    26%   5.9mph  None  
+  May 24,  6:00 AM      10/10     0%  52°F   44°F    26%   7.0mph  None  
+
+Prime Targets  ( 7:33 PM –  5:16 AM MST):
+
+  Target                Best Viewing    Sky          Window                         
+  --------------------  --------------  -----------  -------------------------------
+  Milky Way
+  Galactic Core          2:03 AM @ 25°  dark sky     12:23 AM @ 20° –  3:23 AM @ 22°
+  Cygnus Star Cloud      3:23 AM @ 74°  dark sky     10:33 PM @ 21° –  3:23 AM @ 74°
+
+  Clusters
+  Hercules Cluster       1:03 AM @ 90°  astro night   9:23 PM @ 46° –  3:23 AM @ 62°
+  Wild Duck Cluster      3:13 AM @ 48°  dark sky     11:23 PM @ 22° –  3:23 AM @ 48°
+
+  Planets
+  Jupiter                7:33 PM @ 42°  twilight      7:33 PM @ 42° –  9:13 PM @ 22°
+
+  Nebulae
+  Eagle Nebula           2:43 AM @ 40°  dark sky     11:13 PM @ 20° –  3:23 AM @ 39°
+  Ring Nebula            3:13 AM @ 87°  dark sky      9:23 PM @ 20° –  3:23 AM @ 86°
+  Dumbbell Nebula        3:23 AM @ 72°  dark sky     11:03 PM @ 21° –  3:23 AM @ 72°
+  Veil Nebula            3:23 AM @ 68°  dark sky     11:23 PM @ 21° –  3:23 AM @ 68°
+  North America Nebula   3:23 AM @ 66°  dark sky     10:53 PM @ 20° –  3:23 AM @ 66°
+
+  Galaxies
+  Bode's Galaxy          9:23 PM @ 49°  astro night   9:23 PM @ 49° –  3:13 AM @ 20°
+  Sombrero Galaxy        9:23 PM @ 42°  astro night   9:23 PM @ 42° – 12:33 AM @ 21°
+  Whirlpool Galaxy       9:53 PM @ 79°  astro night   9:23 PM @ 78° –  3:23 AM @ 30°
+  Pinwheel Galaxy       10:23 PM @ 72°  astro night   9:23 PM @ 69° –  3:23 AM @ 37°
 ```
 
 ## Astronomy Score (1–10)
