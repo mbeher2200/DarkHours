@@ -113,7 +113,7 @@ def dark_moon_intervals(events: list, night_start, night_end, illumination: floa
     return intervals
 
 
-_DARK_CYCLE_CACHE = Path.home() / ".night-sky-predictor" / "dark_cycle_cache.json"
+_DARK_CYCLE_CACHE = Path.home() / ".pynightsky-predictor" / "dark_cycle_cache.json"
 
 
 def _load_dark_cycle_cache() -> dict:

@@ -12,8 +12,8 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from timezonefinder import TimezoneFinder
 
-CACHE_FILE = Path.home() / ".night-sky-predictor" / "locations.json"
-USER_AGENT = "night-sky-predictor/1.0"
+CACHE_FILE = Path.home() / ".pynightsky-predictor" / "locations.json"
+USER_AGENT = "pynightsky-predictor/1.0"
 
 
 def _load() -> dict:
