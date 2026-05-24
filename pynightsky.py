@@ -84,6 +84,11 @@ def _lp_line(report: NightReport) -> str | None:
             f"  ({info['bortle_desc']})  [{info['source']}]")
 
 
+def _cardinal(az_deg: float) -> str:
+    dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    return dirs[round(az_deg / 45) % 8]
+
+
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
@@ -174,7 +179,7 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
         tagged_rows.append((
             target.type,
             display_name,
-            f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°",
+            f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°  {window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})",
             condition,
             f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}° – {_fmt_time(window.end)} @ {window.end_alt_deg:.0f}°",
             "  ".join(flags),
@@ -224,7 +229,7 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
 
     # Header
     print(f"\nDate:               {report.date}")
-    print(f"Location:           {report.display_name}  ({report.lat:.4f}°)")
+    print(f"Location:           {report.display_name}  ({report.lat:.4f}°, {report.lon:.4f}°)")
     lp = _lp_line(report)
     if lp:
         print(f"Light Pollution:    {lp}")

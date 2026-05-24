@@ -42,6 +42,7 @@ class TargetWindow:
     end_alt_deg: float
     peak_time: datetime
     peak_alt_deg: float
+    peak_az_deg: float = 0.0
     moon_interference: bool = False
 
 
@@ -89,7 +90,7 @@ def _sky_object(entry: dict) -> Star:
                 dec_degrees=_parse_dec(entry[dec_key]))
 
 
-def _make_window(alt_deg, sample_dts, start_idx, end_idx):
+def _make_window(alt_deg, az_deg, sample_dts, start_idx, end_idx):
     """Return (TargetWindow, [indices]) for a contiguous above-threshold segment."""
     indices     = list(range(start_idx, end_idx + 1))
     seg         = alt_deg[start_idx:end_idx + 1]
@@ -103,12 +104,13 @@ def _make_window(alt_deg, sample_dts, start_idx, end_idx):
             end_alt_deg=float(alt_deg[end_idx]),
             peak_time=sample_dts[peak_idx],
             peak_alt_deg=float(alt_deg[peak_idx]),
+            peak_az_deg=float(az_deg[peak_idx]),
         ),
         indices,
     )
 
 
-def _find_windows(alt_deg, sample_dts: list, min_elev: float) -> list:
+def _find_windows(alt_deg, az_deg, sample_dts: list, min_elev: float) -> list:
     """Return list of (TargetWindow, [indices]) for each above-threshold segment."""
     result    = []
     in_window = False
@@ -121,10 +123,10 @@ def _find_windows(alt_deg, sample_dts: list, min_elev: float) -> list:
             start_idx = i
         elif not above and in_window:
             in_window = False
-            result.append(_make_window(alt_deg, sample_dts, start_idx, i - 1))
+            result.append(_make_window(alt_deg, az_deg, sample_dts, start_idx, i - 1))
 
     if in_window:
-        result.append(_make_window(alt_deg, sample_dts, start_idx, len(sample_dts) - 1))
+        result.append(_make_window(alt_deg, az_deg, sample_dts, start_idx, len(sample_dts) - 1))
 
     return result
 
@@ -204,17 +206,19 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         return None
 
     astrometric = observer.at(t_array).observe(body)
-    alt, _, _   = astrometric.apparent().altaz()
+    alt, az, _  = astrometric.apparent().altaz()
     alt_deg     = alt.degrees
+    az_deg      = az.degrees
     sep_deg     = astrometric.separation_from(moon_astr).degrees
 
     # Clip to the effective observation window for this target type
     mask    = np.array([obs_start <= dt <= obs_end for dt in sample_dts])
     obs_alt = alt_deg[mask]
+    obs_az  = az_deg[mask]
     obs_sep = sep_deg[mask]
     obs_dts = [dt for dt, m in zip(sample_dts, mask) if m]
 
-    windows_with_idx = _find_windows(obs_alt, obs_dts, min_elev)
+    windows_with_idx = _find_windows(obs_alt, obs_az, obs_dts, min_elev)
     if not windows_with_idx:
         return None
 
