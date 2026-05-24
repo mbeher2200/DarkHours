@@ -3,6 +3,7 @@
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -14,6 +15,60 @@ from skyfield.api import Star, load, wgs84
 import config as _cfg
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Galactic coordinate conversion
+# ---------------------------------------------------------------------------
+
+# IAU (1958) galactic ↔ ICRS rotation matrix, J2000 epoch.
+# Each column is the ICRS unit vector of the galactic x/y/z axis:
+#   x → galactic centre  (l=0°,  b=0°)
+#   y → l=90°,           b=0°
+#   z → galactic north pole (b=90°)
+# Reference: Blaauw et al. 1960; Murray 1989.
+_GAL_TO_ICRS = [
+    [-0.0548755604, +0.4941094279, -0.8676661490],
+    [-0.8734370902, -0.4448296300, -0.1980763734],
+    [-0.4838350155, +0.7469822445, +0.4559837762],
+]
+
+
+def gal_to_radec(l_deg: float, b_deg: float) -> tuple[float, float]:
+    """Convert galactic (l, b) to ICRS equatorial (RA hours, Dec degrees), J2000."""
+    l = math.radians(l_deg)
+    b = math.radians(b_deg)
+    xg = math.cos(b) * math.cos(l)
+    yg = math.cos(b) * math.sin(l)
+    zg = math.sin(b)
+    R  = _GAL_TO_ICRS
+    xi = R[0][0]*xg + R[0][1]*yg + R[0][2]*zg
+    yi = R[1][0]*xg + R[1][1]*yg + R[1][2]*zg
+    zi = R[2][0]*xg + R[2][1]*yg + R[2][2]*zg
+    dec = math.degrees(math.asin(max(-1.0, min(1.0, zi))))
+    ra  = math.atan2(yi, xi)
+    if ra < 0:
+        ra += 2 * math.pi
+    return ra * 12 / math.pi, dec   # (RA hours, Dec degrees)
+
+
+def _arch_angle(alt1: float, az1: float, alt2: float, az2: float) -> float:
+    """
+    Angle of the galactic plane at point 1, relative to the horizon (degrees).
+
+    Projects points onto the tangent plane at point 1 using a local
+    East-Up coordinate system, then returns arctan(|Δup| / |Δeast|).
+      0°  → band runs horizontally along the horizon
+      90° → band rises straight up (ideal arch)
+
+    Valid for angular separations < ~40°.
+    """
+    daz = az2 - az1
+    if daz >  180: daz -= 360
+    if daz < -180: daz += 360
+    dx = daz * math.cos(math.radians(alt1))   # East component
+    dy = alt2 - alt1                            # Up component
+    return math.degrees(math.atan2(abs(dy), abs(dx)))
+
 
 _c = _cfg.load()["targets"]
 DEFAULT_MIN_ELEVATION  = float(_c["min_elevation_deg"])
@@ -44,6 +99,7 @@ class TargetWindow:
     peak_alt_deg: float
     peak_az_deg: float = 0.0
     moon_interference: bool = False
+    arch_angle_deg: float | None = None   # milky_way only: plane angle from horizon
 
 
 @dataclass
@@ -83,7 +139,16 @@ def _parse_dec(s: str) -> float:
 
 
 def _sky_object(entry: dict) -> Star:
-    """Build a Skyfield Star from a catalog entry's ra/dec or radiant_ra/radiant_dec."""
+    """Build a Skyfield Star from a catalog entry.
+
+    Supports three coordinate formats:
+      galactic_l / galactic_b  — converted via IAU rotation matrix (milky_way)
+      ra / dec                 — standard equatorial J2000
+      radiant_ra / radiant_dec — meteor shower radiants
+    """
+    if "galactic_l" in entry:
+        ra_h, dec_d = gal_to_radec(entry["galactic_l"], entry.get("galactic_b", 0.0))
+        return Star(ra_hours=ra_h, dec_degrees=dec_d)
     ra_key  = "ra"  if "ra"  in entry else "radiant_ra"
     dec_key = "dec" if "dec" in entry else "radiant_dec"
     return Star(ra_hours=_parse_ra(entry[ra_key]),
@@ -226,6 +291,28 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     for window, indices in windows_with_idx:
         window.moon_interference = _moon_interferes(obs_sep, indices, illumination_pct,
                                                     moon_min_sep, moon_max_illum)
+
+        # For Milky Way waypoints, compute the arch angle (plane vs horizon)
+        # using a reference point 30° further along the galactic plane.
+        if ttype == "milky_way" and "galactic_l" in entry:
+            try:
+                ref_l = (entry["galactic_l"] + 30) % 360
+                ref_b = entry.get("galactic_b", 0.0)
+                ref_ra, ref_dec = gal_to_radec(ref_l, ref_b)
+                ref_star = Star(ra_hours=ref_ra, dec_degrees=ref_dec)
+                # Evaluate reference at the window's peak time only
+                peak_idx = sample_dts.index(window.peak_time)
+                t_peak   = t_array[peak_idx]
+                ref_alt, ref_az, _ = (
+                    observer.at(t_peak).observe(ref_star).apparent().altaz()
+                )
+                window.arch_angle_deg = round(
+                    _arch_angle(window.peak_alt_deg, window.peak_az_deg,
+                                float(ref_alt.degrees), float(ref_az.degrees)), 1
+                )
+            except Exception as e:
+                log.debug("Arch angle computation failed for %r: %s", name, e)
+
         windows.append(window)
 
     return VisibleTarget(name=name, type=ttype, windows=windows, note=note)

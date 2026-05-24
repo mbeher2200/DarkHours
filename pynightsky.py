@@ -176,10 +176,19 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
         if target.note:
             flags.append(target.note)
         display_name = target.name + " Meteor Shower" if target.type == "meteor_shower" else target.name
+        peak_str = (
+            f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°"
+            f"  {window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})"
+        )
+        if target.type == "milky_way" and window.arch_angle_deg is not None:
+            a = window.arch_angle_deg
+            quality = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
+            peak_str += f"  arch {a:.0f}° ({quality})"
+
         tagged_rows.append((
             target.type,
             display_name,
-            f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°  {window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})",
+            peak_str,
             condition,
             f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}° – {_fmt_time(window.end)} @ {window.end_alt_deg:.0f}°",
             "  ".join(flags),

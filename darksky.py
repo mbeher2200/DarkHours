@@ -61,14 +61,18 @@ _SQM_NATURAL = 22.08   # mag/arcsec²
 # Only applied in the Falchi fallback path; VIIRS readings are unaffected.
 _FALCHI_SCALE = 3.0
 
-# Bortle class boundaries (minimum SQM, darkest first)
+# Bortle class boundaries (minimum SQM, darkest first).
+# Thresholds aligned with the djlorenz zone system and commonly cited
+# SQM equivalents (Bortle 2001; Cinzano et al. 2001; Sky & Telescope):
+#   Class 1 requires SQM ≥ 22.0 — zodiacal light casts shadows, M33 naked-eye.
+#   Class 2 requires SQM ≥ 21.7 — airglow faintly visible, IDA Dark Sky Parks.
 _BORTLE = [
-    (21.7, 1, "Exceptional dark sky"),
-    (21.5, 2, "Truly dark sky"),
+    (22.0, 1, "Exceptional dark sky"),
+    (21.7, 2, "Truly dark sky"),
     (21.3, 3, "Rural sky"),
     (20.8, 4, "Rural/suburban transition"),
     (20.0, 5, "Suburban sky"),
-    (19.0, 6, "Bright suburban sky"),
+    (19.1, 6, "Bright suburban sky"),
     (18.0, 7, "Suburban/urban transition"),
     (17.0, 8, "City sky"),
     ( 0.0, 9, "Inner city sky"),

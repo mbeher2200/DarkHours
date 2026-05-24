@@ -185,17 +185,18 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
 
 
 def _dark_stats(dark_hours: list, tonight_idx: int) -> dict:
-    """Derive mean, stdev, and Gaussian-CDF score from a dark-hours array."""
+    """Derive mean, stdev, and ratio-to-maximum score from a dark-hours array.
+
+    Score = tonight / cycle_max × 10.  The best night of the cycle earns 10;
+    every other night scales linearly from there.  Zero dark hours = 0.
+    """
     tonight = dark_hours[tonight_idx]
     mean_h  = statistics.mean(dark_hours)
     stdev_h = statistics.stdev(dark_hours) if len(dark_hours) > 1 else 0.0
-    if stdev_h > 0:
-        z     = (tonight - mean_h) / stdev_h
-        score = 0.5 * (1 + math.erf(z / math.sqrt(2))) * 10
-    else:
-        score = 5.0
-    log.debug("Dark cycle: tonight=%.2fh  mean=%.2fh  stdev=%.2fh  score=%.1f",
-              tonight, mean_h, stdev_h, score)
+    max_h   = max(dark_hours)
+    score   = (tonight / max_h * 10) if max_h > 0 else 0.0
+    log.debug("Dark cycle: tonight=%.2fh  mean=%.2fh  stdev=%.2fh  max=%.2fh  score=%.1f",
+              tonight, mean_h, stdev_h, max_h, score)
     return {
         "tonight_hours": round(tonight, 2),
         "mean_hours":    round(mean_h,  1),
@@ -208,24 +209,46 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
     """
     Return dark sky stats for a 30-night window centred on target_date.
 
-    Results are cached on disk keyed by location + window start date.
-    A cache hit means no ephemeris work at all — the analysis is free on
-    subsequent runs for any date within the same 30-night window.
+    Cache keys are "lat,lon:window_start" so each 30-night window is stored
+    independently — different lunar cycles for the same location never
+    overwrite each other.
+
+    Lookup strategy:
+      1. Try the ideal key (window centred on target_date).
+      2. Scan for any cached window that already contains target_date and
+         reuse it with the correct index (avoids recomputing overlapping
+         windows for nearby dates).
+      3. Compute fresh, store under the ideal key, and return.
     """
-    loc_key      = f"{lat:.3f},{lon:.3f}"
+    loc_prefix   = f"{lat:.3f},{lon:.3f}"
     window_start = target_date - timedelta(days=14)
+    ideal_key    = f"{loc_prefix}:{window_start.isoformat()}"
 
     cache = _load_dark_cycle_cache()
-    entry = cache.get(loc_key)
 
-    if entry and entry.get("window_start") == window_start.isoformat():
-        log.debug("Dark cycle cache hit for %s (window %s)", loc_key, window_start)
+    # 1. Exact hit — target is the centre of a cached window
+    if ideal_key in cache:
+        entry = cache[ideal_key]
+        log.debug("Dark cycle cache hit (exact) for %s", ideal_key)
         return _dark_stats(entry["dark_hours"], 14)
 
-    log.debug("Dark cycle cache miss for %s — computing 30-night window", loc_key)
+    # 2. Target falls inside another cached window for this location
+    for key, entry in cache.items():
+        if not key.startswith(loc_prefix + ":"):
+            continue
+        cached_start = date.fromisoformat(entry["window_start"])
+        cached_end   = cached_start + timedelta(days=len(entry["dark_hours"]) - 1)
+        if cached_start <= target_date <= cached_end:
+            tonight_idx = (target_date - cached_start).days
+            log.debug("Dark cycle cache hit (overlap) for %s (window %s, idx %d)",
+                      loc_prefix, cached_start, tonight_idx)
+            return _dark_stats(entry["dark_hours"], tonight_idx)
+
+    # 3. Cache miss — compute and store under the ideal key
+    log.debug("Dark cycle cache miss for %s — computing 30-night window", loc_prefix)
     dark_hours = _compute_dark_hours_cycle(lat, lon, target_date, tz)
 
-    cache[loc_key] = {
+    cache[ideal_key] = {
         "window_start": window_start.isoformat(),
         "dark_hours":   dark_hours,
     }

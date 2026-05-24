@@ -194,14 +194,51 @@
   {
     "name": "Galactic Core",
     "type": "milky_way",
-    "ra": "17h 45m 40s",
-    "dec": "-29° 00' 28\""
+    "galactic_l": 0,
+    "galactic_b": 0,
+    "description": "Sagittarius A* — brightest, richest region of the summer Milky Way"
+  },
+  {
+    "name": "Sagittarius Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 10,
+    "galactic_b": 0,
+    "description": "Dense star cloud adjoining the core — peak surface brightness"
+  },
+  {
+    "name": "Scutum Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 27,
+    "galactic_b": 0,
+    "description": "Brilliant naked-eye star cloud in the Scutum-Centaurus arm"
+  },
+  {
+    "name": "Aquila Rift",
+    "type": "milky_way",
+    "galactic_l": 50,
+    "galactic_b": 0,
+    "description": "Great Rift dark lane cuts through Aquila — striking contrast region"
   },
   {
     "name": "Cygnus Star Cloud",
     "type": "milky_way",
-    "ra": "20h 22m 00s",
-    "dec": "+40° 15' 00\""
+    "galactic_l": 80,
+    "galactic_b": 0,
+    "description": "Northern Cross / Cygnus X — overhead in summer, extremely rich"
+  },
+  {
+    "name": "Perseus Arm",
+    "type": "milky_way",
+    "galactic_l": 150,
+    "galactic_b": 0,
+    "description": "Winter Milky Way through Cassiopeia and Perseus"
+  },
+  {
+    "name": "Galactic Anticenter",
+    "type": "milky_way",
+    "galactic_l": 180,
+    "galactic_b": 0,
+    "description": "Auriga/Gemini — faintest part of the band, opposite the core"
   },
   {
     "name": "Mercury",
