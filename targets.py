@@ -465,14 +465,21 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
     else:
         arch_start, arch_end = core_w.start, core_w.end
 
-    # Farthest visible waypoint along the galactic plane (highest galactic longitude)
-    farthest   = None
-    farthest_w = None
-    for name in reversed(_MW_WAYPOINT_ORDER):
-        if name in by_name and name != "Galactic Core":
-            farthest   = by_name[name]
-            farthest_w = _best(farthest)
-            break
+    # Far-end waypoint: the highest-peaking visible waypoint past the core region
+    # (galactic l >= Aquila, i.e. index >= 3 in the ordered list).  This picks
+    # the arch's actual apex rather than the end with the most longitude, which
+    # gives a more intuitive sweep description (e.g. "S → NE" through the top
+    # of the arch rather than pointing at a low waypoint past it).
+    _FAR_SIDE = set(_MW_WAYPOINT_ORDER[3:])   # Aquila Rift and beyond
+    far_candidates = [
+        (by_name[n], _best(by_name[n]))
+        for n in _FAR_SIDE if n in by_name
+    ]
+    if far_candidates:
+        farthest, farthest_w = max(far_candidates, key=lambda x: x[1].peak_alt_deg)
+    else:
+        farthest   = None
+        farthest_w = None
 
     return {
         "arch_start":            arch_start,
