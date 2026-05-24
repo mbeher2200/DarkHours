@@ -11,12 +11,12 @@ Perfect for dark sky observations, astrophotography sessions, and trips.
 ## Output
 
 The tool displays:
-- **Night Quality Score (1-10)** — Overall night sky quality
+- **Night Quality Score (1-10)** — Overall night sky quality, broken down by component
 - **Night Timeline** — Sunset, astronomical night begins/ends, moonrise/set, sunrise
-- **Light Pollution** — Bortle classification and SQM reading
-- **Moon** — Phase, illumination
-- **Prime Dark Sky Hours** — Total moon-free dark hours and typical range over the lunar cycle
-- **Weather** — Cloud cover, seeing, transparency, temperature (with `--weather`)
+- **Light Pollution** — SQM reading, Bortle class, and djlorenz zone for the exact location
+- **Moon** — Phase and percent illumination at sunset
+- **Prime Dark Sky Hours** — Total moon-free hours within astronomical darkness tonight, plus the average and standard deviation across the current 30-night lunar cycle (used to put tonight's dark time in context for scoring)
+- **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
 
 Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --weather --prime-targets`):
@@ -91,10 +91,14 @@ The tool evaluates four factors and produces a composite score:
 
 | Factor | Weight | Scoring |
 |--------|--------|---------|
-| **Moon Phase** | 30% | 10 = new moon, 0 = full moon |
-| **Dark Sky Hours** | 30% | Based on your location's typical lunar cycle; scores relative to best conditions |
-| **Light Pollution** | 25% | 10 = no pollution (Bortle 1), decreases with light-polluted skies (Bortle 9) |
-| **Weather** | 15% | Cloud cover, seeing, transparency, humidity, and precipitation |
+| **Weather** | 40% | Cloud cover, seeing, transparency, humidity, and precipitation |
+| **Lunar Interference** | 25% | 10 = new moon, 0 = full moon |
+| **Dark Sky Hours** | 25% | Based on your location's typical lunar cycle; scores relative to best conditions |
+| **Light Pollution** | 10% | 10 = no pollution (Bortle 1), decreases with light-polluted skies (Bortle 9) |
+
+Weights redistribute automatically when a factor is unavailable (e.g. no weather data).
+
+The score uses a weighted geometric mean with a minimum-factor penalty: a single very bad factor (heavy cloud, full moon) will drag the overall score down significantly, even if everything else is excellent.
 
 **Score interpretation:**
 - **9–10**: Excellent — Perfect conditions for astronomy
@@ -131,6 +135,18 @@ python pynightsky.py --coords 40.7128 -74.0060
 python pynightsky.py --location "New York" --weather
 ```
 
+The `Wx Rating` column scores each hour 1–10 for astrophotography suitability. Precipitation of any kind caps the score at 1. Otherwise the score is a weighted combination of:
+
+| Factor | Weight | Notes |
+|--------|--------|-------|
+| Cloud cover | 50% | Non-linear — heavy cloud penalised more steeply above 50% |
+| Seeing | 20% | Atmospheric steadiness; lower arcseconds = steadier |
+| Transparency | 15% | Sky clarity and extinction |
+| Wind speed | 10% | Vibration, tracking error, and turbulence |
+| Humidity | 5% | Dew risk; no penalty below 50%, zero above 90% |
+
+Weights redistribute automatically when a field is not available from the provider.
+
 ### Visible targets
 
 ```bash
@@ -141,7 +157,11 @@ python pynightsky.py --location "Death Valley" --targets
 python pynightsky.py --location "Death Valley" --prime-targets
 ```
 
-Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude, the full window with start/end elevations, and a **sky condition** — `Dark sky`, `Astro night`, or `Twilight` — indicating what lighting conditions the target peaks in.
+Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude and azimuth, the full window with start/end elevations, and a **sky condition** indicating the lighting when the target peaks:
+
+- **Dark sky** — peak falls within astronomical darkness *and* the moon is below the horizon (best conditions)
+- **Astro night** — peak falls within astronomical darkness but the moon is up
+- **Twilight** — peak falls outside astronomical darkness (sun less than 18° below horizon)
 
 Milky Way targets (Galactic Core, Cygnus Star Cloud) are automatically included in prime results whenever they're visible during astronomical darkness.
 
@@ -157,7 +177,7 @@ python pynightsky.py --location "Sedona, Arizona" --date 2026-06-21
 python pynightsky.py --location "Sedona, Arizona" --date 2025-06-21 --weather
 ```
 
-Note: Past dates up to ~92 days ago can include weather data via historical records. Older dates show astronomical events only.
+Note: Past dates up to 92 days ago can include weather data via Open-Meteo's recent-archive API. Dates older than that fall back to the ERA5 reanalysis archive (open-meteo.com/archive), which covers years back to 1940 but may occasionally be unavailable. Astronomical events are always shown regardless of date.
 
 ### Location formats
 
@@ -230,6 +250,24 @@ print(report.phase_name)      # e.g. "First Quarter"
 print(report.dark_hours)      # moon-free dark hours tonight
 print(report.weather_points)  # list of WeatherPoint dataclasses
 ```
+
+## Light Pollution
+
+Light pollution is measured using two datasets in a priority order, with the result expressed as three values:
+
+- **SQM** (Sky Quality Meter, mag/arcsec²) — higher is darker; a truly dark site reads ~22.0
+- **Bortle class** (1–9) — a standard astronomer's scale; 1 = exceptional dark sky, 9 = inner city
+- **Zone** — the djlorenz Light Pollution Index, a finer-grained subdivision of the Bortle scale (e.g. Zone 1a, 2b, 3a)
+
+### Two-tier data strategy
+
+**Primary: VIIRS Black Marble 2025** (NASA/NOAA satellite)
+
+Current satellite radiance data (2025). Used whenever the sensor detects a measurable signal (> ~0.2 nW/cm²/sr). This is the most up-to-date reading and reflects post-2016 light growth that older datasets miss.
+
+**Fallback: Falchi New World Atlas 2016** (GFZ Potsdam)
+
+A radiative-transfer physical model of artificial sky luminance. Used only when VIIRS reads zero — meaning the site is genuinely dark and below the satellite's detection floor. Unlike raw satellite data, Falchi's model propagates city-glow from all surrounding sources, so very dark sites (Bortle 1, 2, 3) get distinguishable values rather than all reading zero. A calibration factor is applied to Falchi values to align them with real-world observer SQM measurements and IDA dark-sky park classifications.
 
 ## License
 
