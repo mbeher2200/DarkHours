@@ -165,7 +165,7 @@ def main():
         emit()
         emit("    Night detail (cold):")
         for n in sorted(report_cold.nights, key=lambda x: (x.date, x.display_name)):
-            wx_tag = "~wx" if n.weather_informed else "  "
+            wx_tag = "w/ wx" if n.weather_informed else "     "
             score  = f"{n.score:.1f}" if n.score is not None else "—"
             name   = n.display_name.split(",")[0][:20]
             emit(f"      {n.date}  {name:<21} {score:>4}/10  {wx_tag}  {n.phase_name}")
