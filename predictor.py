@@ -128,7 +128,7 @@ def assemble_night(
     # --- Light pollution ---
     ds_info      = _ds.lookup(lat, lon)
     bortle_score = (
-        round(max(0.0, (9 - ds_info["bortle_class"]) / 8 * 10), 1)
+        round(max(0.0, (10 - ds_info["bortle_class"]) / 9 * 10), 1)
         if ds_info and ds_info["bortle_class"] is not None
         else None
     )

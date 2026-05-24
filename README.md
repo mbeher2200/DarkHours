@@ -98,7 +98,7 @@ The tool evaluates four factors and produces a composite score:
 
 Weights redistribute automatically when a factor is unavailable (e.g. no weather data).
 
-The score uses a weighted geometric mean with a minimum-factor penalty: a single very bad factor (heavy cloud, full moon) will drag the overall score down significantly, even if everything else is excellent.
+The score uses a weighted geometric mean: every factor influences the result proportionally, and a single zero factor (complete cloud cover, full moon) will zero the overall score. A factor of 1/10 with 40% weight contributes roughly 0.25× to the product, so bad factors still drag the score down significantly without needing a separate penalty term.
 
 **Score interpretation:**
 - **9–10**: Excellent — Perfect conditions for astronomy

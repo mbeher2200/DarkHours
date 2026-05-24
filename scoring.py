@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """Night sky scoring — converts raw sky/weather metrics into 0–10 scores."""
 
-import math
-import statistics
-
 
 def rate_night(
     moon_score: float,
@@ -14,9 +11,9 @@ def rate_night(
     """
     Compute an overall night rating (0–10) from component scores (each 0–10).
 
-    Uses a weighted geometric mean combined with a minimum-factor penalty so
-    that a single very bad factor tanks the overall score even when everything
-    else is excellent.
+    Uses a weighted geometric mean so that every factor proportionally
+    influences the result — a single bad factor pulls the score down
+    naturally without requiring an extra penalty term.
 
     Weights (redistribute automatically when a factor is unavailable):
       Weather   40%  — clouds / precip make the night unusable
@@ -24,9 +21,10 @@ def rate_night(
       Dark time 25%  — moon-free hours within astronomical night
       Bortle    10%  — site light pollution (fixed for a location)
 
-    Formula: score = 10 × weighted_geometric_mean × sqrt(min_factor / 10)
-    The sqrt(min) term is the deal-breaker multiplier — a factor of 3/10
-    applies a ~0.55× penalty on top of the geometric mean.
+    Formula: score = 10 × weighted_geometric_mean
+    The geometric mean naturally punishes low factors — a single zero
+    (complete cloud cover, full moon) zeros the whole score, and a factor
+    of 1/10 with 40% weight contributes (0.1)^0.4 ≈ 0.25× to the product.
     """
     named = {
         "weather": (weather_score, 0.40),
@@ -46,8 +44,7 @@ def rate_night(
     for k, (s, _) in available.items():
         wgm *= (s / 10) ** norm[k]
 
-    min_s = min(s for s, _ in available.values()) / 10
-    score = round(10 * wgm * (min_s ** 0.5), 1)
+    score = round(10 * wgm, 1)
 
     components = {k: round(s, 1) for k, (s, _) in available.items()}
     return {"score": score, "components": components}
