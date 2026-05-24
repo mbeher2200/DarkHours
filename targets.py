@@ -405,43 +405,72 @@ def visible_targets(
 # Milky Way arch synthesis
 # ---------------------------------------------------------------------------
 
-# Canonical waypoint order along the galactic plane (ascending galactic longitude).
-# Southern arm waypoints (l > 180°) complete the circle back toward the core.
+# Ten waypoints at uniform 36° galactic-longitude intervals.
+# Each pair offset by 180° is symmetric: same |dec|, opposite sign.
+#   Core ↔ Anticenter, Scutum ↔ Monoceros, Cygnus ↔ Puppis,
+#   Cepheus ↔ Carina, Perseus/Cassiopeia ↔ Norma
+# This ensures n_visible / n_total is a true fractional sky-coverage metric:
+# every visible waypoint represents a distinct 36° slice of the galactic plane.
 _MW_WAYPOINT_ORDER = [
-    "Galactic Core",           # l=0   dec -29°  summer anchor
-    "Sagittarius Star Cloud",  # l=10  dec -24°
-    "Scutum Star Cloud",       # l=27  dec -10°
-    "Aquila Rift",             # l=50  dec  +5°
-    "Cygnus Star Cloud",       # l=80  dec +41°  northern arch peak
-    "Perseus Arm",             # l=150 dec +57°
-    "Galactic Anticenter",     # l=180 dec +22°
-    "Vela Star Cloud",         # l=265 dec -45°  southern arch (SH peak)
-    "Carina Arm",              # l=287 dec -59°  SH showpiece
-    "Norma Star Cloud",        # l=328 dec -54°  connects back toward core
+    "Galactic Core",       # l=0°   dec -29°  summer anchor
+    "Scutum Star Cloud",   # l=36°  dec  +3°  ↔ Monoceros
+    "Cygnus Star Cloud",   # l=72°  dec +34°  northern arch peak  ↔ Puppis
+    "Cepheus Cloud",       # l=108° dec +59°  ↔ Carina Arm
+    "Perseus/Cassiopeia",  # l=144° dec +56°  ↔ Norma
+    "Galactic Anticenter", # l=180° dec +29°  ↔ Galactic Core
+    "Monoceros",           # l=216° dec  -3°  winter southern band
+    "Puppis Star Cloud",   # l=252° dec -34°  southern arch peak
+    "Carina Arm",          # l=288° dec -59°  SH showpiece
+    "Norma Star Cloud",    # l=324° dec -56°  connects back toward core
 ]
 
+# Approximate galactic-core declination for theoretical-max calculations.
+_GALACTIC_CORE_DEC = -29.0
 
-def milky_way_arch_summary(mw_targets: list) -> dict | None:
+
+def mw_max_visible(lat: float) -> int:
+    """
+    Return the maximum number of MW waypoints that can ever be visible
+    (peak altitude ≥ 10°) from the given latitude.
+
+    Uses the nominal declinations of the 10 uniform waypoints.
+    """
+    # Nominal decs from gal_to_radec at each l, b=0 (pre-computed)
+    _WAYPOINT_DECS = [-28.9, +2.7, +34.1, +59.3, +56.1,
+                      +28.9, -2.7, -34.1, -59.3, -56.1]
+    return sum(1 for dec in _WAYPOINT_DECS if 90 - abs(lat - dec) >= 10)
+
+
+def mw_theoretical_core_max(lat: float) -> float:
+    """Theoretical maximum altitude the galactic core can reach from this latitude."""
+    return max(0.0, 90.0 - abs(lat - _GALACTIC_CORE_DEC))
+
+
+def milky_way_arch_summary(mw_targets: list, lat: float = 0.0) -> dict | None:
     """
     Synthesise a Milky Way visibility summary from pre-computed visible targets.
 
     mw_targets — list of VisibleTarget objects with type == "milky_way".
+    lat        — observer latitude in decimal degrees (used for quality score).
 
     Returns None if the Galactic Core is not visible tonight.
 
     Returned dict keys
     ------------------
-    arch_start / arch_end   datetime  — full-arch window (core ∩ far-end overlap,
-                                        or core window alone if no overlap exists)
-    n_visible               int       — waypoints with any visible window tonight
-    n_total                 int       — total catalog waypoints
-    core_peak_time          datetime
-    core_peak_alt_deg       int       — rounded altitude in degrees
-    core_peak_az_deg        int       — rounded azimuth in degrees
-    arch_angle_deg          float | None  — plane angle from horizon at core peak
-    farthest_name           str | None   — farthest visible waypoint (highest l)
-    farthest_peak_alt_deg   int  | None
-    farthest_peak_az_deg    int  | None
+    arch_start / arch_end    datetime  — full-arch window (core ∩ far-end overlap,
+                                         or core window alone if no overlap exists)
+    arch_hours               float     — arch window duration in hours
+    n_visible                int       — waypoints with any visible window tonight
+    n_max_possible           int       — max waypoints ever visible from this latitude
+    n_total                  int       — total catalog waypoints (10)
+    local_score              float     — 0–10 quality score relative to lat ceiling
+    core_peak_time           datetime
+    core_peak_alt_deg        int       — rounded altitude in degrees
+    core_peak_az_deg         int       — rounded azimuth in degrees
+    arch_angle_deg           float | None
+    farthest_name            str | None  — highest-peaking far-side waypoint
+    farthest_peak_alt_deg    int  | None
+    farthest_peak_az_deg     int  | None
     """
     if not mw_targets:
         return None
@@ -458,12 +487,11 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
 
     core_w = _best(core)
 
-    # Far-end waypoint: the highest-peaking visible waypoint from either arm
-    # (index >= 3 in the ordered list = Aquila and beyond, including the
-    # southern arm Vela / Carina / Norma).  Taking the highest peak naturally
-    # selects Cygnus from the NH (it arches overhead) and Vela from the SH
-    # (it sweeps high to the south while the core is high to the north).
-    _FAR_SIDE = set(_MW_WAYPOINT_ORDER[3:])
+    # Far-end waypoint: highest-peaking visible waypoint from either arm
+    # (index ≥ 2 excludes Core and Scutum — both within 36° of the core,
+    # so they represent the same visual section).  Highest altitude naturally
+    # selects Cygnus from the NH and Puppis/Norma from the SH.
+    _FAR_SIDE = set(_MW_WAYPOINT_ORDER[2:])
     far_candidates = [
         (by_name[n], _best(by_name[n]))
         for n in _FAR_SIDE if n in by_name
@@ -473,22 +501,40 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
     else:
         farthest, farthest_w = None, None
 
-    # Arch window: core ∩ far-end (when both halves of the arch are simultaneously
-    # above the horizon).  Falls back to the core window alone when there is no
-    # overlap (e.g. mid-latitudes where neither arm provides a good counterpart).
+    # Arch window: core ∩ far-end simultaneously above horizon.
+    # Falls back to the core window when there is no overlap.
     if farthest_w:
         arch_start = max(core_w.start, farthest_w.start)
         arch_end   = min(core_w.end,   farthest_w.end)
-        if arch_start >= arch_end:          # no overlap — use core window
+        if arch_start >= arch_end:
             arch_start, arch_end = core_w.start, core_w.end
     else:
         arch_start, arch_end = core_w.start, core_w.end
 
+    arch_hours = (arch_end - arch_start).total_seconds() / 3600
+
+    # ── Latitude-relative quality score (0–10) ───────────────────────────────
+    # How good is tonight compared to the best this latitude can ever offer?
+    #   50% — core altitude vs theoretical ceiling for this lat
+    #   30% — visible waypoints vs max possible from this lat
+    #   20% — arch window hours (reference: 5 h = full marks)
+    theo_max     = mw_theoretical_core_max(lat)
+    n_max        = mw_max_visible(lat)
+    alt_frac     = (core_w.peak_alt_deg / theo_max)  if theo_max > 0 else 0.0
+    cov_frac     = (len(mw_targets) / n_max)         if n_max    > 0 else 0.0
+    win_frac     = min(1.0, arch_hours / 5.0)
+    moon_penalty = 0.7 if core_w.moon_interference else 1.0
+    raw          = 0.50 * alt_frac + 0.30 * cov_frac + 0.20 * win_frac
+    local_score  = round(min(10.0, raw * moon_penalty * 10), 1)
+
     return {
         "arch_start":            arch_start,
         "arch_end":              arch_end,
+        "arch_hours":            round(arch_hours, 1),
         "n_visible":             len(mw_targets),
+        "n_max_possible":        n_max,
         "n_total":               len(_MW_WAYPOINT_ORDER),
+        "local_score":           local_score,
         "core_peak_time":        core_w.peak_time,
         "core_peak_alt_deg":     round(core_w.peak_alt_deg),
         "core_peak_az_deg":      round(core_w.peak_az_deg),

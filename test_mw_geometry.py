@@ -13,8 +13,8 @@ across the full range of observable latitudes:
 
 Expected maximum altitudes (formula: 90° − |lat − dec|, using nominal decs):
   Galactic Core  dec ≈ −29°:  Whitehorse  0°  Denver 21°  Quito 61°  BA 84°  Ushuaia 64°
-  Cygnus         dec ≈ +41°:  Whitehorse 70°  Denver 89°  Quito 49°  BA 14°  Ushuaia <0°
-  Norma          dec ≈ −54°:  Whitehorse <0°  Denver  <0° Quito 36°  BA 71°  Ushuaia 89°
+  Cygnus         dec ≈ +34°:  Whitehorse 63°  Denver 84°  Quito 56°  BA 21°  Ushuaia <10°
+  Norma          dec ≈ −56°:  Whitehorse <0°  Denver  <0° Quito 34°  BA 69°  Ushuaia 89°
 
 Run with:
   python test_mw_geometry.py          # pass / fail summary
@@ -42,12 +42,12 @@ CASES = [
         "core_visible": False,             # core max alt ~0.3° — never clears 10° floor
         "summary_none": True,              # no summary (no core → returns None)
         "expect_visible": {                # waypoints that MUST appear in the table
-            "Cygnus Star Cloud",           # dec +41° → max 70° from here
-            "Perseus Arm",                 # dec +57° → up to 86° possible
+            "Cygnus Star Cloud",           # dec +34° → max 63° from here
+            "Perseus/Cassiopeia",          # dec +56° → up to 85° possible
         },
         "expect_absent": {                 # waypoints that must NOT appear
             "Galactic Core",
-            "Vela Star Cloud",
+            "Puppis Star Cloud",
             "Carina Arm",
             "Norma Star Cloud",
         },
@@ -69,7 +69,6 @@ CASES = [
         "sweep_far_alt_range": (75, 90),
         "min_visible":         5,
         "expect_absent": {
-            "Vela Star Cloud",
             "Carina Arm",
             "Norma Star Cloud",
         },
@@ -91,7 +90,7 @@ CASES = [
         "min_visible":         7,            # both arms present
         "expect_visible": {
             "Cygnus Star Cloud",
-            "Vela Star Cloud",
+            "Puppis Star Cloud",
         },
     },
     {
@@ -110,9 +109,9 @@ CASES = [
         "min_visible":         7,
         "expect_visible": {
             "Norma Star Cloud",
-            "Vela Star Cloud",
+            "Puppis Star Cloud",
         },
-        "expect_absent": {"Perseus Arm"},    # dec +57°: max alt = 90-91.6° < 0
+        "expect_absent": {"Perseus/Cassiopeia"},    # dec +56°: max alt = 90-90.7° ≈ 0
     },
     {
         "label":       "Ushuaia, AR (54.8°S)  — deep southern hemisphere",
@@ -129,8 +128,8 @@ CASES = [
         "sweep_far_alt_range": (82, 92),     # Norma peaks ~89°
         "min_visible":         6,
         "expect_absent": {
-            "Cygnus Star Cloud",             # dec +41°: max alt -5.8° — never rises
-            "Perseus Arm",                   # dec +57°: even lower
+            "Cygnus Star Cloud",             # dec +34°: max alt 1° — never clears 10° floor
+            "Perseus/Cassiopeia",            # dec +56°: even lower — never rises
         },
     },
 ]

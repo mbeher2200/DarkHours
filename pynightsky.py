@@ -13,7 +13,7 @@ import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
-from targets import milky_way_arch_summary
+from targets import milky_way_arch_summary, mw_theoretical_core_max
 
 log = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     mw_summary = None
     mw_visible = [t for t in targets if t.type == "milky_way"]
     if mw_visible:
-        mw_summary = milky_way_arch_summary(mw_visible)
+        mw_summary = milky_way_arch_summary(mw_visible, lat=report.lat)
 
     current_type = None
     for ttype, name, peak, cond, win, flags in tagged_rows:
@@ -223,27 +223,54 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
                 print()
             print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
             if ttype == "milky_way" and mw_summary is not None:
-                ms    = mw_summary
-                span  = f"{_fmt_time(ms['arch_start'])} – {_fmt_time(ms['arch_end'])}"
-                n_str = f"{ms['n_visible']} of {ms['n_total']} waypoints above horizon"
-                print(f"    Visible {span}  ({n_str})")
+                ms       = mw_summary
+                score    = ms["local_score"]
+                arch_h   = ms["arch_hours"]
+                arch_hm  = f"{int(arch_h)}h {int((arch_h % 1) * 60):02d}m"
+                core_max = mw_theoretical_core_max(report.lat)
+                lat_abs  = abs(report.lat)
+                hem      = "N" if report.lat >= 0 else "S"
 
+                # Line 1 — score + context
+                if core_max < 35:
+                    ctx = (f"core at {core_max:.0f}° ceiling from "
+                           f"{lat_abs:.0f}°{hem}  ·  {arch_hm} window")
+                else:
+                    ctx = f"{arch_hm} window"
+                print(f"    {score}/10 for this location  ({ctx})")
+
+                # Line 2 — best time + sweep direction
                 core_card = _cardinal(ms["core_peak_az_deg"])
-                line2     = (f"    Core peaks {_fmt_time(ms['core_peak_time'])}"
-                             f" @ {ms['core_peak_alt_deg']}° {core_card}")
+                best_line = (f"    Best time   {_fmt_time(ms['core_peak_time'])}"
+                             f"  —  core {ms['core_peak_alt_deg']}° {core_card}")
+                if ms["farthest_name"] and ms["farthest_peak_alt_deg"] is not None:
+                    far_card   = _cardinal(ms["farthest_peak_az_deg"])
+                    best_line += (f", arch sweeps to {ms['farthest_name']}"
+                                  f" ({ms['farthest_peak_alt_deg']}° {far_card})")
+                print(best_line)
 
-                if ms["farthest_name"] and ms["farthest_peak_az_deg"] is not None:
-                    far_card = _cardinal(ms["farthest_peak_az_deg"])
-                    far_alt  = ms["farthest_peak_alt_deg"]
-                    line2 += (f"  ·  arch sweeps {core_card} ({ms['core_peak_alt_deg']}°)"
-                              f" → {far_card} ({far_alt}°)")
+                # Line 3 — visibility span + coverage
+                span  = f"{_fmt_time(ms['arch_start'])} – {_fmt_time(ms['arch_end'])}"
+                n_vis = ms["n_visible"]
+                n_max = ms["n_max_possible"]
+                print(f"    Visible     {span}  ·  {arch_hm}"
+                      f"  ·  {n_vis} of {n_max} waypoints for this location")
 
-                if ms["arch_angle_deg"] is not None:
-                    a       = ms["arch_angle_deg"]
-                    quality = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
-                    line2  += f"  ·  angle {a:.0f}° ({quality})"
-
-                print(line2)
+            elif ttype == "milky_way" and mw_summary is None and mw_visible:
+                # Core below horizon — show what northern/southern band is visible
+                core_max = mw_theoretical_core_max(report.lat)
+                lat_abs  = abs(report.lat)
+                hem      = "N" if report.lat >= 0 else "S"
+                print(f"    Core below horizon from {lat_abs:.0f}°{hem}"
+                      f"  (geometric ceiling: {core_max:.0f}°)")
+                vis_names = ", ".join(
+                    t.name for t in sorted(
+                        mw_visible,
+                        key=lambda t: max(w.peak_alt_deg for w in t.windows),
+                        reverse=True,
+                    )
+                )
+                print(f"    Visible band:  {vis_names}")
             current_type = ttype
         _row((name, peak, cond, win, flags))
 

@@ -200,44 +200,36 @@
     "description": "Sagittarius A* — brightest, richest region of the summer Milky Way"
   },
   {
-    "name": "Sagittarius Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 10,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "description": "Dense star cloud adjoining the core — peak surface brightness"
-  },
-  {
     "name": "Scutum Star Cloud",
     "type": "milky_way",
-    "galactic_l": 27,
+    "galactic_l": 36,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Brilliant naked-eye star cloud in the Scutum-Centaurus arm"
-  },
-  {
-    "name": "Aquila Rift",
-    "type": "milky_way",
-    "galactic_l": 50,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "description": "Great Rift dark lane cuts through Aquila — striking contrast region"
+    "description": "Rich star cloud in the Scutum-Centaurus arm — brilliant naked-eye patch"
   },
   {
     "name": "Cygnus Star Cloud",
     "type": "milky_way",
-    "galactic_l": 80,
+    "galactic_l": 72,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Northern Cross / Cygnus X — overhead in summer, extremely rich"
+    "description": "Northern Cross / Cygnus X region — overhead in summer for northern observers, extremely rich"
   },
   {
-    "name": "Perseus Arm",
+    "name": "Cepheus Cloud",
     "type": "milky_way",
-    "galactic_l": 150,
+    "galactic_l": 108,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Winter Milky Way through Cassiopeia and Perseus"
+    "description": "Cepheus OB associations and IC 1396 — bridge between the summer and winter Milky Way"
+  },
+  {
+    "name": "Perseus/Cassiopeia",
+    "type": "milky_way",
+    "galactic_l": 144,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "description": "Double Cluster and Cassiopeia W — one of the brightest winter Milky Way sections"
   },
   {
     "name": "Galactic Anticenter",
@@ -245,31 +237,39 @@
     "galactic_l": 180,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Auriga/Gemini — faintest part of the band, opposite the core"
+    "description": "Auriga/Gemini — the point directly opposite the galactic core"
   },
   {
-    "name": "Vela Star Cloud",
+    "name": "Monoceros",
     "type": "milky_way",
-    "galactic_l": 265,
+    "galactic_l": 216,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Vela/Puppis star cloud — connects the Carina arm to the winter band; southern hemisphere showpiece"
+    "description": "Rosette Nebula region and winter southern band — symmetric counterpart to Scutum"
+  },
+  {
+    "name": "Puppis Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 252,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "description": "Puppis/Vela — southern counterpart to the Cygnus Star Cloud; spectacular from southern latitudes"
   },
   {
     "name": "Carina Arm",
     "type": "milky_way",
-    "galactic_l": 287,
+    "galactic_l": 288,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Carina–Sagittarius arm in the southern sky — contains Eta Carinae; most spectacular MW region for southern hemisphere observers"
+    "description": "Carina–Sagittarius arm — contains Eta Carinae; most spectacular MW region for southern hemisphere observers"
   },
   {
     "name": "Norma Star Cloud",
     "type": "milky_way",
-    "galactic_l": 328,
+    "galactic_l": 324,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "One of the sky's densest star clouds, visible to the naked eye from dark southern sites"
+    "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core"
   },
   {
     "name": "Mercury",
