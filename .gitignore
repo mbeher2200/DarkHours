@@ -17,3 +17,6 @@ Predictor/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
+
+# Benchmark results
+benchmark_results.log
