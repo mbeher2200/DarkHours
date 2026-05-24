@@ -248,6 +248,30 @@
     "description": "Auriga/Gemini — faintest part of the band, opposite the core"
   },
   {
+    "name": "Vela Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 265,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "description": "Vela/Puppis star cloud — connects the Carina arm to the winter band; southern hemisphere showpiece"
+  },
+  {
+    "name": "Carina Nebula",
+    "type": "milky_way",
+    "galactic_l": 287,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "description": "Eta Carinae region — southern hemisphere's most spectacular nebula complex, 4× brighter than Orion Nebula"
+  },
+  {
+    "name": "Norma Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 328,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "description": "One of the sky's densest star clouds, visible to the naked eye from dark southern sites"
+  },
+  {
     "name": "Mercury",
     "type": "planet"
   },

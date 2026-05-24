@@ -405,15 +405,19 @@ def visible_targets(
 # Milky Way arch synthesis
 # ---------------------------------------------------------------------------
 
-# Canonical waypoint order along the galactic plane (ascending galactic longitude)
+# Canonical waypoint order along the galactic plane (ascending galactic longitude).
+# Southern arm waypoints (l > 180°) complete the circle back toward the core.
 _MW_WAYPOINT_ORDER = [
-    "Galactic Core",
-    "Sagittarius Star Cloud",
-    "Scutum Star Cloud",
-    "Aquila Rift",
-    "Cygnus Star Cloud",
-    "Perseus Arm",
-    "Galactic Anticenter",
+    "Galactic Core",           # l=0   dec -29°  summer anchor
+    "Sagittarius Star Cloud",  # l=10  dec -24°
+    "Scutum Star Cloud",       # l=27  dec -10°
+    "Aquila Rift",             # l=50  dec  +5°
+    "Cygnus Star Cloud",       # l=80  dec +41°  northern arch peak
+    "Perseus Arm",             # l=150 dec +57°
+    "Galactic Anticenter",     # l=180 dec +22°
+    "Vela Star Cloud",         # l=265 dec -45°  southern arch (SH peak)
+    "Carina Nebula",           # l=287 dec -59°  SH showpiece
+    "Norma Star Cloud",        # l=328 dec -54°  connects back toward core
 ]
 
 
@@ -427,8 +431,8 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
 
     Returned dict keys
     ------------------
-    arch_start / arch_end   datetime  — full-arch window (core ∩ Cygnus overlap,
-                                        or core window alone if Cygnus is absent)
+    arch_start / arch_end   datetime  — full-arch window (core ∩ far-end overlap,
+                                        or core window alone if no overlap exists)
     n_visible               int       — waypoints with any visible window tonight
     n_total                 int       — total catalog waypoints
     core_peak_time          datetime
@@ -454,23 +458,12 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
 
     core_w = _best(core)
 
-    # Arch window: intersection of core + Cygnus (both visible → full arch in sky)
-    cygnus = by_name.get("Cygnus Star Cloud")
-    if cygnus:
-        cygnus_w   = _best(cygnus)
-        arch_start = max(core_w.start, cygnus_w.start)
-        arch_end   = min(core_w.end,   cygnus_w.end)
-        if arch_start >= arch_end:          # no overlap — fall back to core window
-            arch_start, arch_end = core_w.start, core_w.end
-    else:
-        arch_start, arch_end = core_w.start, core_w.end
-
-    # Far-end waypoint: the highest-peaking visible waypoint past the core region
-    # (galactic l >= Aquila, i.e. index >= 3 in the ordered list).  This picks
-    # the arch's actual apex rather than the end with the most longitude, which
-    # gives a more intuitive sweep description (e.g. "S → NE" through the top
-    # of the arch rather than pointing at a low waypoint past it).
-    _FAR_SIDE = set(_MW_WAYPOINT_ORDER[3:])   # Aquila Rift and beyond
+    # Far-end waypoint: the highest-peaking visible waypoint from either arm
+    # (index >= 3 in the ordered list = Aquila and beyond, including the
+    # southern arm Vela / Carina / Norma).  Taking the highest peak naturally
+    # selects Cygnus from the NH (it arches overhead) and Vela from the SH
+    # (it sweeps high to the south while the core is high to the north).
+    _FAR_SIDE = set(_MW_WAYPOINT_ORDER[3:])
     far_candidates = [
         (by_name[n], _best(by_name[n]))
         for n in _FAR_SIDE if n in by_name
@@ -478,8 +471,18 @@ def milky_way_arch_summary(mw_targets: list) -> dict | None:
     if far_candidates:
         farthest, farthest_w = max(far_candidates, key=lambda x: x[1].peak_alt_deg)
     else:
-        farthest   = None
-        farthest_w = None
+        farthest, farthest_w = None, None
+
+    # Arch window: core ∩ far-end (when both halves of the arch are simultaneously
+    # above the horizon).  Falls back to the core window alone when there is no
+    # overlap (e.g. mid-latitudes where neither arm provides a good counterpart).
+    if farthest_w:
+        arch_start = max(core_w.start, farthest_w.start)
+        arch_end   = min(core_w.end,   farthest_w.end)
+        if arch_start >= arch_end:          # no overlap — use core window
+            arch_start, arch_end = core_w.start, core_w.end
+    else:
+        arch_start, arch_end = core_w.start, core_w.end
 
     return {
         "arch_start":            arch_start,
