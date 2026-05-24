@@ -399,3 +399,91 @@ def visible_targets(
 
     results.sort(key=lambda t: max(w.peak_alt_deg for w in t.windows), reverse=True)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Milky Way arch synthesis
+# ---------------------------------------------------------------------------
+
+# Canonical waypoint order along the galactic plane (ascending galactic longitude)
+_MW_WAYPOINT_ORDER = [
+    "Galactic Core",
+    "Sagittarius Star Cloud",
+    "Scutum Star Cloud",
+    "Aquila Rift",
+    "Cygnus Star Cloud",
+    "Perseus Arm",
+    "Galactic Anticenter",
+]
+
+
+def milky_way_arch_summary(mw_targets: list) -> dict | None:
+    """
+    Synthesise a Milky Way visibility summary from pre-computed visible targets.
+
+    mw_targets — list of VisibleTarget objects with type == "milky_way".
+
+    Returns None if the Galactic Core is not visible tonight.
+
+    Returned dict keys
+    ------------------
+    arch_start / arch_end   datetime  — full-arch window (core ∩ Cygnus overlap,
+                                        or core window alone if Cygnus is absent)
+    n_visible               int       — waypoints with any visible window tonight
+    n_total                 int       — total catalog waypoints
+    core_peak_time          datetime
+    core_peak_alt_deg       int       — rounded altitude in degrees
+    core_peak_az_deg        int       — rounded azimuth in degrees
+    arch_angle_deg          float | None  — plane angle from horizon at core peak
+    farthest_name           str | None   — farthest visible waypoint (highest l)
+    farthest_peak_alt_deg   int  | None
+    farthest_peak_az_deg    int  | None
+    """
+    if not mw_targets:
+        return None
+
+    by_name = {t.name: t for t in mw_targets}
+    core = by_name.get("Galactic Core")
+    if core is None:
+        return None
+
+    def _best(target):
+        clean = [w for w in target.windows if not w.moon_interference]
+        pool  = clean if clean else target.windows
+        return max(pool, key=lambda w: w.peak_alt_deg)
+
+    core_w = _best(core)
+
+    # Arch window: intersection of core + Cygnus (both visible → full arch in sky)
+    cygnus = by_name.get("Cygnus Star Cloud")
+    if cygnus:
+        cygnus_w   = _best(cygnus)
+        arch_start = max(core_w.start, cygnus_w.start)
+        arch_end   = min(core_w.end,   cygnus_w.end)
+        if arch_start >= arch_end:          # no overlap — fall back to core window
+            arch_start, arch_end = core_w.start, core_w.end
+    else:
+        arch_start, arch_end = core_w.start, core_w.end
+
+    # Farthest visible waypoint along the galactic plane (highest galactic longitude)
+    farthest   = None
+    farthest_w = None
+    for name in reversed(_MW_WAYPOINT_ORDER):
+        if name in by_name and name != "Galactic Core":
+            farthest   = by_name[name]
+            farthest_w = _best(farthest)
+            break
+
+    return {
+        "arch_start":            arch_start,
+        "arch_end":              arch_end,
+        "n_visible":             len(mw_targets),
+        "n_total":               len(_MW_WAYPOINT_ORDER),
+        "core_peak_time":        core_w.peak_time,
+        "core_peak_alt_deg":     round(core_w.peak_alt_deg),
+        "core_peak_az_deg":      round(core_w.peak_az_deg),
+        "arch_angle_deg":        core_w.arch_angle_deg,
+        "farthest_name":         farthest.name if farthest else None,
+        "farthest_peak_alt_deg": round(farthest_w.peak_alt_deg) if farthest_w else None,
+        "farthest_peak_az_deg":  round(farthest_w.peak_az_deg)  if farthest_w else None,
+    }

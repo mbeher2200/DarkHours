@@ -13,6 +13,7 @@ import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
+from targets import milky_way_arch_summary
 
 log = logging.getLogger(__name__)
 
@@ -209,12 +210,40 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     _row(headers)
     print(f"  {'-' * widths[0]}  {'-' * widths[1]}  {'-' * widths[2]}  {'-' * widths[3]}")
 
+    # Pre-compute Milky Way arch summary so we can inject it under the section header
+    mw_summary = None
+    mw_visible = [t for t in targets if t.type == "milky_way"]
+    if mw_visible:
+        mw_summary = milky_way_arch_summary(mw_visible)
+
     current_type = None
     for ttype, name, peak, cond, win, flags in tagged_rows:
         if ttype != current_type:
             if current_type is not None:
                 print()
             print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
+            if ttype == "milky_way" and mw_summary is not None:
+                ms    = mw_summary
+                span  = f"{_fmt_time(ms['arch_start'])} – {_fmt_time(ms['arch_end'])}"
+                n_str = f"{ms['n_visible']} of {ms['n_total']} waypoints above horizon"
+                print(f"    Visible {span}  ({n_str})")
+
+                core_card = _cardinal(ms["core_peak_az_deg"])
+                line2     = (f"    Core peaks {_fmt_time(ms['core_peak_time'])}"
+                             f" @ {ms['core_peak_alt_deg']}° {core_card}")
+
+                if ms["farthest_name"] and ms["farthest_peak_az_deg"] is not None:
+                    far_card = _cardinal(ms["farthest_peak_az_deg"])
+                    far_alt  = ms["farthest_peak_alt_deg"]
+                    line2 += (f"  ·  arch sweeps {core_card} ({ms['core_peak_alt_deg']}°)"
+                              f" → {far_card} ({far_alt}°)")
+
+                if ms["arch_angle_deg"] is not None:
+                    a       = ms["arch_angle_deg"]
+                    quality = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
+                    line2  += f"  ·  angle {a:.0f}° ({quality})"
+
+                print(line2)
             current_type = ttype
         _row((name, peak, cond, win, flags))
 
