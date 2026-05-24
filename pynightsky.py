@@ -232,12 +232,10 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
                 hem      = "N" if report.lat >= 0 else "S"
 
                 # Line 1 — score + context
-                if core_max < 35:
-                    ctx = (f"core at {core_max:.0f}° ceiling from "
-                           f"{lat_abs:.0f}°{hem}  ·  {arch_hm} window")
-                else:
-                    ctx = f"{arch_hm} window"
-                print(f"    {score}/10 for this location  ({ctx})")
+                ctx = (f"Tonight's core rises: {ms['core_peak_alt_deg']}°.  "
+                       f"Latitude's yearly max: {round(core_max)}°.  "
+                       f"{arch_hm} window")
+                print(f"    {score}/10 for this location.  ({ctx})")
 
                 # Line 2 — best time + sweep direction
                 core_card = _cardinal(ms["core_peak_az_deg"])
