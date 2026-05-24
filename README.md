@@ -200,7 +200,66 @@ python pynightsky.py --location "home"
 python pynightsky.py --list-locations
 ```
 
-## Options
+## Trip Builder
+
+`tripbuilder.py` compares multiple dark-sky locations across a date range — useful for planning a trip where you want to find the best location and timing for dark skies.
+
+```bash
+# Compare three locations over a month
+python tripbuilder.py \
+  --locations "Death Valley" "Sedona, AZ" "Grand Canyon Village, AZ" \
+  --date-range 2026-06-01 2026-06-30
+
+# Top 5 nights only, skip weather fetch
+python tripbuilder.py \
+  --locations "Death Valley" "Sedona, AZ" \
+  --date-range 2026-06-01 2026-06-30 \
+  --top 5 --no-weather
+```
+
+Output shows a **location × date score matrix** followed by a **ranked list** of the best nights across all locations:
+
+```
+Trip Plan: Jun 1 – Jun 14, 2026
+
+              Death Valley                Sedona    Grand Canyon Vill…
+──────────────────────────────────────────────────────────────────────────
+Jun  1                0.2                   0.1                   0.2
+Jun  2                0.4                   0.3                   0.4
+...
+Jun 13                9.3                   3.8                   9.3
+Jun 14                9.3                   3.9                   9.4
+──────────────────────────────────────────────────────────────────────────
+Average                 4.8                   2.3                   4.8
+Best                   9.3                   3.9                   9.4
+
+  → Best location: Grand Canyon Vill…  (avg 4.8/10)
+
+Top Nights:
+
+  Rank  Date    Location             Score  Lunar  Dark  Bortle  Weather
+  ────  ──────  ──────────────────  ──────  ─────  ────  ──────  ───────
+     1  Jun 14  Grand Canyon Vill…  9.4/10   10.0   9.3    10.0        —
+     2  Jun 13  Death Valley        9.3/10    9.8   9.3    10.0        —
+     3  Jun 14  Death Valley        9.3/10   10.0   9.2    10.0        —
+```
+
+**Weather** is automatically included for dates within the 16-day forecast window (`~` marker) and omitted for dates beyond it. Score weights redistribute automatically so near-future and far-future nights are scored on the same basis as the data available.
+
+Results are cached on disk — the first run computes everything, subsequent runs for the same locations and dates are nearly instant.
+
+### Trip Builder options
+
+```
+--locations, -l NAME [NAME ...]   One or more location names to compare (required)
+--date-range, -d START END        Date range as YYYY-MM-DD YYYY-MM-DD (required)
+--top, -n N                       Number of nights in the ranked list (default: 10)
+--no-weather                      Astronomical factors only — skip weather fetch
+--units imperial|si               Temperature/wind units (default: auto-detect)
+--verbose, -v                     Print debug information
+```
+
+## pynightsky.py Options
 
 ```
 --location, -l NAME        Location name or city (geocoded and cached)
@@ -231,6 +290,9 @@ The project is structured as a layered engine with a thin CLI on top, making it 
 | `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
 | `weather.py` | Weather forecast abstraction (Open-Meteo providers) |
 | `location.py` | Geocoding and timezone resolution |
+| `tripbuilder.py` | Trip Builder CLI — matrix output and ranked list across locations and dates |
+| `trip.py` | Trip planning engine — `plan_trip()` loops locations × dates, returns `TripReport` |
+| `cache.py` | Disk-backed JSON cache with per-entry TTL (SHA256-keyed files) |
 
 To use the engine directly (e.g. from a backend service), call `predictor.assemble_night()`:
 
