@@ -13,7 +13,7 @@ import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
-from targets import milky_way_arch_summary, mw_theoretical_core_max
+from targets import milky_way_arch_summary, mw_theoretical_core_max, moon_wash_severity
 
 log = logging.getLogger(__name__)
 
@@ -163,17 +163,16 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     hdr_range = f"{_fmt_time(report.sunset)} – {_fmt_time(report.sunrise)} {tz_label}"
     print(f"{label}  ({hdr_range}):\n")
 
-    # Moon timing — used for "Moon wash" sky condition and arch-window clipping
+    # Moon timing — used for sky condition labelling and arch-window clipping.
+    # The illumination gate is removed here; the K&S model inside moon_wash_severity
+    # returns None for any (illumination, separation) combination that produces
+    # negligible sky brightening (< 0.10 Δ mag/arcsec²).
     _moonrise = next((e["time"] for e in report.events if e["label"] == "Moonrise"), None)
     _moonset  = next((e["time"] for e in report.events if e["label"] == "Moonset"),  None)
-    _bright_moon = report.illumination_pct >= 25.0
 
     def _moon_up_at(dt: "datetime") -> bool:
-        """True if the moon is above the horizon at time dt and is bright."""
-        if not _bright_moon:
-            return False
+        """True if the moon is above the horizon at time dt."""
         if _moonrise and _moonset:
-            # Moon rises then sets within the night
             return _moonrise <= dt <= _moonset if _moonrise < _moonset else dt >= _moonrise or dt <= _moonset
         if _moonrise:
             return dt >= _moonrise   # moon rises, doesn't set before dawn
@@ -189,8 +188,15 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
                                    report.dark_intervals,
                                    report.night_start,
                                    report.night_end)
-        if _moon_up_at(window.peak_time):
-            condition = "Moon wash"
+        _peak_moonup = _moon_up_at(window.peak_time)
+        if _peak_moonup:
+            sev = moon_wash_severity(
+                report.illumination_pct,
+                window.moon_sep_at_peak_deg,
+                window.moon_alt_at_peak_deg,
+            )
+            if sev is not None:
+                condition = f"Moon wash · {sev}"
         flags = []
         if window.moon_interference:
             flags.append("moon")
@@ -198,14 +204,17 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
             flags.append(target.note)
         display_name = target.name + " Meteor Shower" if target.type == "meteor_shower" else target.name
 
-        # For MW targets whose peak falls in moon-wash but whose window starts
-        # in the clean period, clip both the Best Viewing and Window columns to
-        # the moon-free cutoff so they don't contradict the arch summary above.
+        # For MW targets whose peak falls after moonrise but whose window starts
+        # in the moon-free period, clip the Best Viewing and Window columns to
+        # moonrise so they don't contradict the arch summary's "Best before" line.
+        # Explicitly uses the same 25 % illumination threshold as the arch summary's
+        # window-clipping logic in milky_way_arch_summary().
         mw_moon_clipped = (
             target.type == "milky_way"
-            and condition == "Moon wash"
+            and report.illumination_pct >= 25.0   # matches _MOON_ILLUM_THRESHOLD in targets.py
+            and _peak_moonup
             and _moonrise is not None
-            and window.start < _moonrise      # has a moon-free start
+            and window.start < _moonrise           # window has a moon-free start
         )
 
         if mw_moon_clipped:

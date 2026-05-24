@@ -99,7 +99,9 @@ class TargetWindow:
     peak_alt_deg: float
     peak_az_deg: float = 0.0
     moon_interference: bool = False
-    arch_angle_deg: float | None = None   # milky_way only: plane angle from horizon
+    arch_angle_deg: float | None = None        # milky_way only: plane angle from horizon
+    moon_sep_at_peak_deg: float | None = None  # angular separation from moon at peak time
+    moon_alt_at_peak_deg: float | None = None  # moon altitude at peak time (for K&S model)
 
 
 @dataclass
@@ -292,6 +294,21 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         window.moon_interference = _moon_interferes(obs_sep, indices, illumination_pct,
                                                     moon_min_sep, moon_max_illum)
 
+        # Store moon separation and altitude at peak time for the K&S sky brightness model.
+        try:
+            peak_obs_idx    = obs_dts.index(window.peak_time)
+            peak_sample_idx = sample_dts.index(window.peak_time)
+            window.moon_sep_at_peak_deg = float(obs_sep[peak_obs_idx])
+            moon_alt_pk, _, _ = (
+                observer.at(t_array[peak_sample_idx])
+                        .observe(eph["moon"])
+                        .apparent()
+                        .altaz()
+            )
+            window.moon_alt_at_peak_deg = float(moon_alt_pk.degrees)
+        except Exception as e:
+            log.debug("Moon sep/alt at peak failed for %r: %s", name, e)
+
         # For Milky Way waypoints, compute the arch angle (plane vs horizon)
         # using a reference point 30° further along the galactic plane.
         if ttype == "milky_way" and "galactic_l" in entry:
@@ -444,6 +461,97 @@ def mw_max_visible(lat: float) -> int:
 def mw_theoretical_core_max(lat: float) -> float:
     """Theoretical maximum altitude the galactic core can reach from this latitude."""
     return max(0.0, 90.0 - abs(lat - _GALACTIC_CORE_DEC))
+
+
+# Krisciunas & Schaefer (1991) model constants
+_KS_K_EXT        = 0.172   # typical V-band atmospheric extinction coefficient
+_KS_NATURAL_SKY  = 21.6    # Bortle 2 dark-sky baseline (mag/arcsec²); conservative
+
+# Severity thresholds in Δ mag/arcsec² (sky brightening from dark-sky baseline)
+_KS_MINOR_THRESH    = 0.10   # < 0.10 → None   : imperceptible
+_KS_MODERATE_THRESH = 0.50   # 0.10–0.50 → minor
+_KS_SEVERE_THRESH   = 1.50   # 0.50–1.50 → moderate  /  ≥ 1.50 → severe
+
+
+def moon_wash_severity(
+    illumination_pct: float,
+    sep_deg: float | None,
+    moon_alt_deg: float | None = None,
+) -> str | None:
+    """
+    Classify moon interference as 'minor', 'moderate', or 'severe' using the
+    Krisciunas & Schaefer (1991) lunar sky brightness model (PASP 103, 1033).
+
+    Computes the sky surface brightness increase (Δ mag/arcsec²) at the target's
+    sky position due to scattered moonlight, then maps to a severity label.
+
+    illumination_pct — moon illumination (0–100)
+    sep_deg          — angular separation between target and moon at target's peak
+                       time (degrees); None uses a conservative 45° default
+    moon_alt_deg     — moon altitude above horizon at peak time (degrees);
+                       None uses a 45° default (typical mid-sky position)
+
+    Severity thresholds (Δ mag/arcsec² relative to a Bortle-2 dark sky):
+      None       < 0.10  — negligible; imperceptible to most observers
+      'minor'   0.10–0.50 — slight brightening; faintest targets lightly affected
+      'moderate' 0.50–1.50 — noticeable; low-surface-brightness targets impacted
+      'severe'   ≥ 1.50  — sky substantially brighter; deep DSO work limited
+
+    Model reference equations:
+      V_moon  = −12.73 + 0.026·|α| + 4×10⁻⁹·α⁴         (K&S Eq. 9)
+      I_moon  = 10^{−0.4(V_moon + 16.57)} foot-candles   (K&S Eq. 8)
+      f(ρ)    = 10^{5.36}·(1.06 + cos²ρ)  for ρ > 10°   (K&S Eq. 15)
+              = 6.2×10⁷·ρ⁻²              for ρ ≤ 10°
+      I_scat  = f(ρ)·10^{−0.4·k·X_moon}·I_moon  [S10(V)]
+      Δμ      = 2.5·log₁₀(1 + I_scat/I_sky)
+    """
+    if illumination_pct <= 0:
+        return None
+
+    illum = illumination_pct / 100.0
+
+    # Phase angle: 0° at full moon, 180° at new moon
+    alpha = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum - 1.0))))
+
+    # Moon V magnitude (K&S Eq. 9)
+    V_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha**4
+
+    # Moon illuminance in foot-candles (K&S Eq. 8)
+    I_moon = 10 ** (-0.4 * (V_moon + 16.57))
+
+    # Airmass to the moon; clamp altitude to avoid divide-by-zero near the horizon
+    alt    = max(1.0, moon_alt_deg if moon_alt_deg is not None else 45.0)
+    X_moon = 1.0 / math.cos(math.radians(90.0 - alt))
+
+    # Atmospheric extinction along the path to the moon
+    ext = 10 ** (-0.4 * _KS_K_EXT * X_moon)
+
+    # Angular separation (clamp to avoid singularities)
+    rho     = max(0.1, sep_deg if sep_deg is not None else 45.0)
+    rho_rad = math.radians(rho)
+
+    # Scattering function f(ρ) in S10(V) per foot-candle (K&S Eq. 15)
+    if rho > 10.0:
+        f_rho = 10 ** 5.36 * (1.06 + math.cos(rho_rad) ** 2)
+    else:
+        f_rho = 6.2e7 / rho ** 2
+
+    # Scattered moonlight in S10(V) units
+    I_scatter = f_rho * ext * I_moon
+
+    # Natural sky brightness in S10(V): μ = 27.78 − 2.5·log₁₀(S10)
+    I_sky = 10 ** ((27.78 - _KS_NATURAL_SKY) / 2.5)
+
+    # Sky brightening in Δ mag/arcsec² (positive → sky is brighter → worse)
+    delta_mag = 2.5 * math.log10(1.0 + I_scatter / I_sky)
+
+    if delta_mag < _KS_MINOR_THRESH:
+        return None
+    if delta_mag < _KS_MODERATE_THRESH:
+        return "minor"
+    if delta_mag < _KS_SEVERE_THRESH:
+        return "moderate"
+    return "severe"
 
 
 def milky_way_arch_summary(
