@@ -19,18 +19,18 @@ The tool displays:
 - **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
 
-Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --weather --prime-targets`):
+Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --prime-targets`):
 ```
 Date:               2026-05-23
 Location:           Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°, -112.1282°)
-Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
+Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]
 Moon:               First Quarter  |  56.8% illuminated
-Prime Dark Sky Hours:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.0h  ±2.4h over lunar cycle
-Night Quality Score:  3.2/10  (Lunar 4.3 · Dark Hours 3.3 · Weather 7.8 · Bortle 10.0)
+Prime Dark Sky Hours:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.1h  ±2.5h over lunar cycle
+Night Quality Score:  5.6/10  (Lunar 4.3 · Dark Hours 3.0 · Weather 8.5 · Bortle 8.9)
 
 Night Timeline:
 
-  Time (MST)        Event                    
+  Time (MST)        Event
   ----------------  -------------------------
   May 23, 12:33 PM  Moonrise
   May 23,  7:33 PM  Sunset
@@ -39,50 +39,39 @@ Night Timeline:
   May 24,  3:32 AM  Astronomical night ends
   May 24,  5:16 AM  Sunrise
 
-Weather:
-
-  Time (MST)        Wx Rating  Cloud  Temp  Feels  Humid     Wind  Precip
-  ----------------  ---------  -----  ----  -----  -----  -------  ------
-  May 23,  7:00 PM       8/10    12%  69°F   60°F    11%   7.5mph  None  
-  May 23,  8:00 PM       2/10   100%  64°F   54°F    15%   9.4mph  None  
-  May 23,  9:00 PM       2/10   100%  64°F   53°F    16%  11.0mph  None  
-  May 23, 10:00 PM       3/10    80%  62°F   51°F    18%  11.9mph  None  
-  May 23, 11:00 PM       9/10     0%  59°F   48°F    20%  11.2mph  None  
-  May 24, 12:00 AM       9/10     0%  57°F   47°F    22%  11.5mph  None  
-  May 24,  1:00 AM       9/10     1%  56°F   47°F    24%   9.2mph  None  
-  May 24,  2:00 AM       9/10     0%  55°F   46°F    25%   9.1mph  None  
-  May 24,  3:00 AM       9/10     0%  54°F   44°F    26%   9.1mph  None  
-  May 24,  4:00 AM      10/10     0%  53°F   44°F    27%   8.4mph  None  
-  May 24,  5:00 AM      10/10     0%  52°F   44°F    26%   6.6mph  None  
-  May 24,  6:00 AM      10/10     0%  52°F   43°F    28%   7.7mph  None  
-
 Prime Targets  ( 7:33 PM –  5:16 AM MST):
 
-  Target                Best Viewing              Sky          Window                         
-  --------------------  ------------------------  -----------  -------------------------------
+  Target                Best Viewing                                  Sky        Window
+  --------------------  --------------------------------------------  ---------  -------------------------------
   Milky Way
-  Galactic Core          2:03 AM @ 25°  179°(S)   Dark sky     12:23 AM @ 20° –  3:23 AM @ 22°
-  Cygnus Star Cloud      3:23 AM @ 74°  69°(E)    Dark sky     10:33 PM @ 21° –  3:23 AM @ 74°
+    5.3/10  (Altitude 10.0/10  ·  Waypoints 6.2/10  ·  Window 3.6/10  ·  moon penalty)
+    Visible   1:34 AM –  3:23 AM  ·  1h 48m  ·  Core 25°/25°  ·  5 of 8 waypoints visible  ·  moon-limited
+    Best time      2:03 AM  —  core 25° S, arch sweeps to Cygnus Star Cloud (76° E)
+  Galactic Core          2:03 AM @ 25°  179°(S)  arch 48° (moderate)  Dark sky  10:53 PM @ 11° –  3:23 AM @ 23°
+  Scutum Star Cloud      3:13 AM @ 57°  178°(S)  arch 26° (flat)      Dark sky  10:03 PM @ 11° –  3:23 AM @ 57°
+  Cygnus Star Cloud      3:23 AM @ 76°  92°(E)   arch 61° (steep)     Dark sky   9:43 PM @ 11° –  3:23 AM @ 76°
+  Cepheus Cloud          3:23 AM @ 47°  39°(NE)  arch 76° (steep)     Dark sky   9:43 PM @ 11° –  3:23 AM @ 47°
+  Perseus/Cassiopeia     3:23 AM @ 12°  27°(NE)  arch 76° (steep)     Dark sky   3:03 AM @ 11° –  3:23 AM @ 12°
 
   Clusters
-  Hercules Cluster       1:03 AM @ 90°  343°(N)   Astro night   9:23 PM @ 46° –  3:23 AM @ 62°
-  Wild Duck Cluster      3:13 AM @ 48°  180°(S)   Dark sky     11:23 PM @ 22° –  3:23 AM @ 48°
+  Hercules Cluster       1:03 AM @ 90°  343°(N)                       Moon wash   9:23 PM @ 46° –  3:23 AM @ 62°
+  Wild Duck Cluster      3:13 AM @ 48°  180°(S)                       Dark sky   11:23 PM @ 22° –  3:23 AM @ 48°
 
   Planets
-  Jupiter                7:33 PM @ 42°  268°(W)   Twilight      7:33 PM @ 42° –  9:13 PM @ 22°
+  Jupiter                7:33 PM @ 42°  268°(W)                       Moon wash   7:33 PM @ 42° –  9:13 PM @ 22°
 
   Nebulae
-  Eagle Nebula           2:43 AM @ 40°  181°(S)   Dark sky     11:13 PM @ 20° –  3:23 AM @ 39°
-  Ring Nebula            3:13 AM @ 87°  176°(S)   Dark sky      9:23 PM @ 20° –  3:23 AM @ 86°
-  Dumbbell Nebula        3:23 AM @ 72°  133°(SE)  Dark sky     11:03 PM @ 21° –  3:23 AM @ 72°
-  Veil Nebula            3:23 AM @ 68°  96°(E)    Dark sky     11:23 PM @ 21° –  3:23 AM @ 68°
-  North America Nebula   3:23 AM @ 66°  60°(NE)   Dark sky     10:53 PM @ 20° –  3:23 AM @ 66°
+  Eagle Nebula           2:43 AM @ 40°  181°(S)                       Dark sky   11:13 PM @ 20° –  3:23 AM @ 39°
+  Ring Nebula            3:13 AM @ 87°  176°(S)                       Dark sky    9:23 PM @ 20° –  3:23 AM @ 86°
+  Dumbbell Nebula        3:23 AM @ 72°  133°(SE)                      Dark sky   11:03 PM @ 21° –  3:23 AM @ 72°
+  Veil Nebula            3:23 AM @ 68°  96°(E)                        Dark sky   11:23 PM @ 21° –  3:23 AM @ 68°
+  North America Nebula   3:23 AM @ 66°  60°(NE)                       Dark sky   10:53 PM @ 20° –  3:23 AM @ 66°
 
   Galaxies
-  Bode's Galaxy          9:23 PM @ 49°  337°(NW)  Astro night   9:23 PM @ 49° –  3:13 AM @ 20°
-  Sombrero Galaxy        9:23 PM @ 42°  187°(S)   Astro night   9:23 PM @ 42° – 12:33 AM @ 21°
-  Whirlpool Galaxy       9:53 PM @ 79°  359°(N)   Astro night   9:23 PM @ 78° –  3:23 AM @ 30°
-  Pinwheel Galaxy       10:23 PM @ 72°  1°(N)     Astro night   9:23 PM @ 69° –  3:23 AM @ 37°
+  Bode's Galaxy          9:23 PM @ 49°  337°(NW)                      Moon wash   9:23 PM @ 49° –  3:13 AM @ 20°
+  Sombrero Galaxy        9:23 PM @ 42°  187°(S)                       Moon wash   9:23 PM @ 42° – 12:33 AM @ 21°
+  Whirlpool Galaxy       9:53 PM @ 79°  359°(N)                       Moon wash   9:23 PM @ 78° –  3:23 AM @ 30°
+  Pinwheel Galaxy       10:23 PM @ 72°  1°(N)                         Moon wash   9:23 PM @ 69° –  3:23 AM @ 37°
 ```
 
 ## Night Quality Score (1–10)
@@ -161,9 +150,43 @@ Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Ne
 
 - **Dark sky** — peak falls within astronomical darkness *and* the moon is below the horizon (best conditions)
 - **Astro night** — peak falls within astronomical darkness but the moon is up
+- **Moon wash** — peak falls while the moon is above the horizon and bright (≥25% illuminated); sky background is significantly elevated
 - **Twilight** — peak falls outside astronomical darkness (sun less than 18° below horizon)
 
-Milky Way targets (Galactic Core, Cygnus Star Cloud) are automatically included in prime results whenever they're visible during astronomical darkness.
+Milky Way targets are automatically included in prime results whenever they're visible during astronomical darkness.
+
+### Milky Way
+
+The Milky Way section synthesises visibility across a catalog of 10 waypoints placed at uniform 36° galactic-longitude intervals, creating 5 symmetric declination pairs. Each visible waypoint represents a distinct 36° slice of the galactic plane, making the visible fraction (e.g. "5 of 8 waypoints visible") a meaningful sky-coverage metric — 8 is the maximum ever geometrically reachable from mid-northern latitudes, 10 from equatorial latitudes.
+
+An arch summary appears above the individual waypoint rows:
+
+```
+  Milky Way
+    8.8/10  (Altitude 10.0/10  ·  Waypoints 6.2/10  ·  Window 9.7/10)
+    Visible  10:38 PM –  3:28 AM  ·  4h 47m  ·  Core 21°/21°  ·  5 of 8 waypoints visible
+    Best time      1:18 AM  —  core 21° S, arch sweeps to Cygnus Star Cloud (84° SE)
+```
+
+**Score components** — rated relative to the best this latitude can ever offer:
+
+| Component | Weight | What it measures |
+|-----------|--------|-----------------|
+| **Altitude** | 50% | Tonight's core peak altitude ÷ the geometric maximum from this latitude |
+| **Waypoints** | 30% | Visible waypoints ÷ maximum ever visible from this latitude |
+| **Window** | 20% | Moon-free arch window ÷ 5-hour reference |
+| **Moon penalty** | ×0.7 | Applied when the moon clips the usable window or directly interferes with the core |
+
+The **Core altitude ratio** (e.g. `21°/21°`) shows tonight's peak versus the latitude's geometric ceiling (`90° − |lat − (−29°)|`). Denver (40°N) can never see the core above 21°; Buenos Aires (35°S) can reach 84°; Quito (0°) reaches 61°. Identical values mean tonight is as good as it ever gets from this location.
+
+**Moon handling** — when the moon is ≥25% illuminated:
+- The arch window is clipped to the moon-free period: capped at moonrise (if the moon rises during the night) or advanced to moonset (if the moon is already up and sets mid-night)
+- The `· moon-limited` flag appears on the Visible line, and `· moon penalty` in the score breakdown
+- Any target whose best-viewing peak falls while the moon is up shows **Moon wash** as its sky condition
+- Milky Way waypoints that straddle moonrise show direction and arch angle only — no peak time — with the Window column clipped to moonrise, eliminating any contradiction with the arch summary
+- When the core's geometric peak falls outside the moon-free window, "Best time" becomes **Best before**, pointing to the last usable moment
+
+**High-latitude note:** From latitudes where the galactic core never clears the 10° elevation floor (roughly above 51°N or below 51°S), the summary block is replaced by a "Core below horizon" note listing the visible northern or southern band waypoints.
 
 The target catalog lives in [`targets.json`](targets.json) and is easy to extend — see [`TARGETS.md`](TARGETS.md) for the schema. Prime target thresholds and global observation defaults are in [`config.json`](config.json).
 

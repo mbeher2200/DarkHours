@@ -446,20 +446,33 @@ def mw_theoretical_core_max(lat: float) -> float:
     return max(0.0, 90.0 - abs(lat - _GALACTIC_CORE_DEC))
 
 
-def milky_way_arch_summary(mw_targets: list, lat: float = 0.0) -> dict | None:
+def milky_way_arch_summary(
+    mw_targets: list,
+    lat: float = 0.0,
+    moonrise: datetime | None = None,
+    moonset:  datetime | None = None,
+    moon_illumination_pct: float = 0.0,
+) -> dict | None:
     """
     Synthesise a Milky Way visibility summary from pre-computed visible targets.
 
-    mw_targets — list of VisibleTarget objects with type == "milky_way".
-    lat        — observer latitude in decimal degrees (used for quality score).
+    mw_targets            — list of VisibleTarget objects with type == "milky_way".
+    lat                   — observer latitude in decimal degrees (used for quality score).
+    moonrise / moonset    — times of moonrise/moonset this night (UTC-aware datetimes).
+    moon_illumination_pct — moon illumination percentage (0–100).
+
+    When the moon is bright (≥ 25 %) the arch window is clipped to the moon-free
+    period: arch_end is capped at moonrise (if moon rises during the window), and
+    arch_start is advanced to moonset (if the moon is already up at window start).
+    The clipped duration flows into win_frac, naturally lowering the quality score.
 
     Returns None if the Galactic Core is not visible tonight.
 
     Returned dict keys
     ------------------
-    arch_start / arch_end    datetime  — full-arch window (core ∩ far-end overlap,
-                                         or core window alone if no overlap exists)
+    arch_start / arch_end    datetime  — moon-free arch window
     arch_hours               float     — arch window duration in hours
+    moon_limited             bool      — True if window was clipped by moon
     n_visible                int       — waypoints with any visible window tonight
     n_max_possible           int       — max waypoints ever visible from this latitude
     n_total                  int       — total catalog waypoints (10)
@@ -511,7 +524,20 @@ def milky_way_arch_summary(mw_targets: list, lat: float = 0.0) -> dict | None:
     else:
         arch_start, arch_end = core_w.start, core_w.end
 
-    arch_hours = (arch_end - arch_start).total_seconds() / 3600
+    # Clip to moon-free period when moon is bright enough to wash out the sky.
+    # moonrise during window → cap arch_end (view before moon rises).
+    # moonset  during window → advance arch_start (view after moon sets).
+    _MOON_ILLUM_THRESHOLD = 25.0
+    moon_limited = False
+    if moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+        if moonrise and arch_start < moonrise < arch_end:
+            arch_end     = moonrise
+            moon_limited = True
+        if moonset and arch_start < moonset < arch_end:
+            arch_start   = moonset
+            moon_limited = True
+
+    arch_hours = max(0.0, (arch_end - arch_start).total_seconds() / 3600)
 
     # ── Latitude-relative quality score (0–10) ───────────────────────────────
     # How good is tonight compared to the best this latitude can ever offer?
@@ -523,19 +549,30 @@ def milky_way_arch_summary(mw_targets: list, lat: float = 0.0) -> dict | None:
     alt_frac     = (core_w.peak_alt_deg / theo_max)  if theo_max > 0 else 0.0
     cov_frac     = (len(mw_targets) / n_max)         if n_max    > 0 else 0.0
     win_frac     = min(1.0, arch_hours / 5.0)
-    moon_penalty = 0.7 if core_w.moon_interference else 1.0
-    raw          = 0.50 * alt_frac + 0.30 * cov_frac + 0.20 * win_frac
-    local_score  = round(min(10.0, raw * moon_penalty * 10), 1)
+    # Moon penalty applies when the moon directly interferes with the core OR
+    # when it cuts the usable arch window short (bright moon rising mid-night).
+    moon_penalised = core_w.moon_interference or moon_limited
+    moon_penalty   = 0.7 if moon_penalised else 1.0
+    raw            = 0.50 * alt_frac + 0.30 * cov_frac + 0.20 * win_frac
+    local_score    = round(min(10.0, raw * moon_penalty * 10), 1)
+
+    core_peak_in_window = arch_start <= core_w.peak_time <= arch_end
 
     return {
         "arch_start":            arch_start,
         "arch_end":              arch_end,
         "arch_hours":            round(arch_hours, 1),
+        "moon_limited":          moon_limited,
+        "moon_penalised":        moon_penalised,
         "n_visible":             len(mw_targets),
         "n_max_possible":        n_max,
         "n_total":               len(_MW_WAYPOINT_ORDER),
         "local_score":           local_score,
+        "alt_score":             round(alt_frac * 10, 1),
+        "cov_score":             round(cov_frac * 10, 1),
+        "win_score":             round(win_frac * 10, 1),
         "core_peak_time":        core_w.peak_time,
+        "core_peak_in_window":   core_peak_in_window,
         "core_peak_alt_deg":     round(core_w.peak_alt_deg),
         "core_peak_az_deg":      round(core_w.peak_az_deg),
         "arch_angle_deg":        core_w.arch_angle_deg,
