@@ -111,15 +111,29 @@ def assemble_night(
 
     # --- Moon ---
     phase_name, illumination = se.moon_phase_info(sunset)
-    moon_score = round(10 * (1 - illumination / 100), 1)
 
     # --- Dark intervals ---
     if night_start and night_end:
         intervals          = se.dark_moon_intervals(events, night_start, night_end, illumination)
         dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
+        total_astro_hours  = (night_end - night_start).total_seconds() / 3600
+
+        # Moon score: weight illumination by the fraction of dark time the moon
+        # is actually up.  Moon-free time scores full marks; moonlit time scores
+        # proportionally to how dim the moon is.
+        #
+        #   score = 10 × (moon_free_frac  +  moonlit_frac × (1 − illum/100))
+        #
+        # A full moon rising 20 min before dawn no longer scores 0/10.
+        # A full moon up all night still scores 0/10.
+        moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
+        moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * (1 - illumination / 100)), 1)
     else:
+        # No astronomical darkness (polar summer / always dark) — timing
+        # is undefined; fall back to illumination-only score.
         intervals          = []
         dark_hours_tonight = 0.0
+        moon_score         = round(10 * (1 - illumination / 100), 1)
 
     # --- Lunar cycle dark analysis ---
     cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
