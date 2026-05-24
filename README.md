@@ -26,7 +26,7 @@ Location:           Grand Canyon Village, Coconino County, Arizona, United State
 Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 1  (Exceptional dark sky)  [Falchi 2016]
 Moon:               First Quarter  |  56.8% illuminated
 Prime Dark Sky Hours:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.0h  ±2.4h over lunar cycle
-Night Quality Score:  3.2/10  (Lunar Interference 4.3/10 · Dark Hours 3.3/10 · Weather 7.8/10 · Light Pollution 10.0/10)
+Night Quality Score:  3.2/10  (Lunar 4.3 · Dark Hours 3.3 · Weather 7.8 · Bortle 10.0)
 
 Night Timeline:
 

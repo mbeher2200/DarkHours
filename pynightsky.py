@@ -243,13 +243,13 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
         wx_part = (
             "Weather Pending" if report.wx_pending
             else ("Weather N/A" if (report.wx_no_data or report.wx_archive_error)
-                  else (f"Weather {comp.get('weather')}/10" if report.weather_score is not None else "Weather —/10"))
+                  else (f"Weather {comp.get('weather')}" if report.weather_score is not None else "Weather —"))
         )
         parts = [
-            f"Lunar Interference {comp.get('moon', '—')}/10",
-            f"Dark Hours {comp.get('dark', '—')}/10",
+            f"Lunar {comp.get('moon', '—')}",
+            f"Dark Hours {comp.get('dark', '—')}",
             wx_part,
-            f"Light Pollution {comp.get('bortle', '—')}/10" if report.bortle_score is not None else "Light Pollution —/10",
+            f"Bortle {comp.get('bortle', '—')}" if report.bortle_score is not None else "Bortle —",
         ]
         print(f"Night Quality Score:  {report.score}/10  ({' · '.join(parts)})")
     print()
