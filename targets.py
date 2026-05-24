@@ -416,7 +416,7 @@ _MW_WAYPOINT_ORDER = [
     "Perseus Arm",             # l=150 dec +57°
     "Galactic Anticenter",     # l=180 dec +22°
     "Vela Star Cloud",         # l=265 dec -45°  southern arch (SH peak)
-    "Carina Nebula",           # l=287 dec -59°  SH showpiece
+    "Carina Arm",              # l=287 dec -59°  SH showpiece
     "Norma Star Cloud",        # l=328 dec -54°  connects back toward core
 ]
 

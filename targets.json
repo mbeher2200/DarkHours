@@ -256,12 +256,12 @@
     "description": "Vela/Puppis star cloud — connects the Carina arm to the winter band; southern hemisphere showpiece"
   },
   {
-    "name": "Carina Nebula",
+    "name": "Carina Arm",
     "type": "milky_way",
     "galactic_l": 287,
     "galactic_b": 0,
     "min_elevation": 10,
-    "description": "Eta Carinae region — southern hemisphere's most spectacular nebula complex, 4× brighter than Orion Nebula"
+    "description": "Carina–Sagittarius arm in the southern sky — contains Eta Carinae; most spectacular MW region for southern hemisphere observers"
   },
   {
     "name": "Norma Star Cloud",
