@@ -114,7 +114,7 @@ def assemble_night(
 
     # --- Dark intervals ---
     if night_start and night_end:
-        intervals          = se.dark_moon_intervals(events, night_start, night_end, illumination)
+        intervals          = se.dark_moon_intervals(events, night_start, night_end)
         dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
         total_astro_hours  = (night_end - night_start).total_seconds() / 3600
 

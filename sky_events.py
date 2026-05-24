@@ -73,13 +73,9 @@ def sky_events(lat: float, lon: float, target_date: date) -> list:
     return events
 
 
-def dark_moon_intervals(events: list, night_start, night_end, illumination: float) -> list:
+def dark_moon_intervals(events: list, night_start, night_end) -> list:
     """Return (start, end) UTC datetime pairs when moon is below horizon within [night_start, night_end]."""
     log.debug("Night window (UTC): %s → %s", night_start.strftime("%H:%M"), night_end.strftime("%H:%M"))
-    log.debug("Illumination: %.1f%%", illumination)
-    if illumination < 10:
-        log.debug("Near new moon (%.1f%%) — treating full night as dark", illumination)
-        return [(night_start, night_end)]
 
     moon_events = [(e["time"], e["label"]) for e in events
                    if e["label"] in ("Moonrise", "Moonset")]
@@ -176,8 +172,7 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
         if not night_start or not night_end:
             hours.append(0.0)
             continue
-        _, illum   = moon_phase_info(sunset)
-        intervals  = dark_moon_intervals(all_events, night_start, night_end, illum)
+        intervals  = dark_moon_intervals(all_events, night_start, night_end)
         total_secs = sum((e - s).total_seconds() for s, e in intervals)
         hours.append(total_secs / 3600)
 
