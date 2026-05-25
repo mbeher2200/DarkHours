@@ -18,5 +18,8 @@ Predictor/
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Benchmark results
-benchmark_results.log
+# Logs
+*.log
+
+# Test caches
+.pytest_cache/

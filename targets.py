@@ -13,6 +13,7 @@ import numpy as np
 from skyfield.api import Star, load, wgs84
 
 import config as _cfg
+import moonlight as _ml
 
 try:
     from skyfield.magnitudelib import planetary_magnitude as _planetary_magnitude
@@ -218,8 +219,8 @@ def _moon_interferes(sep_deg, moon_alt_deg, window_indices: list,
     if not window_indices or illumination_pct <= 0:
         return False
     for i in window_indices:
-        if _ks_delta_mag(illumination_pct, float(sep_deg[i]),
-                         float(moon_alt_deg[i])) >= _KS_MODERATE_THRESH:
+        if _ml.ks_delta_mag(illumination_pct, float(sep_deg[i]),
+                            float(moon_alt_deg[i])) >= _ml.KS_MODERATE_THRESH:
             return True
     return False
 
@@ -313,7 +314,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     # Hoist catalog photometric data — same values for every window of this target.
     sb  = entry.get("surface_brightness")   # mag/arcsec² (extended objects)
     mag = entry.get("magnitude")             # integrated V mag (any object)
-    _sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
+    _sqm = sky_sqm if sky_sqm is not None else _ml.KS_NATURAL_SKY
 
     # For planets, override mag with the dynamically-computed apparent magnitude.
     # Skyfield's planetary_magnitude() accounts for phase angle and distance, so
@@ -365,18 +366,18 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
             # SB-based (extended objects): need sky − target ≥ contrast headroom.
             # Mag-based (compact objects): need mag < sky − offset.
             if ttype == "milky_way":
-                photo_contrast  = _MW_PHOTO_SB_CONTRAST
-                visual_contrast = _MW_VISUAL_SB_CONTRAST
+                photo_contrast  = _ml.MW_PHOTO_SB_CONTRAST
+                visual_contrast = _ml.MW_VISUAL_SB_CONTRAST
             else:
-                photo_contrast  = _PHOTO_SB_CONTRAST
-                visual_contrast = _VISUAL_SB_CONTRAST
+                photo_contrast  = _ml.PHOTO_SB_CONTRAST
+                visual_contrast = _ml.VISUAL_SB_CONTRAST
 
             if ttype == "planet":
-                compact_photo  = _PLANET_PHOTO_OFFSET
-                compact_visual = _PLANET_VISUAL_OFFSET
+                compact_photo  = _ml.PLANET_PHOTO_OFFSET
+                compact_visual = _ml.PLANET_VISUAL_OFFSET
             else:
-                compact_photo  = _COMPACT_PHOTO_OFFSET
-                compact_visual = _COMPACT_VISUAL_OFFSET
+                compact_photo  = _ml.COMPACT_PHOTO_OFFSET
+                compact_visual = _ml.COMPACT_VISUAL_OFFSET
 
             win_indices = [i for i, dt in enumerate(obs_dts)
                            if window.start <= dt <= window.end]
@@ -386,7 +387,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
             for i in win_indices:
                 sep      = float(obs_sep[i])
                 malt     = float(obs_moon_alt[i])
-                delta    = _ks_delta_mag(illumination_pct, sep, malt, _sqm)
+                delta    = _ml.ks_delta_mag(illumination_pct, sep, malt, _sqm)
                 sky_now  = _sqm - delta   # effective sky brightness this sample
 
                 if sb is not None:
@@ -525,7 +526,7 @@ def visible_targets(
     night_date = sunset.date()
 
     # Use provided SQM or fall back to the K&S natural-sky baseline (Bortle 2).
-    _sky_sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
+    _sky_sqm = sky_sqm if sky_sqm is not None else _ml.KS_NATURAL_SKY
 
     dark_start = night_start or sunset
     dark_end   = night_end   or sunrise
@@ -600,164 +601,14 @@ def mw_theoretical_core_max(lat: float) -> float:
     return max(0.0, 90.0 - abs(lat - _GALACTIC_CORE_DEC))
 
 
-# Krisciunas & Schaefer (1991) model constants
-_KS_K_EXT        = 0.172   # typical V-band atmospheric extinction coefficient
-_KS_NATURAL_SKY  = 21.6    # Bortle 2 dark-sky baseline (mag/arcsec²); conservative
-
-# Severity thresholds in Δ mag/arcsec² (sky brightening from dark-sky baseline)
-_KS_MINOR_THRESH    = 0.10   # < 0.10 → None   : imperceptible
-_KS_MODERATE_THRESH = 0.50   # 0.10–0.50 → minor
-_KS_SEVERE_THRESH   = 1.50   # 0.50–1.50 → moderate  /  ≥ 1.50 → severe
-
-# Sky contrast thresholds for per-target usability cutoffs.
-# Extended objects (nebulae/galaxies): object surface brightness must be this many
-# mag/arcsec² brighter than the (moon-brightened) sky background.
-#
-# Calibration (Bortle 1 site, SQM 22.0):
-#   Faint targets (SB ≈ 17) have 5 mag of contrast on a dark night.
-#   _PHOTO_SB_CONTRAST = 3.5 → photo cutoff when Δμ > SQM − SB − 3.5:
-#     Veil/NAN (SB 17–17.5): cut at Δμ ≈ 1.0–1.5 (moderate→severe transition)
-#     Dumbbell/Ring (SB 13–13.5): cut only at Δμ > 5 — effectively never
-#   _VISUAL_SB_CONTRAST = 1.5 → visual window extends ~30–60 min past photo cutoff
-# Extended objects (nebulae / galaxies): object SB must exceed sky background by this margin.
-# Calibrated against real-world Bortle astrophotography limits (broadband, no filter):
-#   Bortle 9 (SQM 17.0): SB limit ≈ 13.8  →  Dumbbell/Helix (SB 13.5) just survive
-#   Bortle 8 (SQM 18.0): SB limit ≈ 14.8  →  Eagle/Trifid (SB 14.5) just survive
-#   Bortle 6 (SQM 20.0): SB limit ≈ 16.8  →  Veil/Rosette (SB 17.0) just fail — need B5
-#   Bortle 5 (SQM 20.5): SB limit ≈ 17.3  →  Veil/Rosette survive; NAN (17.5) needs B4
-_PHOTO_SB_CONTRAST  = 3.2
-_VISUAL_SB_CONTRAST = 1.5   # visual: 1.5 mag/arcsec² headroom (telescope needed)
-
-# Compact objects (clusters): usable while integrated magnitude < site_sqm - Δμ - offset.
-# Calibrated against Bortle-class astrophotography limits (integrated mag scale):
-#   Bortle 9 (SQM 17.0): photo limit ≈ mag 4.0  →  offset = 13.0
-#   Bortle 8 (SQM 18.0): photo limit ≈ mag 5.0
-#   Bortle 7 (SQM 19.0): photo limit ≈ mag 6.0
-#   Bortle 5 (SQM 20.5): photo limit ≈ mag 7.5
-#   Bortle 1 (SQM 22.0): photo limit ≈ mag 9.0
-# Visual offset is 2 mag more lenient (telescope can reach deeper in degraded skies).
-_COMPACT_PHOTO_OFFSET  = 13.0
-_COMPACT_VISUAL_OFFSET = 11.0
-
-# Planets: point-source-like, so slightly more lenient than extended clusters.
-# Apparent magnitude computed dynamically via Skyfield's planetary_magnitude().
-# Calibration anchors:
-#   Uranus  (+5.8): accessible from Bortle 8+ (SQM 18.0 − 12.0 = 6.0 > 5.8)
-#   Neptune (+7.8): accessible from Bortle 6+ (SQM 20.0 − 12.0 = 8.0 > 7.8)
-#   All bright planets (Venus/Jupiter/Mars/Saturn) pass at any Bortle class.
-_PLANET_PHOTO_OFFSET  = 12.0
-_PLANET_VISUAL_OFFSET = 10.0
-
-# Milky Way band: wide-field photography needs less contrast than telescope DSO work.
-# Calibrated against Bortle-class MW visibility:
-#   Bortle 7 (SQM 19.0): Core (SB 17.0) and Cygnus (SB 18.0) just accessible
-#   Bortle 6 (SQM 20.0): Cepheus (SB 18.5) accessible
-#   Bortle 5 (SQM 20.5): Perseus/Norma (SB 19.0) accessible
-#   Bortle 4 (SQM 21.5): Anticenter (SB 19.5) accessible
-_MW_PHOTO_SB_CONTRAST  = 1.5
-_MW_VISUAL_SB_CONTRAST = 1.0
-
-
-def _ks_delta_mag(
-    illumination_pct: float,
-    sep_deg: float,
-    moon_alt_deg: float,
-    sky_sqm: float = _KS_NATURAL_SKY,
-) -> float:
-    """
-    Return sky surface brightness increase Δ mag/arcsec² from scattered moonlight
-    using the Krisciunas & Schaefer (1991) model (PASP 103, 1033).
-
-    Returns 0.0 when illumination is zero or the moon is below the horizon.
-    sky_sqm is used for the natural-sky baseline I_sky denominator.
-    """
-    if illumination_pct <= 0 or moon_alt_deg <= 0:
-        return 0.0
-
-    illum  = illumination_pct / 100.0
-    alpha  = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum - 1.0))))
-    V_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha**4
-    I_moon = 10 ** (-0.4 * (V_moon + 16.57))
-
-    alt    = max(1.0, moon_alt_deg)
-    X_moon = 1.0 / math.cos(math.radians(90.0 - alt))
-    ext    = 10 ** (-0.4 * _KS_K_EXT * X_moon)
-
-    rho     = max(0.1, sep_deg)
-    rho_rad = math.radians(rho)
-    if rho > 10.0:
-        f_rho = 10 ** 5.36 * (1.06 + math.cos(rho_rad) ** 2)
-    else:
-        f_rho = 6.2e7 / rho ** 2
-
-    I_scatter = f_rho * ext * I_moon
-    I_sky     = 10 ** ((27.78 - sky_sqm) / 2.5)
-    return 2.5 * math.log10(1.0 + I_scatter / I_sky)
-
-
-# Fixed geometry used for site-wide K&S credit evaluation (not per-target).
-# 90° separation = darkest accessible sky (cos²ρ minimum in the scattering function).
-# 30° altitude   = representative mid-sky moon position.
-_KS_CREDIT_SEP_DEG = 90.0
-_KS_CREDIT_ALT_DEG = 30.0
-
-# Illumination below which the moon's sky brightening is imperceptible-to-minor at
-# 90° separation regardless of altitude.  Used as the crescent-exemption threshold
-# for the "Prime Dark Sky Hours" display in predictor.py.
-KS_CRESCENT_EXEMPTION_PCT = 20.0
-
-
-def ks_moon_credit(illumination_pct: float) -> float:
-    """
-    Return a 0–1 credit for moon-up time based on actual K&S sky brightening.
-
-    Evaluates K&S at the site-wide proxy geometry (90° separation, 30° altitude)
-    and normalises so that Δmag = _KS_SEVERE_THRESH (1.5) maps to 0 credit.
-
-    Replaces the naive (1 − illum/100) approximation used in moon_score:
-
-      illumination   naive credit   K&S credit
-        5%  crescent    0.95          0.96   — essentially unchanged
-       15%  crescent    0.85          0.86   — unchanged (minor impact preserved)
-       50%  quarter     0.50          0.31   — correctly penalised (Δ1.03 = severe)
-       75%  gibbous     0.25          0.00   — correctly zeroed (Δ1.73 > severe)
-      100%  full        0.00          0.00   — unchanged
-
-    The key win is the 30–75% range where the naive formula is far too generous.
-    """
-    delta = _ks_delta_mag(illumination_pct, _KS_CREDIT_SEP_DEG, _KS_CREDIT_ALT_DEG)
-    return max(0.0, 1.0 - delta / _KS_SEVERE_THRESH)
-
-
-def moon_wash_severity(
-    illumination_pct: float,
-    sep_deg: float | None,
-    moon_alt_deg: float | None = None,
-) -> str | None:
-    """
-    Classify moon interference as None, 'minor', 'moderate', or 'severe'.
-
-    Uses _ks_delta_mag internally; sep_deg and moon_alt_deg default to 45°
-    when not provided (conservative mid-sky estimate).
-
-    Severity thresholds (Δ mag/arcsec² relative to a Bortle-2 dark sky):
-      None       < 0.10  — negligible
-      'minor'   0.10–0.50 — slight brightening
-      'moderate' 0.50–1.50 — noticeable; low-SB targets impacted
-      'severe'   ≥ 1.50  — sky substantially brighter; deep DSO work limited
-    """
-    delta_mag = _ks_delta_mag(
-        illumination_pct,
-        sep_deg      if sep_deg      is not None else 45.0,
-        moon_alt_deg if moon_alt_deg is not None else 45.0,
-    )
-    if delta_mag < _KS_MINOR_THRESH:
-        return None
-    if delta_mag < _KS_MODERATE_THRESH:
-        return "minor"
-    if delta_mag < _KS_SEVERE_THRESH:
-        return "moderate"
-    return "severe"
+# K&S model and sky-brightness constants live in moonlight.py.
+# Re-export public names that other modules (predictor, pynightsky) currently
+# import directly from targets, so their import lines don't change.
+from moonlight import (
+    ks_moon_credit,
+    moon_wash_severity,
+    KS_CRESCENT_EXEMPTION_PCT,
+)
 
 
 def milky_way_arch_summary(
