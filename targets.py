@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-from skyfield.api import Star, load, wgs84
+from skyfield.api import Loader, Star, load, wgs84
 
 import config as _cfg
 import milky_way as _mw
@@ -77,8 +77,11 @@ class VisibleTarget:
 # Helpers
 # ---------------------------------------------------------------------------
 
+_load = Loader(str(Path(__file__).resolve().parent))
+
+
 def _ephemeris():
-    return load("de421.bsp")
+    return _load("de421.bsp")
 
 
 def _parse_ra(s: str) -> float:

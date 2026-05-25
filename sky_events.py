@@ -8,7 +8,7 @@ import statistics
 from datetime import date, timedelta
 from pathlib import Path
 
-from skyfield.api import load, wgs84
+from skyfield.api import Loader, load, wgs84
 from skyfield import almanac
 
 log = logging.getLogger(__name__)
@@ -25,8 +25,11 @@ PHASE_NAMES = [
 ]
 
 
+_load = Loader(str(Path(__file__).resolve().parent))
+
+
 def _ephemeris():
-    return load("de421.bsp")
+    return _load("de421.bsp")
 
 
 def sky_events(lat: float, lon: float, target_date: date) -> list:
