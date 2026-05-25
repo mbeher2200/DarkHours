@@ -109,6 +109,7 @@ class TargetWindow:
     moon_alt_at_peak_deg: float | None = None  # moon altitude at peak time (for K&S model)
     photo_cutoff: "datetime | None" = None     # last sample where astrophotography is viable
     visual_cutoff: "datetime | None" = None    # last sample where visual observation is viable
+    photo_start: "datetime | None" = None      # first viable sample (set when moon delays window start)
     ks_computed: bool = False                  # True when K&S was run and the full window is viable
 
 
@@ -206,12 +207,21 @@ def _find_windows(alt_deg, az_deg, sample_dts: list, min_elev: float) -> list:
     return result
 
 
-def _moon_interferes(sep_deg, window_indices: list, illumination_pct: float,
-                     min_sep: float, max_illum: float) -> bool:
-    """True if moon is bright enough and close enough to any part of the visible window."""
-    if illumination_pct < max_illum or not window_indices:
+def _moon_interferes(sep_deg, moon_alt_deg, window_indices: list,
+                     illumination_pct: float) -> bool:
+    """True if the moon produces ≥ moderate sky brightening (Δμ ≥ 0.50) at any window sample.
+
+    Uses the K&S model rather than a binary illumination/separation gate, so a
+    49%-illuminated moon is evaluated on the same physics as a 51% moon.
+    Returns False immediately for new moon or if the moon is always below the horizon.
+    """
+    if not window_indices or illumination_pct <= 0:
         return False
-    return bool(np.any(sep_deg[window_indices] < min_sep))
+    for i in window_indices:
+        if _ks_delta_mag(illumination_pct, float(sep_deg[i]),
+                         float(moon_alt_deg[i])) >= _KS_MODERATE_THRESH:
+            return True
+    return False
 
 
 def _meteor_shower_note(entry: dict, night_date) -> str | None:
@@ -255,8 +265,7 @@ def _meteor_shower_note(entry: dict, night_date) -> str | None:
 def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                     moon_astr, moon_alt_deg_all,
                     illumination_pct: float, night_date,
-                    min_elevation: float, moon_min_sep: float,
-                    moon_max_illum: float,
+                    min_elevation: float,
                     obs_start: datetime, obs_end: datetime,
                     sky_sqm: float | None = None) -> "VisibleTarget | None":
     name     = entry["name"]
@@ -335,8 +344,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
 
     windows = []
     for window, indices in windows_with_idx:
-        window.moon_interference = _moon_interferes(obs_sep, indices, illumination_pct,
-                                                    moon_min_sep, moon_max_illum)
+        window.moon_interference = _moon_interferes(obs_sep, obs_moon_alt, indices,
+                                                    illumination_pct)
 
         # Store moon separation and altitude at peak time for the K&S sky brightness model.
         try:
@@ -371,6 +380,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
 
             win_indices = [i for i, dt in enumerate(obs_dts)
                            if window.start <= dt <= window.end]
+            first_photo_ok = None
             last_photo_ok  = None
             last_visual_ok = None
             for i in win_indices:
@@ -387,6 +397,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                     visual_ok = mag < sky_now - compact_visual
 
                 if photo_ok:
+                    if last_photo_ok is None:
+                        first_photo_ok = obs_dts[i]   # first viable sample in window
                     last_photo_ok = obs_dts[i]
                     any_photo_ok_global = True
                 if visual_ok:
@@ -403,6 +415,10 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                 window.ks_computed = True
             if last_visual_ok is not None and last_visual_ok < window.end:
                 window.visual_cutoff = last_visual_ok
+            # Set photo_start when the first viable sample is not the window start —
+            # this happens when the moon is already up and K&S takes time to clear.
+            if first_photo_ok is not None and first_photo_ok > window.start:
+                window.photo_start = first_photo_ok
 
         # For Milky Way waypoints, compute the arch angle (plane vs horizon)
         # using a reference point 30° further along the galactic plane.
@@ -466,8 +482,6 @@ def visible_targets(
     night_start: datetime | None = None,
     night_end: datetime | None   = None,
     min_elevation: float = DEFAULT_MIN_ELEVATION,
-    moon_min_sep: float  = DEFAULT_MOON_MIN_SEP,
-    moon_max_illum: float = DEFAULT_MOON_MAX_ILLUM,
     sky_sqm: float | None = None,
 ) -> list:
     """
@@ -517,7 +531,7 @@ def visible_targets(
                 entry, observer, eph, t_array, sample_dts,
                 moon_astr, moon_alt_deg_all,
                 illumination_pct, night_date,
-                min_elevation, moon_min_sep, moon_max_illum,
+                min_elevation,
                 obs_start, obs_end,
                 sky_sqm=_sky_sqm,
             )
@@ -823,8 +837,23 @@ def milky_way_arch_summary(
             arch_end     = moonrise
             moon_limited = True
 
-    # Moonset advance (moon already up at arch start → wait for it to set)
-    if moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+    # Arch-start advance: when the moon is up at arch_start, K&S photo_start
+    # marks the first sample where each waypoint becomes photo-viable again.
+    # Use the latest such start across all visible waypoints — the arch is only
+    # fully usable once every waypoint clears the moon-brightening threshold.
+    # Fall back to the legacy moonset heuristic only when K&S couldn't run.
+    all_photo_starts = [
+        w.photo_start
+        for t in mw_targets
+        for w in t.windows
+        if w.photo_start is not None
+        and arch_start < w.photo_start < arch_end
+    ]
+    if all_photo_starts:
+        arch_start   = max(all_photo_starts)
+        moon_limited = True
+    elif not ks_ran and moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+        # Legacy moonset advance fallback (no K&S data available)
         if moonset and arch_start < moonset < arch_end:
             arch_start   = moonset
             moon_limited = True
