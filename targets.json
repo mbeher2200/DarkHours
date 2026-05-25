@@ -3,193 +3,249 @@
     "name": "Orion Nebula",
     "type": "nebula",
     "ra": "05h 35m 17s",
-    "dec": "-05° 23' 28\""
+    "dec": "-05° 23' 28\"",
+    "magnitude": 4.0,
+    "surface_brightness": 13.0
   },
   {
     "name": "Lagoon Nebula",
     "type": "nebula",
     "ra": "18h 03m 37s",
-    "dec": "-24° 23' 12\""
+    "dec": "-24° 23' 12\"",
+    "magnitude": 5.8,
+    "surface_brightness": 14.0
   },
   {
     "name": "Eagle Nebula",
     "type": "nebula",
     "ra": "18h 18m 48s",
-    "dec": "-13° 49' 00\""
+    "dec": "-13° 49' 00\"",
+    "magnitude": 6.4,
+    "surface_brightness": 14.5
   },
   {
     "name": "Swan Nebula",
     "type": "nebula",
     "ra": "18h 20m 26s",
-    "dec": "-16° 10' 36\""
+    "dec": "-16° 10' 36\"",
+    "magnitude": 6.0,
+    "surface_brightness": 14.0
   },
   {
     "name": "Trifid Nebula",
     "type": "nebula",
     "ra": "18h 02m 23s",
-    "dec": "-23° 01' 48\""
+    "dec": "-23° 01' 48\"",
+    "magnitude": 6.3,
+    "surface_brightness": 14.5
   },
   {
     "name": "Ring Nebula",
     "type": "nebula",
     "ra": "18h 53m 35s",
-    "dec": "+33° 01' 45\""
+    "dec": "+33° 01' 45\"",
+    "magnitude": 8.8,
+    "surface_brightness": 13.0
   },
   {
     "name": "Dumbbell Nebula",
     "type": "nebula",
     "ra": "19h 59m 36s",
-    "dec": "+22° 43' 16\""
+    "dec": "+22° 43' 16\"",
+    "magnitude": 7.4,
+    "surface_brightness": 13.5
   },
   {
     "name": "Veil Nebula",
     "type": "nebula",
     "ra": "20h 45m 38s",
-    "dec": "+30° 42' 30\""
+    "dec": "+30° 42' 30\"",
+    "magnitude": 7.0,
+    "surface_brightness": 17.0
   },
   {
     "name": "North America Nebula",
     "type": "nebula",
     "ra": "20h 58m 47s",
-    "dec": "+44° 20' 00\""
+    "dec": "+44° 20' 00\"",
+    "magnitude": 4.0,
+    "surface_brightness": 17.5
   },
   {
     "name": "Crab Nebula",
     "type": "nebula",
     "ra": "05h 34m 32s",
-    "dec": "+22° 00' 52\""
+    "dec": "+22° 00' 52\"",
+    "magnitude": 8.4,
+    "surface_brightness": 12.5
   },
   {
     "name": "Helix Nebula",
     "type": "nebula",
     "ra": "22h 29m 38s",
-    "dec": "-20° 50' 13\""
+    "dec": "-20° 50' 13\"",
+    "magnitude": 7.3,
+    "surface_brightness": 13.5
   },
   {
     "name": "Carina Nebula",
     "type": "nebula",
     "ra": "10h 43m 48s",
-    "dec": "-59° 52' 04\""
+    "dec": "-59° 52' 04\"",
+    "magnitude": 1.0,
+    "surface_brightness": 14.0
   },
   {
     "name": "Rosette Nebula",
     "type": "nebula",
     "ra": "06h 31m 55s",
-    "dec": "+04° 56' 00\""
+    "dec": "+04° 56' 00\"",
+    "magnitude": 5.5,
+    "surface_brightness": 17.0
   },
   {
     "name": "Andromeda Galaxy",
     "type": "galaxy",
     "ra": "00h 42m 44s",
-    "dec": "+41° 16' 09\""
+    "dec": "+41° 16' 09\"",
+    "magnitude": 3.4,
+    "surface_brightness": 13.5
   },
   {
     "name": "Triangulum Galaxy",
     "type": "galaxy",
     "ra": "01h 33m 51s",
-    "dec": "+30° 39' 37\""
+    "dec": "+30° 39' 37\"",
+    "magnitude": 5.7,
+    "surface_brightness": 14.2
   },
   {
     "name": "Whirlpool Galaxy",
     "type": "galaxy",
     "ra": "13h 29m 53s",
-    "dec": "+47° 11' 43\""
+    "dec": "+47° 11' 43\"",
+    "magnitude": 8.4,
+    "surface_brightness": 13.0
   },
   {
     "name": "Sombrero Galaxy",
     "type": "galaxy",
     "ra": "12h 39m 59s",
-    "dec": "-11° 37' 23\""
+    "dec": "-11° 37' 23\"",
+    "magnitude": 8.0,
+    "surface_brightness": 12.0
   },
   {
     "name": "Pinwheel Galaxy",
     "type": "galaxy",
     "ra": "14h 03m 13s",
-    "dec": "+54° 20' 57\""
+    "dec": "+54° 20' 57\"",
+    "magnitude": 7.9,
+    "surface_brightness": 14.8
   },
   {
     "name": "Bode's Galaxy",
     "type": "galaxy",
     "ra": "09h 55m 33s",
-    "dec": "+69° 03' 55\""
+    "dec": "+69° 03' 55\"",
+    "magnitude": 6.9,
+    "surface_brightness": 12.5
   },
   {
     "name": "Sculptor Galaxy",
     "type": "galaxy",
     "ra": "00h 47m 33s",
-    "dec": "-25° 17' 18\""
+    "dec": "-25° 17' 18\"",
+    "magnitude": 7.1,
+    "surface_brightness": 13.0
   },
   {
     "name": "Centaurus A",
     "type": "galaxy",
     "ra": "13h 25m 28s",
-    "dec": "-43° 01' 09\""
+    "dec": "-43° 01' 09\"",
+    "magnitude": 6.8,
+    "surface_brightness": 12.5
   },
   {
     "name": "Large Magellanic Cloud",
     "type": "galaxy",
     "ra": "05h 23m 34s",
-    "dec": "-69° 45' 22\""
+    "dec": "-69° 45' 22\"",
+    "magnitude": 0.9,
+    "surface_brightness": 13.5
   },
   {
     "name": "Small Magellanic Cloud",
     "type": "galaxy",
     "ra": "00h 52m 38s",
-    "dec": "-72° 48' 01\""
+    "dec": "-72° 48' 01\"",
+    "magnitude": 2.7,
+    "surface_brightness": 14.5
   },
   {
     "name": "Leo Triplet",
     "type": "galaxy",
     "ra": "11h 20m 15s",
-    "dec": "+12° 59' 29\""
+    "dec": "+12° 59' 29\"",
+    "magnitude": 9.0,
+    "surface_brightness": 13.5
   },
   {
     "name": "Pleiades",
     "type": "cluster",
     "ra": "03h 47m 24s",
-    "dec": "+24° 07' 00\""
+    "dec": "+24° 07' 00\"",
+    "magnitude": 1.6
   },
   {
     "name": "Hercules Cluster",
     "type": "cluster",
     "ra": "16h 41m 42s",
-    "dec": "+36° 27' 36\""
+    "dec": "+36° 27' 36\"",
+    "magnitude": 5.8
   },
   {
     "name": "Omega Centauri",
     "type": "cluster",
     "ra": "13h 26m 47s",
-    "dec": "-47° 28' 47\""
+    "dec": "-47° 28' 47\"",
+    "magnitude": 3.9
   },
   {
     "name": "Double Cluster",
     "type": "cluster",
     "ra": "02h 19m 00s",
-    "dec": "+57° 07' 42\""
+    "dec": "+57° 07' 42\"",
+    "magnitude": 4.3
   },
   {
     "name": "Beehive Cluster",
     "type": "cluster",
     "ra": "08h 40m 22s",
-    "dec": "+19° 41' 17\""
+    "dec": "+19° 41' 17\"",
+    "magnitude": 3.7
   },
   {
     "name": "47 Tucanae",
     "type": "cluster",
     "ra": "00h 24m 06s",
-    "dec": "-72° 04' 52\""
+    "dec": "-72° 04' 52\"",
+    "magnitude": 4.0
   },
   {
     "name": "Wild Duck Cluster",
     "type": "cluster",
     "ra": "18h 51m 05s",
-    "dec": "-06° 16' 00\""
+    "dec": "-06° 16' 00\"",
+    "magnitude": 6.3
   },
   {
     "name": "Jewel Box",
     "type": "cluster",
     "ra": "12h 53m 42s",
-    "dec": "-60° 21' 24\""
+    "dec": "-60° 21' 24\"",
+    "magnitude": 4.2
   },
   {
     "name": "Galactic Core",
@@ -197,6 +253,7 @@
     "galactic_l": 0,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 17.0,
     "description": "Sagittarius A* — brightest, richest region of the summer Milky Way"
   },
   {
@@ -205,6 +262,7 @@
     "galactic_l": 36,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 17.5,
     "description": "Rich star cloud in the Scutum-Centaurus arm — brilliant naked-eye patch"
   },
   {
@@ -213,6 +271,7 @@
     "galactic_l": 72,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 18.0,
     "description": "Northern Cross / Cygnus X region — overhead in summer for northern observers, extremely rich"
   },
   {
@@ -221,6 +280,7 @@
     "galactic_l": 108,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 18.5,
     "description": "Cepheus OB associations and IC 1396 — bridge between the summer and winter Milky Way"
   },
   {
@@ -229,6 +289,7 @@
     "galactic_l": 144,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 19.0,
     "description": "Double Cluster and Cassiopeia W — one of the brightest winter Milky Way sections"
   },
   {
@@ -237,6 +298,7 @@
     "galactic_l": 180,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 19.5,
     "description": "Auriga/Gemini — the point directly opposite the galactic core"
   },
   {
@@ -245,6 +307,7 @@
     "galactic_l": 216,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 19.0,
     "description": "Rosette Nebula region and winter southern band — symmetric counterpart to Scutum"
   },
   {
@@ -253,6 +316,7 @@
     "galactic_l": 252,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 18.0,
     "description": "Puppis/Vela — southern counterpart to the Cygnus Star Cloud; spectacular from southern latitudes"
   },
   {
@@ -261,6 +325,7 @@
     "galactic_l": 288,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 17.5,
     "description": "Carina–Sagittarius arm — contains Eta Carinae; most spectacular MW region for southern hemisphere observers"
   },
   {
@@ -269,6 +334,7 @@
     "galactic_l": 324,
     "galactic_b": 0,
     "min_elevation": 10,
+    "surface_brightness": 17.5,
     "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core"
   },
   {
