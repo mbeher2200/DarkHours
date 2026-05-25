@@ -500,7 +500,11 @@ def visible_targets(
     eph      = _ephemeris()
     observer = eph["earth"] + wgs84.latlon(lat, lon)
 
-    # Full sample window sunset→sunrise (needed for planet twilight coverage)
+    # Full sample window sunset→sunrise (needed for planet twilight coverage).
+    # Anchor times (sunset, night_start, night_end, sunrise) are injected as
+    # exact sample points so that window start/end times always align precisely
+    # with the reported astronomical night boundaries — without them the last
+    # eligible sample can fall up to (SAMPLE_INTERVAL_MIN - 1) minutes early.
     total_min  = int((sunrise - sunset).total_seconds() / 60)
     sample_dts = [
         sunset + timedelta(minutes=i)
@@ -508,6 +512,11 @@ def visible_targets(
     ]
     if sample_dts and sample_dts[-1] > sunrise:
         sample_dts[-1] = sunrise
+
+    # Inject boundary anchors if they don't already coincide with a grid point.
+    anchors = [t for t in (night_start, night_end) if t is not None]
+    if anchors:
+        sample_dts = sorted(set(sample_dts) | set(anchors))
 
     t_array    = ts.from_datetimes(sample_dts)
     moon_astr  = observer.at(t_array).observe(eph["moon"])
@@ -684,6 +693,40 @@ def _ks_delta_mag(
     I_scatter = f_rho * ext * I_moon
     I_sky     = 10 ** ((27.78 - sky_sqm) / 2.5)
     return 2.5 * math.log10(1.0 + I_scatter / I_sky)
+
+
+# Fixed geometry used for site-wide K&S credit evaluation (not per-target).
+# 90° separation = darkest accessible sky (cos²ρ minimum in the scattering function).
+# 30° altitude   = representative mid-sky moon position.
+_KS_CREDIT_SEP_DEG = 90.0
+_KS_CREDIT_ALT_DEG = 30.0
+
+# Illumination below which the moon's sky brightening is imperceptible-to-minor at
+# 90° separation regardless of altitude.  Used as the crescent-exemption threshold
+# for the "Prime Dark Sky Hours" display in predictor.py.
+KS_CRESCENT_EXEMPTION_PCT = 20.0
+
+
+def ks_moon_credit(illumination_pct: float) -> float:
+    """
+    Return a 0–1 credit for moon-up time based on actual K&S sky brightening.
+
+    Evaluates K&S at the site-wide proxy geometry (90° separation, 30° altitude)
+    and normalises so that Δmag = _KS_SEVERE_THRESH (1.5) maps to 0 credit.
+
+    Replaces the naive (1 − illum/100) approximation used in moon_score:
+
+      illumination   naive credit   K&S credit
+        5%  crescent    0.95          0.96   — essentially unchanged
+       15%  crescent    0.85          0.86   — unchanged (minor impact preserved)
+       50%  quarter     0.50          0.31   — correctly penalised (Δ1.03 = severe)
+       75%  gibbous     0.25          0.00   — correctly zeroed (Δ1.73 > severe)
+      100%  full        0.00          0.00   — unchanged
+
+    The key win is the 30–75% range where the naive formula is far too generous.
+    """
+    delta = _ks_delta_mag(illumination_pct, _KS_CREDIT_SEP_DEG, _KS_CREDIT_ALT_DEG)
+    return max(0.0, 1.0 - delta / _KS_SEVERE_THRESH)
 
 
 def moon_wash_severity(

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import darksky as _ds
 import scoring
 import sky_events as se
+from targets import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 import weather as wx
 
 log = logging.getLogger(__name__)
@@ -118,22 +119,38 @@ def assemble_night(
         dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
         total_astro_hours  = (night_end - night_start).total_seconds() / 3600
 
-        # Moon score: weight illumination by the fraction of dark time the moon
-        # is actually up.  Moon-free time scores full marks; moonlit time scores
-        # proportionally to how dim the moon is.
+        # Moon score: weight moonlit fraction by K&S sky-brightening credit rather
+        # than the naive (1 − illum/100) approximation.  K&S is evaluated at the
+        # site-wide proxy geometry (90° sep, 30° alt) — the darkest accessible sky.
         #
-        #   score = 10 × (moon_free_frac  +  moonlit_frac × (1 − illum/100))
+        #   score = 10 × (moon_free_frac  +  moonlit_frac × ks_credit)
         #
-        # A full moon rising 20 min before dawn no longer scores 0/10.
-        # A full moon up all night still scores 0/10.
+        # Key improvements over the naive formula:
+        #   50% quarter moon → credit 0.31  (was 0.50) — correctly penalised
+        #   75% gibbous      → credit 0.00  (was 0.25) — correctly zeroed
+        #   ≤15% crescent    → credit ~0.96 (was ~0.85) — minor difference only
         moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
-        moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * (1 - illumination / 100)), 1)
+        moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * ks_moon_credit(illumination)), 1)
+
+        # Crescent exemption for the *displayed* Prime Dark Sky Hours:
+        # illumination ≤ 20% → K&S shows Δmag < 0.25 at 90° sep regardless of altitude
+        # (imperceptible-to-minor).  Report the full astronomical window as dark rather
+        # than subtracting the few hours the crescent is technically above the horizon.
+        # The underlying geometric intervals are preserved for weather score weighting.
+        if illumination <= KS_CRESCENT_EXEMPTION_PCT and total_astro_hours > 0:
+            display_dark_hours     = total_astro_hours
+            display_dark_intervals = [(night_start, night_end)]
+        else:
+            display_dark_hours     = dark_hours_tonight
+            display_dark_intervals = intervals
     else:
         # No astronomical darkness (polar summer / always dark) — timing
-        # is undefined; fall back to illumination-only score.
-        intervals          = []
-        dark_hours_tonight = 0.0
-        moon_score         = round(10 * (1 - illumination / 100), 1)
+        # is undefined; fall back to K&S credit score only.
+        intervals              = []
+        dark_hours_tonight     = 0.0
+        display_dark_hours     = 0.0
+        display_dark_intervals = []
+        moon_score             = round(10 * ks_moon_credit(illumination), 1)
 
     # --- Lunar cycle dark analysis ---
     cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
@@ -213,7 +230,7 @@ def assemble_night(
     # --- Visible targets ---
     target_list = []
     if fetch_targets:
-        import targets as _tgt
+        import targets as _tgt  # full module; ks_moon_credit already imported at top
         site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
         target_list = _tgt.visible_targets(lat, lon, sunset, sunrise, illumination,
                                             night_start=night_start, night_end=night_end,
@@ -238,8 +255,8 @@ def assemble_night(
         phase_name=phase_name,
         illumination_pct=illumination,
         moon_score=moon_score,
-        dark_intervals=intervals,
-        dark_hours=round(dark_hours_tonight, 2),
+        dark_intervals=display_dark_intervals,
+        dark_hours=round(display_dark_hours, 2),
         dark_cycle=cycle,
         dark_score=dark_score,
         light_pollution=ds_info,

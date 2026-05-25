@@ -15,63 +15,82 @@ The tool displays:
 - **Night Timeline** — Sunset, astronomical night begins/ends, moonrise/set, sunrise
 - **Light Pollution** — SQM reading, Bortle class, and djlorenz zone for the exact location
 - **Moon** — Phase and percent illumination at sunset
-- **Prime Dark Sky Hours** — Total moon-free hours within astronomical darkness tonight, plus the average and standard deviation across the current 30-night lunar cycle (used to put tonight's dark time in context for scoring)
+- **Prime Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
 - **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
 
-Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --prime-targets`):
+Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-05-14 --prime-targets --weather`):
 ```
-Date:               2026-05-23
+Date:               2026-05-14
 Location:           Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°, -112.1282°)
 Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]
-Moon:               First Quarter  |  56.8% illuminated
-Prime Dark Sky Hours:  1h 57m  ( 1:34 AM –  3:32 AM MST)  ·  avg 3.1h  ±2.5h over lunar cycle
-Night Quality Score:  5.6/10  (Lunar 4.3 · Dark Hours 3.0 · Weather 8.5 · Bortle 8.9)
+Moon:               Waning Crescent  |  4.4% illuminated
+Prime Dark Sky Hours:  6h 33m  ( 9:07 PM –  3:41 AM MST)  ·  avg 3.1h  ±2.5h over lunar cycle
+Night Quality Score:  9.4/10  (Lunar 10.0 · Dark Hours 10.0 · Weather 8.9 · Bortle 8.9)
 
 Night Timeline:
 
   Time (MST)        Event
   ----------------  -------------------------
-  May 23, 12:33 PM  Moonrise
-  May 23,  7:33 PM  Sunset
-  May 23,  9:18 PM  Astronomical night begins
-  May 24,  1:34 AM  Moonset
-  May 24,  3:32 AM  Astronomical night ends
-  May 24,  5:16 AM  Sunrise
+  May 14,  7:26 PM  Sunset
+  May 14,  9:07 PM  Astronomical night begins
+  May 15,  3:41 AM  Astronomical night ends
+  May 15,  4:11 AM  Moonrise
+  May 15,  5:22 AM  Sunrise
 
-Prime Targets  ( 7:33 PM –  5:16 AM MST):
+Weather:
 
-  Target                Best Viewing                                  Sky        Window
-  --------------------  --------------------------------------------  ---------  -------------------------------
-  Milky Way
-    5.3/10  (Altitude 10.0/10  ·  Waypoints 6.2/10  ·  Window 3.6/10  ·  moon penalty)
-    Visible   1:34 AM –  3:23 AM  ·  1h 48m  ·  Core 25°/25°  ·  5 of 8 waypoints visible  ·  moon-limited
-    Best time      2:03 AM  —  core 25° S, arch sweeps to Cygnus Star Cloud (76° E)
-  Galactic Core          2:03 AM @ 25°  179°(S)  arch 48° (moderate)  Dark sky  10:53 PM @ 11° –  3:23 AM @ 23°
-  Scutum Star Cloud      3:13 AM @ 57°  178°(S)  arch 26° (flat)      Dark sky  10:03 PM @ 11° –  3:23 AM @ 57°
-  Cygnus Star Cloud      3:23 AM @ 76°  92°(E)   arch 61° (steep)     Dark sky   9:43 PM @ 11° –  3:23 AM @ 76°
-  Cepheus Cloud          3:23 AM @ 47°  39°(NE)  arch 76° (steep)     Dark sky   9:43 PM @ 11° –  3:23 AM @ 47°
-  Perseus/Cassiopeia     3:23 AM @ 12°  27°(NE)  arch 76° (steep)     Dark sky   3:03 AM @ 11° –  3:23 AM @ 12°
+  Time (MST)        Wx Rating  Cloud  Temp  Feels  Humid     Wind  Precip
+  ----------------  ---------  -----  ----  -----  -----  -------  ------
+  May 14,  7:00 PM       9/10     0%  70°F   60°F    12%   9.4mph  None
+  May 14,  8:00 PM      10/10     0%  66°F   57°F    14%   7.0mph  None
+  May 14,  9:00 PM       5/10    40%  62°F   51°F    16%  11.4mph  None
+  May 14, 10:00 PM       9/10     0%  60°F   49°F    18%  13.1mph  None
+  May 14, 11:00 PM       9/10     0%  59°F   47°F    18%  15.1mph  None
+  May 15, 12:00 AM       9/10     0%  55°F   43°F    18%  15.6mph  None
+  May 15,  1:00 AM       9/10     0%  54°F   43°F    20%  12.1mph  None
+  May 15,  2:00 AM       9/10     0%  54°F   42°F    18%  13.5mph  None
+  May 15,  3:00 AM       9/10     0%  50°F   39°F    28%  12.9mph  None
+  May 15,  4:00 AM       9/10     0%  48°F   38°F    30%  11.1mph  None
+  May 15,  5:00 AM       9/10     0%  48°F   38°F    34%  10.2mph  None
+  May 15,  6:00 AM       9/10     0%  49°F   39°F    31%  10.9mph  None
+
+Prime Targets  ( 7:26 PM –  5:22 AM MST):
+
+  Milky Way: 9.0/10  (Altitude 10.0/10  ·  Waypoints 7.5/10  ·  Window 8.5/10)
+  Visible  11:26 PM –  3:41 AM  ·  4h 12m  ·  Core 25°/25°  ·  6 of 8 waypoints visible
+  Best time      2:46 AM  —  core 25° S, arch sweeps to Cygnus Star Cloud (72° E)
+
+
+  Target                Best Viewing                                  Sky       Astrophotography Window
+  --------------------  --------------------------------------------  --------  -------------------------------
+
+  Galactic Core          2:46 AM @ 25°  181°(S)  arch 50° (moderate)  Dark sky  11:26 PM @ 10° –  3:41 AM @ 24°
+  Cygnus Star Cloud      3:41 AM @ 72°   89°(E)  arch 56° (moderate)  Dark sky  10:16 PM @ 10° –  3:41 AM @ 72°
+  Scutum Star Cloud      3:41 AM @ 57°  174°(S)  arch 25° (flat)      Dark sky  10:36 PM @ 10° –  3:41 AM @ 57°
+  Cepheus Cloud          3:41 AM @ 45°   39°(NE)  arch 73° (steep)    Dark sky  10:16 PM @ 10° –  3:41 AM @ 45°
 
   Clusters
-  Hercules Cluster       1:03 AM @ 90°  343°(N)                       Moon wash   9:23 PM @ 46° –  3:23 AM @ 62°
-  Wild Duck Cluster      3:13 AM @ 48°  180°(S)                       Dark sky   11:23 PM @ 22° –  3:23 AM @ 48°
+  Beehive Cluster        9:07 PM @ 42°  265°(W)                       Dark sky   9:07 PM @ 42° – 10:46 PM @ 22°
+  Hercules Cluster       1:36 AM @ 89°   48°(NE)                      Dark sky   9:07 PM @ 36° –  3:41 AM @ 65°
+  Wild Duck Cluster      3:41 AM @ 48°  178°(S)                       Dark sky  11:56 PM @ 21° –  3:41 AM @ 48°
 
   Planets
-  Jupiter                7:33 PM @ 42°  268°(W)                       Moon wash   7:33 PM @ 42° –  9:13 PM @ 22°
+  Jupiter                7:26 PM @ 49°  263°(W)                       Twilight   7:26 PM @ 49° –  9:46 PM @ 21°
 
   Nebulae
-  Eagle Nebula           2:43 AM @ 40°  181°(S)                       Dark sky   11:13 PM @ 20° –  3:23 AM @ 39°
-  Ring Nebula            3:13 AM @ 87°  176°(S)                       Dark sky    9:23 PM @ 20° –  3:23 AM @ 86°
-  Dumbbell Nebula        3:23 AM @ 72°  133°(SE)                      Dark sky   11:03 PM @ 21° –  3:23 AM @ 72°
-  Veil Nebula            3:23 AM @ 68°  96°(E)                        Dark sky   11:23 PM @ 21° –  3:23 AM @ 68°
-  North America Nebula   3:23 AM @ 66°  60°(NE)                       Dark sky   10:53 PM @ 20° –  3:23 AM @ 66°
+  Eagle Nebula           3:16 AM @ 40°  180°(S)                       Dark sky  11:56 PM @ 21° –  3:41 AM @ 40°
+  Ring Nebula            3:41 AM @ 86°  148°(SE)                      Dark sky  10:06 PM @ 22° –  3:41 AM @ 86°
+  Dumbbell Nebula        3:41 AM @ 69°  124°(SE)                      Dark sky  11:36 PM @ 21° –  3:41 AM @ 69°
+  Veil Nebula            3:41 AM @ 64°   93°(E)                       Dark sky  11:56 PM @ 20° –  3:41 AM @ 64°
+  North America Nebula   3:41 AM @ 63°   61°(NE)                      Dark sky  11:36 PM @ 21° –  3:41 AM @ 63°
 
   Galaxies
-  Bode's Galaxy          9:23 PM @ 49°  337°(NW)                      Moon wash   9:23 PM @ 49° –  3:13 AM @ 20°
-  Sombrero Galaxy        9:23 PM @ 42°  187°(S)                       Moon wash   9:23 PM @ 42° – 12:33 AM @ 21°
-  Whirlpool Galaxy       9:53 PM @ 79°  359°(N)                       Moon wash   9:23 PM @ 78° –  3:23 AM @ 30°
-  Pinwheel Galaxy       10:23 PM @ 72°  1°(N)                         Moon wash   9:23 PM @ 69° –  3:23 AM @ 37°
+  Leo Triplet            9:07 PM @ 64°  209°(SW)                      Dark sky   9:07 PM @ 64° –  1:06 AM @ 22°
+  Bode's Galaxy          9:07 PM @ 52°  341°(N)                       Dark sky   9:07 PM @ 52° –  3:41 AM @ 21°
+  Sombrero Galaxy        9:36 PM @ 42°  180°(S)                       Dark sky   9:07 PM @ 42° –  1:06 AM @ 21°
+  Whirlpool Galaxy      10:26 PM @ 79°    1°(N)                       Dark sky   9:07 PM @ 71° –  3:41 AM @ 33°
+  Pinwheel Galaxy       10:56 PM @ 72°    2°(N)                       Dark sky   9:07 PM @ 63° –  3:41 AM @ 40°
 ```
 
 ## Night Quality Score (1–10)
@@ -81,7 +100,7 @@ The tool evaluates four factors and produces a composite score:
 | Factor | Weight | Scoring |
 |--------|--------|---------|
 | **Weather** | 40% | Cloud cover, seeing, transparency, humidity, and precipitation |
-| **Lunar Interference** | 25% | 10 = new moon, 0 = full moon |
+| **Lunar Interference** | 25% | K&S sky-brightening credit at 90° separation, 30° altitude — 10 = new moon, ≈0 = gibbous or full; crescent moons score near 10 even when above the horizon |
 | **Dark Sky Hours** | 25% | Based on your location's typical lunar cycle; scores relative to best conditions |
 | **Light Pollution** | 10% | 10 = no pollution (Bortle 1), decreases with light-polluted skies (Bortle 9) |
 
@@ -89,12 +108,62 @@ Weights redistribute automatically when a factor is unavailable (e.g. no weather
 
 The score uses a weighted geometric mean: every factor influences the result proportionally, and a single zero factor (complete cloud cover, full moon) will zero the overall score. A factor of 1/10 with 40% weight contributes roughly 0.25× to the product, so bad factors still drag the score down significantly without needing a separate penalty term.
 
+See [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991) for how the Lunar Interference factor is computed.
+
 **Score interpretation:**
 - **9–10**: Excellent — Perfect conditions for astronomy
 - **7–8**: Good — Suitable for astrophotography and observing
 - **5–6**: Fair — Usable but compromised (clouds, moon, or light pollution)
 - **3–4**: Poor — Challenging conditions
 - **1–2**: Unusable — Heavy clouds, full moon, or bad weather
+
+## Moonlight Modeling (Krisciunas & Schaefer 1991)
+
+PyNightSkyPredictor models scattered moonlight using the empirical photometric model of **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* Publications of the Astronomical Society of the Pacific, 103(667), 1033–1039. [https://doi.org/10.1086/132921](https://doi.org/10.1086/132921)
+
+The model computes the sky surface brightness increase (Δ mag/arcsec²) at any sky position given the moon's illumination, altitude, and angular separation from the target. It accounts for the moon's phase-dependent luminosity, atmospheric extinction along the moon's air-mass path, and a scattering phase function that produces the characteristic brightening both near the moon *and* at the antisolar point (~180° away).
+
+### Why it matters
+
+A simple moonrise/moonset boundary treats all moon phases identically — a 5% crescent and a 90% gibbous both count as equally "moon-up." K&S makes the distinction physically meaningful:
+
+| Phase | Δmag at 90° sep, alt 30° | Impact |
+|---|---|---|
+| 5% crescent | 0.06 | Imperceptible |
+| 15% crescent | 0.21 | Minor |
+| 50% quarter | 1.03 | Severe |
+| 75% gibbous | 1.73 | Severe |
+| 100% full | 3.16 | Very severe |
+
+The transition from negligible to severe is sharp — it occurs between roughly 20% and 30% illumination. This means a waxing or waning crescent moon being "above the horizon" is not meaningfully different from a moonless night.
+
+### Severity thresholds
+
+| Threshold | Δmag/arcsec² | Meaning |
+|---|---|---|
+| Imperceptible | < 0.10 | No practical effect on deep-sky imaging |
+| Minor | 0.10 – 0.50 | Slight brightening; faint nebulae and galaxies unaffected |
+| Moderate | 0.50 – 1.50 | Noticeable; low-surface-brightness targets impacted |
+| Severe | ≥ 1.50 | Sky substantially brighter; deep DSO imaging limited |
+
+### Proxy geometry for site-wide evaluation
+
+K&S is inherently directional — it depends on where in the sky you're looking relative to the moon. For site-wide metrics (night score, prime dark sky hours) a reference sky position is needed. PyNightSkyPredictor uses **90° separation at 30° altitude** as the proxy:
+
+- **90° separation** is the darkest accessible sky position: the K&S scattering function reaches its minimum there (the cos²ρ term vanishes), so 90° represents the best realistic observing position when the moon is up — not the worst case and not an unreachable antipode
+- **30° altitude** is a representative mid-sky moon position over the course of an evening
+
+For per-target evaluation, the actual moon–target separation and moon altitude are computed from the Skyfield ephemeris at each 20-minute sample window.
+
+### How it affects the output
+
+**Lunar Interference score** — The moon-up fraction of the astronomical night is weighted by the K&S credit at the proxy geometry rather than the naive `(1 − illumination/100)` formula. A quarter moon's moonlit hours receive 0.31 credit (down from 0.50); a gibbous moon's moonlit hours receive 0 (down from 0.25).
+
+**Prime Dark Sky Hours** — When illumination is ≤20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as prime dark sky time rather than subtracting the brief crescent-up intervals.
+
+**Astrophotography Window per target** — For each target, K&S is evaluated at the actual moon–target separation and moon altitude at every sample. The photo window is clipped at the point where Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness minus sky background minus 3.2 mag; clusters: integrated magnitude minus site SQM minus 13.0; Milky Way: surface brightness minus sky background minus 1.5 mag).
+
+**Light pollution interaction** — The site's SQM (sky quality meter reading) enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
 
 ## Installation
 
@@ -148,10 +217,12 @@ python pynightsky.py --location "Death Valley" --prime-targets
 
 Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude and azimuth, the full window with start/end elevations, and a **sky condition** indicating the lighting when the target peaks:
 
-- **Dark sky** — peak falls within astronomical darkness *and* the moon is below the horizon (best conditions)
-- **Astro night** — peak falls within astronomical darkness but the moon is up
-- **Moon wash** — peak falls while the moon is above the horizon and bright (≥25% illuminated); sky background is significantly elevated
+- **Dark sky** — peak falls within astronomical darkness *and* K&S sky brightening is below the moderate threshold (Δmag < 0.50); best conditions
+- **Astro night** — peak falls within astronomical darkness but K&S indicates minor moon interference
+- **Moon wash** — K&S sky brightening at the target's position is ≥0.50 mag/arcsec² (moderate or severe); sky background is significantly elevated
 - **Twilight** — peak falls outside astronomical darkness (sun less than 18° below horizon)
+
+The **Astrophotography Window** column shows the time span during which K&S-modelled sky conditions are good enough for imaging. When scattered moonlight degrades the sky past the photo threshold, the window is clipped at the start or end accordingly.
 
 Milky Way targets are automatically included in prime results whenever they're visible during astronomical darkness.
 
@@ -179,12 +250,12 @@ An arch summary appears above the individual waypoint rows:
 
 The **Core altitude ratio** (e.g. `21°/21°`) shows tonight's peak versus the latitude's geometric ceiling (`90° − |lat − (−29°)|`). Denver (40°N) can never see the core above 21°; Buenos Aires (35°S) can reach 84°; Quito (0°) reaches 61°. Identical values mean tonight is as good as it ever gets from this location.
 
-**Moon handling** — when the moon is ≥25% illuminated:
-- The arch window is clipped to the moon-free period: capped at moonrise (if the moon rises during the night) or advanced to moonset (if the moon is already up and sets mid-night)
+**Moon handling** — K&S sky-brightening is sampled at each waypoint's position throughout the night. When scattered moonlight degrades a waypoint past the photo threshold (Δmag ≥ 0.50 relative to the site's sky background):
+- The arch window is clipped at the first/last photo-viable sample (`photo_start` / `photo_cutoff`). When K&S runs and finds the entire window viable, no clipping is applied — the geometric moonrise/moonset heuristic is not used, preventing false cutoffs from thin crescent moons
 - The `· moon-limited` flag appears on the Visible line, and `· moon penalty` in the score breakdown
-- Any target whose best-viewing peak falls while the moon is up shows **Moon wash** as its sky condition
-- Milky Way waypoints that straddle moonrise show direction and arch angle only — no peak time — with the Window column clipped to moonrise, eliminating any contradiction with the arch summary
-- When the core's geometric peak falls outside the moon-free window, "Best time" becomes **Best before**, pointing to the last usable moment
+- Any target whose best-viewing peak exceeds the K&S moderate threshold shows **Moon wash** as its sky condition
+- Milky Way waypoints that straddle the K&S cutoff show direction and arch angle only — no peak time — with the Window column clipped accordingly
+- When the core's geometric peak falls outside the K&S-viable window, "Best time" becomes **Best before**, pointing to the last usable moment
 
 **High-latitude note:** From latitudes where the galactic core never clears the 10° elevation floor (roughly above 51°N or below 51°S), the summary block is replaced by a "Core below horizon" note listing the visible northern or southern band waypoints.
 
@@ -307,7 +378,7 @@ The project is structured as a layered engine with a thin CLI on top, making it 
 | `predictor.py` | Engine — assembles a `NightReport` dataclass from all data sources |
 | `scoring.py` | Scoring logic — night rating and weather score calculations |
 | `sky_events.py` | Astronomical primitives — sun/moon events, dark intervals, moon phase |
-| `targets.py` | Visible targets engine — window computation, moon interference, per-type clipping |
+| `targets.py` | Visible targets engine — window computation, K&S moonlight interference, per-type photo/visual clipping |
 | `targets.json` | Curated target catalog — nebulae, galaxies, clusters, Milky Way, planets, meteor showers |
 | `config.py` | Configuration loader — reads `config.json` with built-in defaults |
 | `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
@@ -383,6 +454,7 @@ All datasets remain under their original open licenses and attributions (see [AC
 - VIIRS: NASA/NOAA (Public Domain)
 - Falchi: GFZ Potsdam (ODbL with attribution)
 - Nominatim: OpenStreetMap contributors (ODbL)
+- Krisciunas & Schaefer moonlight model: cited below (academic use)
 
 ### Fair Use
 
@@ -393,3 +465,13 @@ This project uses these datasets for non-commercial research and educational pur
 - OSM/Nominatim: Attribution required; share-alike if redistributing
 
 For details, see [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+
+### Scientific Reference
+
+The moonlight scattering model is based on:
+
+> Krisciunas, K. & Schaefer, B. E. (1991). "A model of the brightness of moonlight."
+> *Publications of the Astronomical Society of the Pacific*, 103(667), 1033–1039.
+> DOI: [10.1086/132921](https://doi.org/10.1086/132921)
+
+The paper derives an empirical model for sky surface brightness as a function of lunar phase angle, moon altitude, and angular separation from the observed position, using V-band photometry and a standard atmospheric extinction coefficient. The model is widely used in observational astronomy for planning and site evaluation.

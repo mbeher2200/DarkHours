@@ -13,7 +13,8 @@ import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
-from targets import milky_way_arch_summary, mw_theoretical_core_max, moon_wash_severity
+from targets import (milky_way_arch_summary, mw_theoretical_core_max,
+                     moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT)
 
 log = logging.getLogger(__name__)
 
@@ -103,16 +104,17 @@ def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
 def _is_prime(target, min_peak_alt: float, min_window_hours: float) -> bool:
     """True if the target has a clean window meeting altitude and duration thresholds.
 
-    Milky Way targets are prime whenever they're visible during dark sky
-    without moon interference — no altitude or duration threshold applied.
+    Milky Way targets skip the altitude floor (the arch is inherently low from
+    mid-latitudes) but still require the minimum window duration — without it,
+    setting waypoints with 1–30 minute windows show up as prime.
     """
     clean = [w for w in target.windows if not w.moon_interference]
     if not clean:
         return False
-    if target.type == "milky_way":
-        return True
     best = max(clean, key=lambda w: w.peak_alt_deg)
     duration_h = (best.end - best.start).total_seconds() / 3600
+    if target.type == "milky_way":
+        return duration_h >= min_window_hours
     return best.peak_alt_deg >= min_peak_alt and duration_h >= min_window_hours
 
 
@@ -128,15 +130,41 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     label = "Prime Targets" if prime_only else "Visible Targets"
 
     if not targets:
-        lp = report.light_pollution
-        if lp and lp.get("bortle_class") is not None:
-            bc  = lp["bortle_class"]
-            sqm = lp.get("sqm")
-            sqm_str = f", SQM {sqm:.1f}" if sqm is not None else ""
-            print(f"{label}:  none — site light pollution (Bortle {bc}{sqm_str})"
-                  f" exceeds astrophotography contrast limits for all catalog objects.\n")
-        else:
+        # Distinguish three cases:
+        # 1. Prime filter culprit — there are visible targets but none meet the
+        #    altitude / duration thresholds (moon interference is the usual reason).
+        # 2. Moon culprit — a bright moon dominated the entire astronomical night
+        #    and K&S suppressed all catalog objects at the source.
+        # 3. Light pollution culprit — site SQM is too high for any catalog target
+        #    even on a hypothetical moonless night.
+        all_visible = report.visible_targets
+        # Moon up all astronomical night with significant illumination.
+        # Check this FIRST — it explains the empty list whether or not targets
+        # exist at all (bright targets survive K&S but still fail _is_prime
+        # because every window has moon_interference=True).
+        moon_dominated = (
+            not report.dark_intervals          # no moon-free geometric intervals
+            and report.night_start is not None # but there IS astronomical darkness
+            and report.night_end is not None
+            and report.illumination_pct > KS_CRESCENT_EXEMPTION_PCT
+        )
+        if moon_dominated:
+            print(f"{label}:  none — {report.phase_name}"
+                  f" ({report.illumination_pct:.0f}% illuminated) up throughout"
+                  f" astronomical darkness; no moon-free window for prime targets.\n")
+        elif prime_only and all_visible:
+            # Targets exist but none met altitude / duration thresholds.
             print(f"{label}:  none found for this night.\n")
+        else:
+            lp = report.light_pollution
+            if lp and lp.get("bortle_class") is not None:
+                bc      = lp["bortle_class"]
+                sqm     = lp.get("sqm")
+                sqm_str = f", SQM {sqm:.1f}" if sqm is not None else ""
+                print(f"{label}:  none — site light pollution (Bortle {bc}{sqm_str})"
+                      f" exceeds astrophotography contrast limits for all catalog objects.\n")
+            else:
+                print(f"{label}:  none found for this night.\n")
         return
 
     _TYPE_ORDER = {
@@ -283,11 +311,18 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     # ── Milky Way arch summary ───────────────────────────────────────────────
     # Compute first so it can be printed above the table, then referenced
     # again when deciding how to render the per-waypoint section in the loop.
-    mw_visible = [t for t in targets if t.type == "milky_way"]
+    #
+    # all_mw    — every visible MW target (unfiltered); used for the arch summary
+    #             so waypoint counts are accurate regardless of prime filtering.
+    # mw_visible — MW targets that pass the prime/all filter; used for the table
+    #             and "Visible band" listing (so 1-minute setting waypoints are
+    #             excluded when prime_only is True).
+    all_mw     = [t for t in report.visible_targets if t.type == "milky_way"]
+    mw_visible = [t for t in targets               if t.type == "milky_way"]
     mw_summary = None
-    if mw_visible:
+    if all_mw:
         mw_summary = milky_way_arch_summary(
-            mw_visible,
+            all_mw,
             lat=report.lat,
             moonrise=_moonrise,
             moonset=_moonset,
@@ -295,7 +330,7 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
         )
 
     # Print MW summary block before the table
-    if mw_visible:
+    if all_mw:
         core_max = mw_theoretical_core_max(report.lat)
         if mw_summary is not None:
             ms      = mw_summary
@@ -332,6 +367,8 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
             hem     = "N" if report.lat >= 0 else "S"
             print(f"  Milky Way:  Core below horizon from {lat_abs:.0f}°{hem}"
                   f"  (geometric ceiling: {core_max:.0f}°)")
+            # mw_visible is prime-filtered, so short-window setting waypoints
+            # (which only have a few minutes above 10° before setting) are excluded.
             vis_names = ", ".join(
                 t.name for t in sorted(
                     mw_visible,
@@ -339,7 +376,8 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
                     reverse=True,
                 )
             )
-            print(f"  Visible band:  {vis_names}")
+            if vis_names:
+                print(f"  Visible band:  {vis_names}")
         print()   # two blank lines separate the MW block from the table header
         print()
 
