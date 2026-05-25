@@ -13,8 +13,8 @@ import config as _cfg
 import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
+from moonlight import moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT
 from targets import (milky_way_arch_summary, mw_theoretical_core_max,
-                     moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT,
                      DEFAULT_MIN_ELEVATION)
 
 log = logging.getLogger(__name__)

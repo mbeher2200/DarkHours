@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import darksky as _ds
 import scoring
 import sky_events as se
-from targets import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
+from moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 import weather as wx
 
 log = logging.getLogger(__name__)
