@@ -14,6 +14,11 @@ from skyfield.api import Star, load, wgs84
 
 import config as _cfg
 
+try:
+    from skyfield.magnitudelib import planetary_magnitude as _planetary_magnitude
+except ImportError:
+    _planetary_magnitude = None  # Skyfield < 1.39; planet brightness filtering disabled
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -283,16 +288,49 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     sep_deg     = astrometric.separation_from(moon_astr).degrees
 
     # Clip to the effective observation window for this target type
-    mask         = np.array([obs_start <= dt <= obs_end for dt in sample_dts])
-    obs_alt      = alt_deg[mask]
-    obs_az       = az_deg[mask]
-    obs_sep      = sep_deg[mask]
-    obs_moon_alt = moon_alt_deg_all[mask]   # moon altitude at each masked sample
-    obs_dts      = [dt for dt, m in zip(sample_dts, mask) if m]
+    mask             = np.array([obs_start <= dt <= obs_end for dt in sample_dts])
+    obs_sample_idxs  = np.where(mask)[0]          # indices into t_array / sample_dts
+    obs_alt          = alt_deg[mask]
+    obs_az           = az_deg[mask]
+    obs_sep          = sep_deg[mask]
+    obs_moon_alt     = moon_alt_deg_all[mask]      # moon altitude at each masked sample
+    obs_dts          = [dt for dt, m in zip(sample_dts, mask) if m]
 
     windows_with_idx = _find_windows(obs_alt, obs_az, obs_dts, min_elev)
     if not windows_with_idx:
         return None
+
+    # Hoist catalog photometric data — same values for every window of this target.
+    sb  = entry.get("surface_brightness")   # mag/arcsec² (extended objects)
+    mag = entry.get("magnitude")             # integrated V mag (any object)
+    _sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
+
+    # For planets, override mag with the dynamically-computed apparent magnitude.
+    # Skyfield's planetary_magnitude() accounts for phase angle and distance, so
+    # Mars near opposition (-2.9) and Mars at aphelion (+1.8) are handled correctly.
+    # We evaluate at the observation-window midpoint — magnitude drifts < 0.01 mag/night.
+    if ttype == "planet" and _planetary_magnitude is not None and len(obs_sample_idxs) > 0:
+        try:
+            mid_i        = int(obs_sample_idxs[len(obs_sample_idxs) // 2])
+            planet_astr  = observer.at(t_array[mid_i]).observe(body)
+            mag          = float(_planetary_magnitude(planet_astr))
+            log.debug("Planet %r apparent magnitude: %.2f", name, mag)
+        except Exception as e:
+            log.debug("planetary_magnitude failed for %r: %s", name, e)
+
+    # has_catalog_data: True when we can evaluate site photo-viability.
+    # Meteor showers are exempt — their activity is gated by peak_day window,
+    # not sky brightness (individual meteors are bright transient events).
+    has_catalog_data = (
+        (sb is not None or mag is not None)
+        and ttype not in ("meteor_shower",)
+    )
+
+    # Tracks whether ANY sample in ANY window passes the photo contrast check.
+    # If this remains False after all windows are processed, the site's baseline
+    # sky brightness (from light pollution, not just the moon) is too severe and
+    # the target is suppressed entirely.
+    any_photo_ok_global = False
 
     windows = []
     for window, indices in windows_with_idx:
@@ -312,19 +350,23 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         # the sky background (dark sky + K&S moon contribution) still provides
         # enough contrast for the target.  We record the LAST usable sample so
         # the cutoff datetime is inclusive — i.e. "last moment it was usable."
-        sb  = entry.get("surface_brightness")   # mag/arcsec² (extended objects)
-        mag = entry.get("magnitude")             # integrated V mag (any object)
-
-        _sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
-        if (sb is not None or mag is not None) and ttype not in ("meteor_shower", "planet"):
-            # Milky Way band is wide-field photography — needs less sky contrast
-            # than telescope DSO work, so use lower per-object thresholds.
+        if has_catalog_data:
+            # Select per-type contrast / offset thresholds.
+            # SB-based (extended objects): need sky − target ≥ contrast headroom.
+            # Mag-based (compact objects): need mag < sky − offset.
             if ttype == "milky_way":
                 photo_contrast  = _MW_PHOTO_SB_CONTRAST
                 visual_contrast = _MW_VISUAL_SB_CONTRAST
             else:
                 photo_contrast  = _PHOTO_SB_CONTRAST
                 visual_contrast = _VISUAL_SB_CONTRAST
+
+            if ttype == "planet":
+                compact_photo  = _PLANET_PHOTO_OFFSET
+                compact_visual = _PLANET_VISUAL_OFFSET
+            else:
+                compact_photo  = _COMPACT_PHOTO_OFFSET
+                compact_visual = _COMPACT_VISUAL_OFFSET
 
             win_indices = [i for i, dt in enumerate(obs_dts)
                            if window.start <= dt <= window.end]
@@ -340,11 +382,12 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                     photo_ok  = sb  < sky_now - photo_contrast
                     visual_ok = sb  < sky_now - visual_contrast
                 else:
-                    photo_ok  = mag < sky_now - _COMPACT_PHOTO_OFFSET
-                    visual_ok = mag < sky_now - _COMPACT_VISUAL_OFFSET
+                    photo_ok  = mag < sky_now - compact_photo
+                    visual_ok = mag < sky_now - compact_visual
 
                 if photo_ok:
                     last_photo_ok = obs_dts[i]
+                    any_photo_ok_global = True
                 if visual_ok:
                     last_visual_ok = obs_dts[i]
 
@@ -377,6 +420,17 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                 log.debug("Arch angle computation failed for %r: %s", name, e)
 
         windows.append(window)
+
+    # Suppress targets with catalog data where no sample passes the photo contrast
+    # check.  This happens when the site's baseline sky brightness (light pollution)
+    # is already too high — the moon is irrelevant, the sky itself is too bright.
+    # Planets and meteor showers are exempt (handled above via has_catalog_data).
+    if has_catalog_data and not any_photo_ok_global:
+        log.debug(
+            "Suppressing %r — zero photo-viable samples at site SQM %.1f",
+            name, _sqm,
+        )
+        return None
 
     return VisibleTarget(name=name, type=ttype, windows=windows, note=note)
 
@@ -536,23 +590,42 @@ _KS_SEVERE_THRESH   = 1.50   # 0.50–1.50 → moderate  /  ≥ 1.50 → severe
 #     Veil/NAN (SB 17–17.5): cut at Δμ ≈ 1.0–1.5 (moderate→severe transition)
 #     Dumbbell/Ring (SB 13–13.5): cut only at Δμ > 5 — effectively never
 #   _VISUAL_SB_CONTRAST = 1.5 → visual window extends ~30–60 min past photo cutoff
-_PHOTO_SB_CONTRAST  = 3.5   # astrophotography: need 3.5 mag/arcsec² contrast headroom
-_VISUAL_SB_CONTRAST = 1.5   # visual observation: 1.5 mag/arcsec² headroom
+# Extended objects (nebulae / galaxies): object SB must exceed sky background by this margin.
+# Calibrated against real-world Bortle astrophotography limits (broadband, no filter):
+#   Bortle 9 (SQM 17.0): SB limit ≈ 13.8  →  Dumbbell/Helix (SB 13.5) just survive
+#   Bortle 8 (SQM 18.0): SB limit ≈ 14.8  →  Eagle/Trifid (SB 14.5) just survive
+#   Bortle 6 (SQM 20.0): SB limit ≈ 16.8  →  Veil/Rosette (SB 17.0) just fail — need B5
+#   Bortle 5 (SQM 20.5): SB limit ≈ 17.3  →  Veil/Rosette survive; NAN (17.5) needs B4
+_PHOTO_SB_CONTRAST  = 3.2
+_VISUAL_SB_CONTRAST = 1.5   # visual: 1.5 mag/arcsec² headroom (telescope needed)
 
 # Compact objects (clusters): usable while integrated magnitude < site_sqm - Δμ - offset.
-# Calibrated so that at Bortle 1 (SQM 22) an unlit sky is viable to about
-# V ≈ 12 (photo) / V ≈ 14 (visual).
-_COMPACT_PHOTO_OFFSET  = 10.0
-_COMPACT_VISUAL_OFFSET = 8.0
+# Calibrated against Bortle-class astrophotography limits (integrated mag scale):
+#   Bortle 9 (SQM 17.0): photo limit ≈ mag 4.0  →  offset = 13.0
+#   Bortle 8 (SQM 18.0): photo limit ≈ mag 5.0
+#   Bortle 7 (SQM 19.0): photo limit ≈ mag 6.0
+#   Bortle 5 (SQM 20.5): photo limit ≈ mag 7.5
+#   Bortle 1 (SQM 22.0): photo limit ≈ mag 9.0
+# Visual offset is 2 mag more lenient (telescope can reach deeper in degraded skies).
+_COMPACT_PHOTO_OFFSET  = 13.0
+_COMPACT_VISUAL_OFFSET = 11.0
 
-# Milky Way band: wide-field photography needs less contrast than telescope DSO work,
-# so a lower threshold than _PHOTO_SB_CONTRAST / _VISUAL_SB_CONTRAST is appropriate.
-# Calibration (Bortle 1, SQM 22): at _MW_PHOTO_SB_CONTRAST = 2.0 —
-#   Core (SB 17.0): photo cutoff at Δμ > 3.0  — survives moderate moon wash
-#   Cygnus (SB 18.0): cutoff at Δμ > 2.0  — clipped by severe wash
-#   Perseus (SB 19.0): cutoff at Δμ > 1.0  — clipped by moderate wash
-#   Anticenter (SB 19.5): cutoff at Δμ > 0.5 — clipped by even minor wash
-_MW_PHOTO_SB_CONTRAST  = 2.0
+# Planets: point-source-like, so slightly more lenient than extended clusters.
+# Apparent magnitude computed dynamically via Skyfield's planetary_magnitude().
+# Calibration anchors:
+#   Uranus  (+5.8): accessible from Bortle 8+ (SQM 18.0 − 12.0 = 6.0 > 5.8)
+#   Neptune (+7.8): accessible from Bortle 6+ (SQM 20.0 − 12.0 = 8.0 > 7.8)
+#   All bright planets (Venus/Jupiter/Mars/Saturn) pass at any Bortle class.
+_PLANET_PHOTO_OFFSET  = 12.0
+_PLANET_VISUAL_OFFSET = 10.0
+
+# Milky Way band: wide-field photography needs less contrast than telescope DSO work.
+# Calibrated against Bortle-class MW visibility:
+#   Bortle 7 (SQM 19.0): Core (SB 17.0) and Cygnus (SB 18.0) just accessible
+#   Bortle 6 (SQM 20.0): Cepheus (SB 18.5) accessible
+#   Bortle 5 (SQM 20.5): Perseus/Norma (SB 19.0) accessible
+#   Bortle 4 (SQM 21.5): Anticenter (SB 19.5) accessible
+_MW_PHOTO_SB_CONTRAST  = 1.5
 _MW_VISUAL_SB_CONTRAST = 1.0
 
 

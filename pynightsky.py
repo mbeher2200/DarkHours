@@ -128,7 +128,15 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     label = "Prime Targets" if prime_only else "Visible Targets"
 
     if not targets:
-        print(f"{label}:  none found for this night.\n")
+        lp = report.light_pollution
+        if lp and lp.get("bortle_class") is not None:
+            bc  = lp["bortle_class"]
+            sqm = lp.get("sqm")
+            sqm_str = f", SQM {sqm:.1f}" if sqm is not None else ""
+            print(f"{label}:  none — site light pollution (Bortle {bc}{sqm_str})"
+                  f" exceeds astrophotography contrast limits for all catalog objects.\n")
+        else:
+            print(f"{label}:  none found for this night.\n")
         return
 
     _TYPE_ORDER = {
@@ -337,7 +345,7 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
 
     # ── Targets table ────────────────────────────────────────────────────────
     data_rows = [(name, peak, cond, win, flags) for _, name, peak, cond, win, flags in tagged_rows]
-    headers   = ("Target", "Best Viewing", "Sky", "Usable Window", "")
+    headers   = ("Target", "Best Viewing", "Sky", "Astrophotography Window", "")
     widths    = [
         max(len(headers[i]), max(len(r[i]) for r in data_rows))
         for i in range(len(headers))
