@@ -109,6 +109,7 @@ class TargetWindow:
     moon_alt_at_peak_deg: float | None = None  # moon altitude at peak time (for K&S model)
     photo_cutoff: "datetime | None" = None     # last sample where astrophotography is viable
     visual_cutoff: "datetime | None" = None    # last sample where visual observation is viable
+    ks_computed: bool = False                  # True when K&S was run and the full window is viable
 
 
 @dataclass
@@ -395,6 +396,11 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
             # (otherwise the target is usable all the way through).
             if last_photo_ok is not None and last_photo_ok < window.end:
                 window.photo_cutoff = last_photo_ok
+            elif last_photo_ok is not None:
+                # K&S was computed and every sample in this window passes —
+                # mark explicitly so the arch summary doesn't fall back to the
+                # legacy moonrise heuristic.
+                window.ks_computed = True
             if last_visual_ok is not None and last_visual_ok < window.end:
                 window.visual_cutoff = last_visual_ok
 
@@ -777,11 +783,11 @@ def milky_way_arch_summary(
 
     # Clip to the moon-affected period using per-waypoint K&S photo cutoffs.
     #
-    # arch_end: use the earliest photo_cutoff among all visible waypoints
-    #   (the arch as a whole is limited by whichever section washes out first —
-    #   typically the faintest waypoints like the Anticenter or Perseus arm).
-    #   Fall back to the legacy moonrise heuristic when no cutoffs are computed
-    #   (e.g. no surface_brightness in catalog, or fully dark night).
+    # arch_end: use the earliest photo_cutoff among all visible waypoints.
+    #   If K&S ran but produced no cutoffs, the moon brightening never exceeded
+    #   the contrast threshold — trust that result and leave arch_end unchanged.
+    #   Only fall back to the blunt moonrise heuristic when K&S couldn't run
+    #   (no surface_brightness data in the catalog).
     #
     # arch_start: still advanced to moonset when the moon is already up at the
     #   start of the window (moonset-during-window scenario).  Per-sample cutoffs
@@ -796,11 +802,23 @@ def milky_way_arch_summary(
         for w in t.windows
         if w.photo_cutoff is not None and arch_start < w.photo_cutoff < arch_end
     ]
+
+    # Determine whether K&S was actually run for any waypoint window.
+    # ks_ran = True  → K&S was computed; if no cutoffs resulted, the moon is not
+    #                   degrading these waypoints enough to clip them → trust K&S,
+    #                   do NOT fall back to the blunt moonrise heuristic.
+    # ks_ran = False → no surface_brightness data; fall back to moonrise as before.
+    ks_ran = any(
+        w.ks_computed or w.photo_cutoff is not None
+        for t in mw_targets
+        for w in t.windows
+    )
+
     if all_photo_cutoffs:
         arch_end     = min(all_photo_cutoffs)
         moon_limited = True
-    elif moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
-        # Legacy fallback: clip at moonrise when no K&S cutoffs available
+    elif not ks_ran and moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+        # Legacy fallback: only when K&S couldn't run (no SB catalog data).
         if moonrise and arch_start < moonrise < arch_end:
             arch_end     = moonrise
             moon_limited = True
