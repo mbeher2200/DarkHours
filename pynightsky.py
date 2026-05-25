@@ -479,6 +479,18 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
         peri_apo_evs = [e for e in report.moon_events
                         if e["kind"] in ("perigee", "apogee")]
 
+        def _day_label(ev_time, report_date):
+            ev_local = ev_time.astimezone(_TZ)
+            delta    = (ev_local.date() - report_date).days
+            if delta == 0:
+                return f"tonight at {_fmt_time(ev_time)}"
+            elif delta == 1:
+                return f"tomorrow at {_fmt_time(ev_time)}"
+            elif delta == -1:
+                return f"yesterday at {_fmt_time(ev_time)}"
+            else:
+                return _fmt(ev_time)
+
         event_lines = []
         for e in sorted(eclipse_evs, key=lambda x: x["time"]):
             kind = e["kind"].capitalize()
@@ -487,23 +499,12 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
             else:
                 mag_str = f"penumbral magnitude {e['penumbral_magnitude']:.3f}"
             event_lines.append(
-                f"{kind} lunar eclipse at {_fmt(e['time'])}  ·  {mag_str}"
+                f"{kind} lunar eclipse {_day_label(e['time'], report.date)}  ·  {mag_str}"
             )
         for e in sorted(peri_apo_evs, key=lambda x: x["time"]):
-            kind      = e["kind"].capitalize()
-            ev_local  = e["time"].astimezone(_TZ)
-            ev_date   = ev_local.date()
-            delta     = (ev_date - report.date).days
-            if delta == 0:
-                day_label = f"tonight at {_fmt_time(e['time'])}"
-            elif delta == 1:
-                day_label = f"tomorrow at {_fmt_time(e['time'])}"
-            elif delta == -1:
-                day_label = f"yesterday at {_fmt_time(e['time'])}"
-            else:
-                day_label = _fmt(e["time"])
+            kind = e["kind"].capitalize()
             event_lines.append(
-                f"{kind} {day_label}  ·  {e['distance_km']:,} km"
+                f"{kind} {_day_label(e['time'], report.date)}  ·  {e['distance_km']:,} km"
             )
 
         if event_lines:

@@ -151,14 +151,16 @@ def find_lunar_eclipses(t_start: date, t_end: date) -> list[dict]:
 
 def moon_events_for_night(
     target: date,
-    sunset,   # UTC-aware datetime
-    sunrise,  # UTC-aware datetime
+    sunset,   # UTC-aware datetime  (unused — kept for API compatibility)
+    sunrise,  # UTC-aware datetime  (unused — kept for API compatibility)
 ) -> list[dict]:
     """
     Return moon events relevant to a given night.
 
-    Perigee/apogee: events within ±3 days of target_date.
-    Eclipses: events whose mid-eclipse falls within [sunset, sunrise].
+    Both perigee/apogee and lunar eclipses use the same ±3-day proximity
+    window around target_date.  This ensures an eclipse that occurs a day or
+    two before or after the observed night (and thus outside the sunset→sunrise
+    window) is still surfaced to the user as an upcoming / recent event.
 
     Each dict has at minimum:
       time   datetime  — UTC timezone-aware
@@ -167,20 +169,14 @@ def moon_events_for_night(
     """
     prox_start = target - timedelta(days=3)
     prox_end   = target + timedelta(days=4)
-    peri_apo   = find_perigees_apogees(prox_start, prox_end)
 
-    # Eclipse window: generous ±1 day around the night; filter to the actual
-    # sunset→sunrise window afterward.
-    eclipse_start = date(sunset.year,  sunset.month,  sunset.day)  - timedelta(days=1)
-    eclipse_end   = date(sunrise.year, sunrise.month, sunrise.day) + timedelta(days=1)
-    all_eclipses  = find_lunar_eclipses(eclipse_start, eclipse_end)
+    peri_apo = find_perigees_apogees(prox_start, prox_end)
+    eclipses  = find_lunar_eclipses(prox_start, prox_end)
 
-    night_eclipses = [e for e in all_eclipses if sunset <= e["time"] <= sunrise]
-
-    events = sorted(peri_apo + night_eclipses, key=lambda e: e["time"])
+    events = sorted(peri_apo + eclipses, key=lambda e: e["time"])
     log.debug(
         "Moon events for night %s: %d total (%d proximity, %d eclipse)",
-        target, len(events), len(peri_apo), len(night_eclipses),
+        target, len(events), len(peri_apo), len(eclipses),
     )
     return events
 
