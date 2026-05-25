@@ -102,6 +102,8 @@ class TargetWindow:
     arch_angle_deg: float | None = None        # milky_way only: plane angle from horizon
     moon_sep_at_peak_deg: float | None = None  # angular separation from moon at peak time
     moon_alt_at_peak_deg: float | None = None  # moon altitude at peak time (for K&S model)
+    photo_cutoff: "datetime | None" = None     # last sample where astrophotography is viable
+    visual_cutoff: "datetime | None" = None    # last sample where visual observation is viable
 
 
 @dataclass
@@ -245,10 +247,12 @@ def _meteor_shower_note(entry: dict, night_date) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
-                    moon_astr, illumination_pct: float, night_date,
+                    moon_astr, moon_alt_deg_all,
+                    illumination_pct: float, night_date,
                     min_elevation: float, moon_min_sep: float,
                     moon_max_illum: float,
-                    obs_start: datetime, obs_end: datetime) -> "VisibleTarget | None":
+                    obs_start: datetime, obs_end: datetime,
+                    sky_sqm: float | None = None) -> "VisibleTarget | None":
     name     = entry["name"]
     ttype    = entry["type"]
     min_elev = entry.get("min_elevation", min_elevation)
@@ -279,11 +283,12 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     sep_deg     = astrometric.separation_from(moon_astr).degrees
 
     # Clip to the effective observation window for this target type
-    mask    = np.array([obs_start <= dt <= obs_end for dt in sample_dts])
-    obs_alt = alt_deg[mask]
-    obs_az  = az_deg[mask]
-    obs_sep = sep_deg[mask]
-    obs_dts = [dt for dt, m in zip(sample_dts, mask) if m]
+    mask         = np.array([obs_start <= dt <= obs_end for dt in sample_dts])
+    obs_alt      = alt_deg[mask]
+    obs_az       = az_deg[mask]
+    obs_sep      = sep_deg[mask]
+    obs_moon_alt = moon_alt_deg_all[mask]   # moon altitude at each masked sample
+    obs_dts      = [dt for dt, m in zip(sample_dts, mask) if m]
 
     windows_with_idx = _find_windows(obs_alt, obs_az, obs_dts, min_elev)
     if not windows_with_idx:
@@ -296,18 +301,59 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
 
         # Store moon separation and altitude at peak time for the K&S sky brightness model.
         try:
-            peak_obs_idx    = obs_dts.index(window.peak_time)
-            peak_sample_idx = sample_dts.index(window.peak_time)
+            peak_obs_idx = obs_dts.index(window.peak_time)
             window.moon_sep_at_peak_deg = float(obs_sep[peak_obs_idx])
-            moon_alt_pk, _, _ = (
-                observer.at(t_array[peak_sample_idx])
-                        .observe(eph["moon"])
-                        .apparent()
-                        .altaz()
-            )
-            window.moon_alt_at_peak_deg = float(moon_alt_pk.degrees)
+            window.moon_alt_at_peak_deg = float(obs_moon_alt[peak_obs_idx])
         except Exception as e:
             log.debug("Moon sep/alt at peak failed for %r: %s", name, e)
+
+        # Per-sample photo/visual usability cutoffs.
+        # Iterate through each sample in this window and find the last one where
+        # the sky background (dark sky + K&S moon contribution) still provides
+        # enough contrast for the target.  We record the LAST usable sample so
+        # the cutoff datetime is inclusive — i.e. "last moment it was usable."
+        sb  = entry.get("surface_brightness")   # mag/arcsec² (extended objects)
+        mag = entry.get("magnitude")             # integrated V mag (any object)
+
+        _sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
+        if (sb is not None or mag is not None) and ttype not in ("meteor_shower", "planet"):
+            # Milky Way band is wide-field photography — needs less sky contrast
+            # than telescope DSO work, so use lower per-object thresholds.
+            if ttype == "milky_way":
+                photo_contrast  = _MW_PHOTO_SB_CONTRAST
+                visual_contrast = _MW_VISUAL_SB_CONTRAST
+            else:
+                photo_contrast  = _PHOTO_SB_CONTRAST
+                visual_contrast = _VISUAL_SB_CONTRAST
+
+            win_indices = [i for i, dt in enumerate(obs_dts)
+                           if window.start <= dt <= window.end]
+            last_photo_ok  = None
+            last_visual_ok = None
+            for i in win_indices:
+                sep      = float(obs_sep[i])
+                malt     = float(obs_moon_alt[i])
+                delta    = _ks_delta_mag(illumination_pct, sep, malt, _sqm)
+                sky_now  = _sqm - delta   # effective sky brightness this sample
+
+                if sb is not None:
+                    photo_ok  = sb  < sky_now - photo_contrast
+                    visual_ok = sb  < sky_now - visual_contrast
+                else:
+                    photo_ok  = mag < sky_now - _COMPACT_PHOTO_OFFSET
+                    visual_ok = mag < sky_now - _COMPACT_VISUAL_OFFSET
+
+                if photo_ok:
+                    last_photo_ok = obs_dts[i]
+                if visual_ok:
+                    last_visual_ok = obs_dts[i]
+
+            # Only set a cutoff if it falls before the natural window end
+            # (otherwise the target is usable all the way through).
+            if last_photo_ok is not None and last_photo_ok < window.end:
+                window.photo_cutoff = last_photo_ok
+            if last_visual_ok is not None and last_visual_ok < window.end:
+                window.visual_cutoff = last_visual_ok
 
         # For Milky Way waypoints, compute the arch angle (plane vs horizon)
         # using a reference point 30° further along the galactic plane.
@@ -362,6 +408,7 @@ def visible_targets(
     min_elevation: float = DEFAULT_MIN_ELEVATION,
     moon_min_sep: float  = DEFAULT_MOON_MIN_SEP,
     moon_max_illum: float = DEFAULT_MOON_MAX_ILLUM,
+    sky_sqm: float | None = None,
 ) -> list:
     """
     Return targets visible during the night.
@@ -388,9 +435,14 @@ def visible_targets(
     if sample_dts and sample_dts[-1] > sunrise:
         sample_dts[-1] = sunrise
 
-    t_array   = ts.from_datetimes(sample_dts)
-    moon_astr = observer.at(t_array).observe(eph["moon"])
+    t_array    = ts.from_datetimes(sample_dts)
+    moon_astr  = observer.at(t_array).observe(eph["moon"])
+    moon_alt_v, _, _ = moon_astr.apparent().altaz()
+    moon_alt_deg_all = moon_alt_v.degrees          # ndarray, one value per sample
     night_date = sunset.date()
+
+    # Use provided SQM or fall back to the K&S natural-sky baseline (Bortle 2).
+    _sky_sqm = sky_sqm if sky_sqm is not None else _KS_NATURAL_SKY
 
     dark_start = night_start or sunset
     dark_end   = night_end   or sunrise
@@ -403,9 +455,11 @@ def visible_targets(
         try:
             result = _compute_target(
                 entry, observer, eph, t_array, sample_dts,
-                moon_astr, illumination_pct, night_date,
+                moon_astr, moon_alt_deg_all,
+                illumination_pct, night_date,
                 min_elevation, moon_min_sep, moon_max_illum,
                 obs_start, obs_end,
+                sky_sqm=_sky_sqm,
             )
         except Exception as e:
             log.warning("Error computing target %r: %s", entry.get("name"), e)
@@ -472,6 +526,72 @@ _KS_MINOR_THRESH    = 0.10   # < 0.10 → None   : imperceptible
 _KS_MODERATE_THRESH = 0.50   # 0.10–0.50 → minor
 _KS_SEVERE_THRESH   = 1.50   # 0.50–1.50 → moderate  /  ≥ 1.50 → severe
 
+# Sky contrast thresholds for per-target usability cutoffs.
+# Extended objects (nebulae/galaxies): object surface brightness must be this many
+# mag/arcsec² brighter than the (moon-brightened) sky background.
+#
+# Calibration (Bortle 1 site, SQM 22.0):
+#   Faint targets (SB ≈ 17) have 5 mag of contrast on a dark night.
+#   _PHOTO_SB_CONTRAST = 3.5 → photo cutoff when Δμ > SQM − SB − 3.5:
+#     Veil/NAN (SB 17–17.5): cut at Δμ ≈ 1.0–1.5 (moderate→severe transition)
+#     Dumbbell/Ring (SB 13–13.5): cut only at Δμ > 5 — effectively never
+#   _VISUAL_SB_CONTRAST = 1.5 → visual window extends ~30–60 min past photo cutoff
+_PHOTO_SB_CONTRAST  = 3.5   # astrophotography: need 3.5 mag/arcsec² contrast headroom
+_VISUAL_SB_CONTRAST = 1.5   # visual observation: 1.5 mag/arcsec² headroom
+
+# Compact objects (clusters): usable while integrated magnitude < site_sqm - Δμ - offset.
+# Calibrated so that at Bortle 1 (SQM 22) an unlit sky is viable to about
+# V ≈ 12 (photo) / V ≈ 14 (visual).
+_COMPACT_PHOTO_OFFSET  = 10.0
+_COMPACT_VISUAL_OFFSET = 8.0
+
+# Milky Way band: wide-field photography needs less contrast than telescope DSO work,
+# so a lower threshold than _PHOTO_SB_CONTRAST / _VISUAL_SB_CONTRAST is appropriate.
+# Calibration (Bortle 1, SQM 22): at _MW_PHOTO_SB_CONTRAST = 2.0 —
+#   Core (SB 17.0): photo cutoff at Δμ > 3.0  — survives moderate moon wash
+#   Cygnus (SB 18.0): cutoff at Δμ > 2.0  — clipped by severe wash
+#   Perseus (SB 19.0): cutoff at Δμ > 1.0  — clipped by moderate wash
+#   Anticenter (SB 19.5): cutoff at Δμ > 0.5 — clipped by even minor wash
+_MW_PHOTO_SB_CONTRAST  = 2.0
+_MW_VISUAL_SB_CONTRAST = 1.0
+
+
+def _ks_delta_mag(
+    illumination_pct: float,
+    sep_deg: float,
+    moon_alt_deg: float,
+    sky_sqm: float = _KS_NATURAL_SKY,
+) -> float:
+    """
+    Return sky surface brightness increase Δ mag/arcsec² from scattered moonlight
+    using the Krisciunas & Schaefer (1991) model (PASP 103, 1033).
+
+    Returns 0.0 when illumination is zero or the moon is below the horizon.
+    sky_sqm is used for the natural-sky baseline I_sky denominator.
+    """
+    if illumination_pct <= 0 or moon_alt_deg <= 0:
+        return 0.0
+
+    illum  = illumination_pct / 100.0
+    alpha  = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum - 1.0))))
+    V_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha**4
+    I_moon = 10 ** (-0.4 * (V_moon + 16.57))
+
+    alt    = max(1.0, moon_alt_deg)
+    X_moon = 1.0 / math.cos(math.radians(90.0 - alt))
+    ext    = 10 ** (-0.4 * _KS_K_EXT * X_moon)
+
+    rho     = max(0.1, sep_deg)
+    rho_rad = math.radians(rho)
+    if rho > 10.0:
+        f_rho = 10 ** 5.36 * (1.06 + math.cos(rho_rad) ** 2)
+    else:
+        f_rho = 6.2e7 / rho ** 2
+
+    I_scatter = f_rho * ext * I_moon
+    I_sky     = 10 ** ((27.78 - sky_sqm) / 2.5)
+    return 2.5 * math.log10(1.0 + I_scatter / I_sky)
+
 
 def moon_wash_severity(
     illumination_pct: float,
@@ -479,72 +599,22 @@ def moon_wash_severity(
     moon_alt_deg: float | None = None,
 ) -> str | None:
     """
-    Classify moon interference as 'minor', 'moderate', or 'severe' using the
-    Krisciunas & Schaefer (1991) lunar sky brightness model (PASP 103, 1033).
+    Classify moon interference as None, 'minor', 'moderate', or 'severe'.
 
-    Computes the sky surface brightness increase (Δ mag/arcsec²) at the target's
-    sky position due to scattered moonlight, then maps to a severity label.
-
-    illumination_pct — moon illumination (0–100)
-    sep_deg          — angular separation between target and moon at target's peak
-                       time (degrees); None uses a conservative 45° default
-    moon_alt_deg     — moon altitude above horizon at peak time (degrees);
-                       None uses a 45° default (typical mid-sky position)
+    Uses _ks_delta_mag internally; sep_deg and moon_alt_deg default to 45°
+    when not provided (conservative mid-sky estimate).
 
     Severity thresholds (Δ mag/arcsec² relative to a Bortle-2 dark sky):
-      None       < 0.10  — negligible; imperceptible to most observers
-      'minor'   0.10–0.50 — slight brightening; faintest targets lightly affected
-      'moderate' 0.50–1.50 — noticeable; low-surface-brightness targets impacted
+      None       < 0.10  — negligible
+      'minor'   0.10–0.50 — slight brightening
+      'moderate' 0.50–1.50 — noticeable; low-SB targets impacted
       'severe'   ≥ 1.50  — sky substantially brighter; deep DSO work limited
-
-    Model reference equations:
-      V_moon  = −12.73 + 0.026·|α| + 4×10⁻⁹·α⁴         (K&S Eq. 9)
-      I_moon  = 10^{−0.4(V_moon + 16.57)} foot-candles   (K&S Eq. 8)
-      f(ρ)    = 10^{5.36}·(1.06 + cos²ρ)  for ρ > 10°   (K&S Eq. 15)
-              = 6.2×10⁷·ρ⁻²              for ρ ≤ 10°
-      I_scat  = f(ρ)·10^{−0.4·k·X_moon}·I_moon  [S10(V)]
-      Δμ      = 2.5·log₁₀(1 + I_scat/I_sky)
     """
-    if illumination_pct <= 0:
-        return None
-
-    illum = illumination_pct / 100.0
-
-    # Phase angle: 0° at full moon, 180° at new moon
-    alpha = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum - 1.0))))
-
-    # Moon V magnitude (K&S Eq. 9)
-    V_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha**4
-
-    # Moon illuminance in foot-candles (K&S Eq. 8)
-    I_moon = 10 ** (-0.4 * (V_moon + 16.57))
-
-    # Airmass to the moon; clamp altitude to avoid divide-by-zero near the horizon
-    alt    = max(1.0, moon_alt_deg if moon_alt_deg is not None else 45.0)
-    X_moon = 1.0 / math.cos(math.radians(90.0 - alt))
-
-    # Atmospheric extinction along the path to the moon
-    ext = 10 ** (-0.4 * _KS_K_EXT * X_moon)
-
-    # Angular separation (clamp to avoid singularities)
-    rho     = max(0.1, sep_deg if sep_deg is not None else 45.0)
-    rho_rad = math.radians(rho)
-
-    # Scattering function f(ρ) in S10(V) per foot-candle (K&S Eq. 15)
-    if rho > 10.0:
-        f_rho = 10 ** 5.36 * (1.06 + math.cos(rho_rad) ** 2)
-    else:
-        f_rho = 6.2e7 / rho ** 2
-
-    # Scattered moonlight in S10(V) units
-    I_scatter = f_rho * ext * I_moon
-
-    # Natural sky brightness in S10(V): μ = 27.78 − 2.5·log₁₀(S10)
-    I_sky = 10 ** ((27.78 - _KS_NATURAL_SKY) / 2.5)
-
-    # Sky brightening in Δ mag/arcsec² (positive → sky is brighter → worse)
-    delta_mag = 2.5 * math.log10(1.0 + I_scatter / I_sky)
-
+    delta_mag = _ks_delta_mag(
+        illumination_pct,
+        sep_deg      if sep_deg      is not None else 45.0,
+        moon_alt_deg if moon_alt_deg is not None else 45.0,
+    )
     if delta_mag < _KS_MINOR_THRESH:
         return None
     if delta_mag < _KS_MODERATE_THRESH:
@@ -632,15 +702,38 @@ def milky_way_arch_summary(
     else:
         arch_start, arch_end = core_w.start, core_w.end
 
-    # Clip to moon-free period when moon is bright enough to wash out the sky.
-    # moonrise during window → cap arch_end (view before moon rises).
-    # moonset  during window → advance arch_start (view after moon sets).
+    # Clip to the moon-affected period using per-waypoint K&S photo cutoffs.
+    #
+    # arch_end: use the earliest photo_cutoff among all visible waypoints
+    #   (the arch as a whole is limited by whichever section washes out first —
+    #   typically the faintest waypoints like the Anticenter or Perseus arm).
+    #   Fall back to the legacy moonrise heuristic when no cutoffs are computed
+    #   (e.g. no surface_brightness in catalog, or fully dark night).
+    #
+    # arch_start: still advanced to moonset when the moon is already up at the
+    #   start of the window (moonset-during-window scenario).  Per-sample cutoffs
+    #   only capture the end of the usable period, not the recovery after moonset.
     _MOON_ILLUM_THRESHOLD = 25.0
     moon_limited = False
-    if moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+
+    # Collect all photo_cutoffs from visible waypoints that fall inside the arch window
+    all_photo_cutoffs = [
+        w.photo_cutoff
+        for t in mw_targets
+        for w in t.windows
+        if w.photo_cutoff is not None and arch_start < w.photo_cutoff < arch_end
+    ]
+    if all_photo_cutoffs:
+        arch_end     = min(all_photo_cutoffs)
+        moon_limited = True
+    elif moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
+        # Legacy fallback: clip at moonrise when no K&S cutoffs available
         if moonrise and arch_start < moonrise < arch_end:
             arch_end     = moonrise
             moon_limited = True
+
+    # Moonset advance (moon already up at arch start → wait for it to set)
+    if moon_illumination_pct >= _MOON_ILLUM_THRESHOLD:
         if moonset and arch_start < moonset < arch_end:
             arch_start   = moonset
             moon_limited = True

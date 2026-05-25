@@ -214,8 +214,10 @@ def assemble_night(
     target_list = []
     if fetch_targets:
         import targets as _tgt
+        site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
         target_list = _tgt.visible_targets(lat, lon, sunset, sunrise, illumination,
-                                            night_start=night_start, night_end=night_end)
+                                            night_start=night_start, night_end=night_end,
+                                            sky_sqm=site_sqm)
 
     # --- Overall rating ---
     rating = scoring.rate_night(moon_score, dark_score, weather_score, bortle_score)
