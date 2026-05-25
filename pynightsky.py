@@ -14,7 +14,8 @@ import location as loc
 import weather as wx
 from predictor import NightReport, assemble_night
 from targets import (milky_way_arch_summary, mw_theoretical_core_max,
-                     moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT)
+                     moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT,
+                     DEFAULT_MIN_ELEVATION)
 
 log = logging.getLogger(__name__)
 
@@ -101,16 +102,38 @@ def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     return "Twilight"
 
 
-def _is_prime(target, min_peak_alt: float, min_window_hours: float) -> bool:
+def _is_prime(target, min_peak_alt: float, min_window_hours: float,
+              dark_intervals: list | None = None) -> bool:
     """True if the target has a clean window meeting altitude and duration thresholds.
 
     Milky Way targets skip the altitude floor (the arch is inherently low from
     mid-latitudes) but still require the minimum window duration — without it,
     setting waypoints with 1–30 minute windows show up as prime.
+
+    When every window has moon_interference=True (K&S ≥ 0.50 at some sample),
+    fall back to checking overlap with the geometric dark intervals (moon
+    physically below the horizon).  A target whose overnight window straddles
+    moonset gains a genuine moon-free sub-period; if that sub-period is long
+    enough, the target qualifies.  On full-moon nights dark_intervals=[] so no
+    window can pass this fallback — the moon-dominated message fires correctly.
     """
     clean = [w for w in target.windows if not w.moon_interference]
     if not clean:
+        # No fully K&S-clean windows.  Check whether any window has a moon-free
+        # overlap with the geometric dark intervals (moonset → astronomical end).
+        if not dark_intervals:
+            return False
+        for w in target.windows:
+            for di_start, di_end in dark_intervals:
+                overlap_s = max(w.start, di_start)
+                overlap_e = min(w.end,   di_end)
+                overlap_h = (overlap_e - overlap_s).total_seconds() / 3600
+                if overlap_h >= min_window_hours:
+                    if target.type == "milky_way":
+                        return True
+                    return w.peak_alt_deg >= min_peak_alt
         return False
+
     best = max(clean, key=lambda w: w.peak_alt_deg)
     duration_h = (best.end - best.start).total_seconds() / 3600
     if target.type == "milky_way":
@@ -125,7 +148,8 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
         cfg = _cfg.load()["prime_targets"]
         min_alt = cfg["min_peak_altitude_deg"]
         min_hrs = cfg["min_window_hours"]
-        targets = [t for t in targets if _is_prime(t, min_alt, min_hrs)]
+        targets = [t for t in targets if _is_prime(t, min_alt, min_hrs,
+                                                    dark_intervals=report.dark_intervals)]
 
     label = "Prime Targets" if prime_only else "Visible Targets"
 
@@ -362,11 +386,21 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
                               f" ({ms['farthest_peak_alt_deg']}° {far_card})")
             print(best_line)
         else:
-            # Core below horizon — brief one-liner + visible band
+            # Core absent from visible targets.  Two possible causes:
+            #   (a) Geometrically unreachable — core_max ≤ min elevation floor.
+            #   (b) K&S-suppressed — moon is near the galactic center this night,
+            #       driving Δmag so high that no sample passes the photo contrast
+            #       check.  The core IS above the horizon; moonlight is the culprit.
             lat_abs = abs(report.lat)
             hem     = "N" if report.lat >= 0 else "S"
-            print(f"  Milky Way:  Core below horizon from {lat_abs:.0f}°{hem}"
-                  f"  (geometric ceiling: {core_max:.0f}°)")
+            if core_max > DEFAULT_MIN_ELEVATION:
+                # Case (b): moon proximity suppressed the core.
+                print(f"  Milky Way:  Core moon-washed — moon near galactic center"
+                      f"  (geometric ceiling: {core_max:.0f}°)")
+            else:
+                # Case (a): core never clears the elevation floor at this latitude.
+                print(f"  Milky Way:  Core below horizon from {lat_abs:.0f}°{hem}"
+                      f"  (geometric ceiling: {core_max:.0f}°)")
             # mw_visible is prime-filtered, so short-window setting waypoints
             # (which only have a few minutes above 10° before setting) are excluded.
             vis_names = ", ".join(
