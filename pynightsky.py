@@ -204,40 +204,64 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
             flags.append(target.note)
         display_name = target.name + " Meteor Shower" if target.type == "meteor_shower" else target.name
 
-        # For MW targets whose peak falls after moonrise but whose window starts
-        # in the moon-free period, clip the Best Viewing and Window columns to
-        # moonrise so they don't contradict the arch summary's "Best before" line.
-        # Explicitly uses the same 25 % illumination threshold as the arch summary's
-        # window-clipping logic in milky_way_arch_summary().
-        mw_moon_clipped = (
-            target.type == "milky_way"
-            and report.illumination_pct >= 25.0   # matches _MOON_ILLUM_THRESHOLD in targets.py
-            and _peak_moonup
-            and _moonrise is not None
-            and window.start < _moonrise           # window has a moon-free start
+        # ── Window / Best Viewing display ────────────────────────────────────
+        # Milky Way waypoints: clip to moonrise (keeps table consistent with the
+        # arch summary which also clips at moonrise using the 25 % illum threshold).
+        # All other targets: use per-target photo_cutoff / visual_cutoff computed
+        # via K&S at every sample, so bright objects keep their full window and
+        # faint ones can be cut even before moonrise.
+
+        az_card   = f"{window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})"
+        arch_note = ""
+        if target.type == "milky_way" and window.arch_angle_deg is not None:
+            a         = window.arch_angle_deg
+            quality   = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
+            arch_note = f"  arch {a:.0f}° ({quality})"
+
+        def _alt_at(clip_dt):
+            """Piecewise-linear altitude estimate at clip_dt within this window."""
+            if clip_dt <= window.peak_time:
+                t0, a0 = window.start.timestamp(),     window.start_alt_deg
+                t1, a1 = window.peak_time.timestamp(), window.peak_alt_deg
+            else:
+                t0, a0 = window.peak_time.timestamp(), window.peak_alt_deg
+                t1, a1 = window.end.timestamp(),       window.end_alt_deg
+            frac = (clip_dt.timestamp() - t0) / (t1 - t0) if t1 > t0 else 0.5
+            return round(a0 + max(0.0, min(1.0, frac)) * (a1 - a0))
+
+        # All target types use per-target K&S photo/visual cutoffs.
+        # photo_cutoff = last sample where astrophotography sky contrast is adequate.
+        # visual_cutoff = last sample where visual observation is adequate (looser).
+        # arch_note is non-empty only for milky_way waypoints; safe to always append.
+        _photo_end  = window.photo_cutoff
+        _visual_end = window.visual_cutoff
+
+        _has_clip = (
+            _photo_end is not None
+            and _photo_end > window.start
+            and _photo_end < window.end
         )
 
-        if mw_moon_clipped:
-            az_card   = f"{window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})"
-            arch_note = ""
-            if window.arch_angle_deg is not None:
-                a         = window.arch_angle_deg
-                quality   = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
-                arch_note = f"  arch {a:.0f}° ({quality})"
-            peak_str = f"{az_card}{arch_note}"
-            win_str  = (f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}°"
-                        f" – {_fmt_time(_moonrise)}")
-        else:
-            peak_str = (
-                f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°"
-                f"  {window.peak_az_deg:.0f}°({_cardinal(window.peak_az_deg)})"
-            )
-            if target.type == "milky_way" and window.arch_angle_deg is not None:
-                a       = window.arch_angle_deg
-                quality = "steep" if a >= 60 else ("moderate" if a >= 35 else "flat")
-                peak_str += f"  arch {a:.0f}° ({quality})"
+        if _has_clip:
+            alt_clip = _alt_at(_photo_end)
+            peak_str = f"{_fmt_time(_photo_end)} @ {alt_clip}°  {az_card}{arch_note}"
+
+            # Annotate how much longer the target is visually usable beyond
+            # the photo cutoff.  visual_cutoff=None means usable all the
+            # way to window.end (the astronomer can still observe visually).
+            vis_note = ""
+            vis_boundary = _visual_end if _visual_end is not None else window.end
+            if (vis_boundary.timestamp() - _photo_end.timestamp()) >= 600:
+                extra_min = round((vis_boundary.timestamp() - _photo_end.timestamp()) / 60)
+                vis_note  = f"  +{extra_min}m visual"
+
             win_str = (f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}°"
-                       f" – {_fmt_time(window.end)} @ {window.end_alt_deg:.0f}°")
+                       f" – {_fmt_time(_photo_end)} @ {alt_clip}°{vis_note}")
+        else:
+            peak_str = (f"{_fmt_time(window.peak_time)} @ {window.peak_alt_deg:.0f}°"
+                        f"  {az_card}{arch_note}")
+            win_str  = (f"{_fmt_time(window.start)} @ {window.start_alt_deg:.0f}°"
+                        f" – {_fmt_time(window.end)} @ {window.end_alt_deg:.0f}°")
 
         tagged_rows.append((
             target.type,
@@ -248,8 +272,72 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
             "  ".join(flags),
         ))
 
+    # ── Milky Way arch summary ───────────────────────────────────────────────
+    # Compute first so it can be printed above the table, then referenced
+    # again when deciding how to render the per-waypoint section in the loop.
+    mw_visible = [t for t in targets if t.type == "milky_way"]
+    mw_summary = None
+    if mw_visible:
+        mw_summary = milky_way_arch_summary(
+            mw_visible,
+            lat=report.lat,
+            moonrise=_moonrise,
+            moonset=_moonset,
+            moon_illumination_pct=report.illumination_pct,
+        )
+
+    # Print MW summary block before the table
+    if mw_visible:
+        core_max = mw_theoretical_core_max(report.lat)
+        if mw_summary is not None:
+            ms      = mw_summary
+            arch_h  = ms["arch_hours"]
+            arch_hm = f"{int(arch_h)}h {int((arch_h % 1) * 60):02d}m"
+
+            moon_flag = "  ·  moon penalty" if ms["moon_penalised"] else ""
+            print(f"  Milky Way: {ms['local_score']}/10"
+                  f"  (Altitude {ms['alt_score']}/10"
+                  f"  ·  Waypoints {ms['cov_score']}/10"
+                  f"  ·  Window {ms['win_score']}/10{moon_flag})")
+
+            span       = f"{_fmt_time(ms['arch_start'])} – {_fmt_time(ms['arch_end'])}"
+            core_ratio = f"{ms['core_peak_alt_deg']}°/{round(core_max)}°"
+            moon_note  = "  ·  moon-limited" if ms["moon_limited"] else ""
+            print(f"  Visible  {span}  ·  {arch_hm}"
+                  f"  ·  Core {core_ratio}"
+                  f"  ·  {ms['n_visible']} of {ms['n_max_possible']} waypoints visible{moon_note}")
+
+            core_card = _cardinal(ms["core_peak_az_deg"])
+            if ms["core_peak_in_window"]:
+                best_label, best_t = "Best time  ", _fmt_time(ms["core_peak_time"])
+            else:
+                best_label, best_t = "Best before", _fmt_time(ms["arch_end"])
+            best_line = f"  {best_label}   {best_t}  —  core {ms['core_peak_alt_deg']}° {core_card}"
+            if ms["farthest_name"] and ms["farthest_peak_alt_deg"] is not None:
+                far_card   = _cardinal(ms["farthest_peak_az_deg"])
+                best_line += (f", arch sweeps to {ms['farthest_name']}"
+                              f" ({ms['farthest_peak_alt_deg']}° {far_card})")
+            print(best_line)
+        else:
+            # Core below horizon — brief one-liner + visible band
+            lat_abs = abs(report.lat)
+            hem     = "N" if report.lat >= 0 else "S"
+            print(f"  Milky Way:  Core below horizon from {lat_abs:.0f}°{hem}"
+                  f"  (geometric ceiling: {core_max:.0f}°)")
+            vis_names = ", ".join(
+                t.name for t in sorted(
+                    mw_visible,
+                    key=lambda t: max(w.peak_alt_deg for w in t.windows),
+                    reverse=True,
+                )
+            )
+            print(f"  Visible band:  {vis_names}")
+        print()   # two blank lines separate the MW block from the table header
+        print()
+
+    # ── Targets table ────────────────────────────────────────────────────────
     data_rows = [(name, peak, cond, win, flags) for _, name, peak, cond, win, flags in tagged_rows]
-    headers   = ("Target", "Best Viewing", "Sky", "Window", "")
+    headers   = ("Target", "Best Viewing", "Sky", "Usable Window", "")
     widths    = [
         max(len(headers[i]), max(len(r[i]) for r in data_rows))
         for i in range(len(headers))
@@ -263,77 +351,15 @@ def _print_targets(report: NightReport, prime_only: bool = False) -> None:
     _row(headers)
     print(f"  {'-' * widths[0]}  {'-' * widths[1]}  {'-' * widths[2]}  {'-' * widths[3]}")
 
-    # Pre-compute Milky Way arch summary so we can inject it under the section header
-    mw_summary = None
-    mw_visible = [t for t in targets if t.type == "milky_way"]
-    if mw_visible:
-        mw_summary = milky_way_arch_summary(
-            mw_visible,
-            lat=report.lat,
-            moonrise=_moonrise,
-            moonset=_moonset,
-            moon_illumination_pct=report.illumination_pct,
-        )
-
     current_type = None
     for ttype, name, peak, cond, win, flags in tagged_rows:
         if ttype != current_type:
             if current_type is not None:
-                print()
-            print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
-            if ttype == "milky_way" and mw_summary is not None:
-                ms       = mw_summary
-                arch_h   = ms["arch_hours"]
-                arch_hm  = f"{int(arch_h)}h {int((arch_h % 1) * 60):02d}m"
-                core_max = mw_theoretical_core_max(report.lat)
-
-                # Line 1 — score with sub-score breakdown
-                moon_flag = "  ·  moon penalty" if ms["moon_penalised"] else ""
-                print(f"    {ms['local_score']}/10"
-                      f"  (Altitude {ms['alt_score']}/10"
-                      f"  ·  Waypoints {ms['cov_score']}/10"
-                      f"  ·  Window {ms['win_score']}/10{moon_flag})")
-
-                # Line 2 — visible window + key numbers
-                span      = f"{_fmt_time(ms['arch_start'])} – {_fmt_time(ms['arch_end'])}"
-                n_vis     = ms["n_visible"]
-                n_max     = ms["n_max_possible"]
-                core_ratio = f"{ms['core_peak_alt_deg']}°/{round(core_max)}°"
-                moon_note  = "  ·  moon-limited" if ms["moon_limited"] else ""
-                print(f"    Visible  {span}  ·  {arch_hm}"
-                      f"  ·  Core {core_ratio}  ·  {n_vis} of {n_max} waypoints visible{moon_note}")
-
-                # Line 3 — best time + sweep direction
-                core_card = _cardinal(ms["core_peak_az_deg"])
-                if ms["core_peak_in_window"]:
-                    best_label = "Best time  "
-                    best_t     = _fmt_time(ms["core_peak_time"])
-                else:
-                    best_label = "Best before"
-                    best_t     = _fmt_time(ms["arch_end"])
-                best_line = (f"    {best_label}   {best_t}"
-                             f"  —  core {ms['core_peak_alt_deg']}° {core_card}")
-                if ms["farthest_name"] and ms["farthest_peak_alt_deg"] is not None:
-                    far_card   = _cardinal(ms["farthest_peak_az_deg"])
-                    best_line += (f", arch sweeps to {ms['farthest_name']}"
-                                  f" ({ms['farthest_peak_alt_deg']}° {far_card})")
-                print(best_line)
-
-            elif ttype == "milky_way" and mw_summary is None and mw_visible:
-                # Core below horizon — show what northern/southern band is visible
-                core_max = mw_theoretical_core_max(report.lat)
-                lat_abs  = abs(report.lat)
-                hem      = "N" if report.lat >= 0 else "S"
-                print(f"    Core below horizon from {lat_abs:.0f}°{hem}"
-                      f"  (geometric ceiling: {core_max:.0f}°)")
-                vis_names = ", ".join(
-                    t.name for t in sorted(
-                        mw_visible,
-                        key=lambda t: max(w.peak_alt_deg for w in t.windows),
-                        reverse=True,
-                    )
-                )
-                print(f"    Visible band:  {vis_names}")
+                print()  # blank line between sections
+            if ttype == "milky_way":
+                print()  # visual gap before MW rows; label already shown above table
+            else:
+                print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
             current_type = ttype
         _row((name, peak, cond, win, flags))
 
