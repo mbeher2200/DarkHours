@@ -27,6 +27,10 @@ after the first run.
 import argparse
 import sys
 from datetime import date, datetime, timezone
+from pathlib import Path
+
+# Allow running from any working directory — add project root to sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # ---------------------------------------------------------------------------
 # Test configuration

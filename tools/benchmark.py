@@ -15,6 +15,10 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 
+# Allow running from any working directory — add project root to sys.path.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+
 import cache as _cache
 import location as loc
 from trip import plan_trip
@@ -23,7 +27,7 @@ from trip import plan_trip
 # Configuration
 # ---------------------------------------------------------------------------
 
-RESULTS_FILE = Path("benchmark_results.log")
+RESULTS_FILE = _PROJECT_ROOT / "benchmark_results.log"
 
 # 3 groups of 5 geographically diverse cities — different climates and
 # light-pollution profiles so caching doesn't trivially mask differences.
