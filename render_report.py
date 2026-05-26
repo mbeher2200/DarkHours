@@ -143,7 +143,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             cols  = [(f"Time ({wx_tz})", "l"), ("Wx Rating", "r"), ("Cloud Cover", "r")]
             cols += [("Temp",         "r")] if has_temp   else []
             cols += [("Feels",        "r")] if has_feels  else []
-            cols += [("Seeing",       "r")] if has_seeing else []
+            cols += [("Seeing",       "l")] if has_seeing else []
             cols += [("Transparency", "l")] if has_transp else []
             cols += [("Humidity", "r"), ("Wind", "r"), ("Precip", "l")]
 
