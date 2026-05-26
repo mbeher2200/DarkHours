@@ -467,50 +467,18 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
     lp = _lp_line(report)
     if lp:
         print(f"Light Pollution:    {lp}")
-    dist_str    = f"  |  {report.moon_distance_km:,} km"
-    special_str = f"  ·  {report.moon_special.title()}" if report.moon_special else ""
+    tags = []
+    if report.moon_special:
+        tags.append(report.moon_special.title())
+    for e in report.moon_eclipses:
+        kind    = e["kind"].capitalize()
+        mag_str = (f"umbral {e['umbral_magnitude']:.3f}"
+                   if e["kind"] in ("partial", "total")
+                   else f"penumbral {e['penumbral_magnitude']:.3f}")
+        tags.append(f"{kind} lunar eclipse at {_fmt_time(e['time'])}  (mag {mag_str})")
+    tag_str = ("  ·  " + "  ·  ".join(tags)) if tags else ""
     print(f"Moon:               {report.phase_name}  |  {report.illumination_pct}% illuminated"
-          f"{dist_str}{special_str}")
-
-    # Moon events: eclipses tonight + nearby perigees/apogees
-    if report.moon_events:
-        eclipse_evs  = [e for e in report.moon_events
-                        if e["kind"] in ("penumbral", "partial", "total")]
-        peri_apo_evs = [e for e in report.moon_events
-                        if e["kind"] in ("perigee", "apogee")]
-
-        def _day_label(ev_time, report_date):
-            ev_local = ev_time.astimezone(_TZ)
-            delta    = (ev_local.date() - report_date).days
-            if delta == 0:
-                return f"tonight at {_fmt_time(ev_time)}"
-            elif delta == 1:
-                return f"tomorrow at {_fmt_time(ev_time)}"
-            elif delta == -1:
-                return f"yesterday at {_fmt_time(ev_time)}"
-            else:
-                return _fmt(ev_time)
-
-        event_lines = []
-        for e in sorted(eclipse_evs, key=lambda x: x["time"]):
-            kind = e["kind"].capitalize()
-            if e["kind"] in ("partial", "total"):
-                mag_str = f"umbral magnitude {e['umbral_magnitude']:.3f}"
-            else:
-                mag_str = f"penumbral magnitude {e['penumbral_magnitude']:.3f}"
-            event_lines.append(
-                f"{kind} lunar eclipse {_day_label(e['time'], report.date)}  ·  {mag_str}"
-            )
-        for e in sorted(peri_apo_evs, key=lambda x: x["time"]):
-            kind = e["kind"].capitalize()
-            event_lines.append(
-                f"{kind} {_day_label(e['time'], report.date)}  ·  {e['distance_km']:,} km"
-            )
-
-        if event_lines:
-            print(f"{'Moon Events:':<20}{event_lines[0]}")
-            for line in event_lines[1:]:
-                print(f"{'':20}{line}")
+          f"  |  {report.moon_distance_km:,} km{tag_str}")
     cycle     = report.dark_cycle
     cycle_str = f"avg {cycle['mean_hours']}h  ±{cycle['stdev_hours']}h over lunar cycle"
     print(f"Prime Dark Sky Hours:  {dark_str}  ·  {cycle_str}")
