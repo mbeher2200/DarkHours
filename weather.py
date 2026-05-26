@@ -311,6 +311,11 @@ def _parse_noaa_grid(data: dict) -> list:
 
     points = []
     for t in sorted(sky.keys()):
+        # At the NWS 7-day boundary skyCover extends slightly further than
+        # temperature/humidity/wind.  Drop hours with no temperature — they
+        # produce misleading cloud-only rows and can't be scored meaningfully.
+        if t not in temp:
+            continue
         wind_kmh = wind.get(t)
         points.append(WeatherPoint(
             time            = t,
