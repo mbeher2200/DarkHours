@@ -11,7 +11,7 @@ NightSummary / TripReport dataclasses.
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as _utc
 
 from zoneinfo import ZoneInfo
 
@@ -37,6 +37,8 @@ class NightSummary:
     phase_name:       str
     illumination_pct: float
     moon_distance_km: float
+    moon_special:     str | None       # 'supermoon' | 'micromoon' | None
+    moon_eclipses:    list             # list[dict] — eclipses during this night
     dark_hours:       float
     bortle_score:     float | None
     weather_score:    float | None
@@ -59,6 +61,27 @@ class TripReport:
 # Cache serialisation
 # ---------------------------------------------------------------------------
 
+def _eclipses_to_json(eclipses: list) -> list:
+    """Serialise eclipse dicts for JSON storage — convert datetime → ISO string."""
+    return [
+        {**e, "time": e["time"].isoformat()}
+        for e in eclipses
+    ]
+
+
+def _eclipses_from_json(raw: list) -> list:
+    """Restore eclipse dicts from JSON — convert ISO string → UTC-aware datetime."""
+    result = []
+    for e in raw:
+        t = e["time"]
+        if isinstance(t, str):
+            t = datetime.fromisoformat(t)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=_utc.utc)
+        result.append({**e, "time": t})
+    return result
+
+
 def _to_dict(s: NightSummary) -> dict:
     return {
         "date":             s.date.isoformat(),
@@ -70,6 +93,8 @@ def _to_dict(s: NightSummary) -> dict:
         "phase_name":       s.phase_name,
         "illumination_pct": s.illumination_pct,
         "moon_distance_km": s.moon_distance_km,
+        "moon_special":     s.moon_special,
+        "moon_eclipses":    _eclipses_to_json(s.moon_eclipses),
         "dark_hours":       s.dark_hours,
         "bortle_score":     s.bortle_score,
         "weather_score":    s.weather_score,
@@ -90,6 +115,8 @@ def _from_dict(d: dict) -> NightSummary:
         phase_name       = d["phase_name"],
         illumination_pct = d["illumination_pct"],
         moon_distance_km = d.get("moon_distance_km", 384_400),
+        moon_special     = d.get("moon_special"),
+        moon_eclipses    = _eclipses_from_json(d.get("moon_eclipses", [])),
         dark_hours       = d["dark_hours"],
         bortle_score     = d["bortle_score"],
         weather_score    = d["weather_score"],
@@ -104,8 +131,8 @@ def _from_dict(d: dict) -> NightSummary:
 # ---------------------------------------------------------------------------
 
 def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
-    # v2: added moon_distance_km field to NightSummary
-    return f"night_v2:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
+    # v3: added moon_special and moon_eclipses fields to NightSummary
+    return f"night_v3:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
 
 
 def _within_forecast_window(d: date) -> bool:
@@ -161,6 +188,8 @@ def fetch_night(
         phase_name       = report.phase_name,
         illumination_pct = report.illumination_pct,
         moon_distance_km = report.moon_distance_km,
+        moon_special     = report.moon_special,
+        moon_eclipses    = report.moon_eclipses,
         dark_hours       = report.dark_hours,
         bortle_score     = report.bortle_score,
         weather_score    = report.weather_score,
