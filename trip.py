@@ -104,7 +104,8 @@ def _from_dict(d: dict) -> NightSummary:
 # ---------------------------------------------------------------------------
 
 def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
-    return f"night:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
+    # v2: added moon_distance_km field to NightSummary
+    return f"night_v2:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
 
 
 def _within_forecast_window(d: date) -> bool:
