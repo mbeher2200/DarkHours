@@ -27,13 +27,14 @@ def _lp_line(report: NightReport) -> str | None:
     return lp_str(report.light_pollution)
 
 
-def _seeing_quality(arcsec: float) -> str:
-    """Classify a seeing value (arcseconds) into a human-readable quality label."""
-    if arcsec <= 0.50: return "Excellent"
-    if arcsec <= 0.75: return "Very Good"
-    if arcsec <= 1.10: return "Good"
-    if arcsec <= 1.75: return "Fair"
-    return "Poor"
+def _seeing_score(arcsec: float) -> int:
+    """Convert seeing (arcseconds) to a 1–10 score. Uses same curve as rate_conditions()."""
+    return max(1, min(10, round((3.0 - arcsec) / 2.6 * 10)))
+
+
+def _transparency_score(label: str) -> int:
+    """Convert a 7Timer transparency label to a 1–10 score. Mirrors rate_conditions() weights."""
+    return {"Excellent": 10, "Good": 8, "Fair": 4, "Poor": 1}.get(label, 5)
 
 
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
@@ -144,7 +145,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             cols += [("Temp",         "r")] if has_temp   else []
             cols += [("Feels",        "r")] if has_feels  else []
             cols += [("Seeing",       "l")] if has_seeing else []
-            cols += [("Transparency", "l")] if has_transp else []
+            cols += [("Transparency", "r")] if has_transp else []
             cols += [("Humidity", "r"), ("Wind", "r"), ("Precip", "l")]
 
             rows = []
@@ -153,8 +154,8 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
                 row += [f"{p.cloud_cover_pct}%" if p.cloud_cover_pct is not None else "—"]
                 row += [ctx.temp(p.temperature_c)] if has_temp   else []
                 row += [ctx.temp(p.feels_like_c)]  if has_feels  else []
-                row += [f"{p.seeing_arcsec:.2f}\" {_seeing_quality(p.seeing_arcsec)}" if p.seeing_arcsec is not None else "—"] if has_seeing else []
-                row += [p.transparency or "—"] if has_transp else []
+                row += [f"{_seeing_score(p.seeing_arcsec)}/10 ({p.seeing_arcsec:.2f}\")" if p.seeing_arcsec is not None else "—"] if has_seeing else []
+                row += [f"{_transparency_score(p.transparency)}/10" if p.transparency is not None else "—"] if has_transp else []
                 row += [
                     f"{p.humidity_pct}%" if p.humidity_pct is not None else "—",
                     ctx.wind(p.wind_speed_ms),
