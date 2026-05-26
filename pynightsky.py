@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """PyNightSky — command-line interface for the night sky predictor."""
 
+import calendar as _cal
 import logging
 import os
 import platform
 import subprocess
-from datetime import date
+from datetime import date, datetime
 
 from zoneinfo import ZoneInfo
 
 import config as _cfg
 import location as loc
+import trip as _trip
 import weather as wx
 from predictor import NightReport, assemble_night
 from milky_way import milky_way_arch_summary, mw_theoretical_core_max
@@ -575,6 +577,58 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
             print()
 
 
+def _print_calendar(summaries: list, display_name: str, date_start: date, date_end: date) -> None:
+    """Print a chronological calendar of night scores across a date range."""
+    if date_start.month == date_end.month and date_start.year == date_end.year:
+        period_str = date_start.strftime("%B %Y")
+    else:
+        period_str = f"{date_start.strftime('%b %Y')} – {date_end.strftime('%b %Y')}"
+
+    print(f"\nCalendar — {display_name}")
+    print(f"{period_str}\n")
+
+    headers = ("Date",  "Score", "Moon",  "Dark",  "Weather", "Phase")
+    widths  = (14,      5,       5,       5,       7,         22)
+    aligns  = ("l",     "r",     "r",     "r",     "r",       "l")
+
+    def _row(vals):
+        parts = [
+            f"{v:>{w}}" if a == "r" else f"{v:<{w}}"
+            for v, w, a in zip(vals, widths, aligns)
+        ]
+        print("  " + "  ".join(parts))
+
+    _row(headers)
+    _row(["─" * w for w in widths])
+
+    for s in summaries:
+        date_str  = f"{s.date.strftime('%a')} {s.date.strftime('%b')} {s.date.day:>2}"
+        score_str = f"{s.score:.1f}" if s.score is not None else "—"
+        moon_str  = f"{round(s.illumination_pct)}%"
+        dark_str  = f"{s.dark_hours:.1f}h"
+        if s.weather_informed and s.weather_score is not None:
+            wx_str = f"{s.weather_score:.1f}"
+        elif s.wx_pending:
+            wx_str = "~"
+        else:
+            wx_str = "—"
+        _row([date_str, score_str, moon_str, dark_str, wx_str, s.phase_name])
+
+    # Best nights footer
+    ranked = sorted(
+        [s for s in summaries if s.score is not None],
+        key=lambda s: s.score,
+        reverse=True,
+    )
+    if ranked:
+        top_str = "  ·  ".join(
+            f"{s.date.strftime('%b %-d')} ({s.score:.1f})"
+            for s in ranked[:3]
+        )
+        print(f"\n  Best nights:  {top_str}")
+    print()
+
+
 def main():
     import argparse
 
@@ -586,8 +640,11 @@ def main():
     where.add_argument("--coords", "-c", nargs=2, type=float, metavar=("LAT", "LON"),
                        help="Decimal-degree coordinates, e.g. -c 40.7128 -74.0060")
 
-    parser.add_argument("--date", "-d", default=date.today().isoformat(),
-                        metavar="YYYY-MM-DD", help="Date to predict (default: today)")
+    parser.add_argument("--date", "-d", default=None,
+                        metavar="DATE",
+                        help="Date (YYYY-MM-DD, default: today) or month (YYYY-MM) with --calendar")
+    parser.add_argument("--calendar", action="store_true",
+                        help="Show a month-view calendar of night scores (use --date YYYY-MM to pick a month)")
     parser.add_argument("--save-location", metavar="NAME",
                         help="Save --coords under a name for future use")
     parser.add_argument("--list-locations", action="store_true",
@@ -644,10 +701,49 @@ def main():
 
     log.debug("Resolved location: lat=%.4f, lon=%.4f, tz=%s", lat, lon, str(_TZ))
 
+    # ── Calendar mode ────────────────────────────────────────────────────────
+    if args.calendar:
+        d_arg = args.date
+        if d_arg is None:
+            # No date given — use current month
+            today      = date.today()
+            date_start = today.replace(day=1)
+        else:
+            # Accept YYYY-MM or YYYY-MM-DD (takes the month from either)
+            try:
+                date_start = datetime.strptime(d_arg, "%Y-%m").date().replace(day=1)
+            except ValueError:
+                try:
+                    date_start = date.fromisoformat(d_arg).replace(day=1)
+                except ValueError:
+                    print(f"Error: '{d_arg}' is not a valid date (expected YYYY-MM or YYYY-MM-DD).")
+                    raise SystemExit(1)
+
+        last_day = _cal.monthrange(date_start.year, date_start.month)[1]
+        date_end = date_start.replace(day=last_day)
+        n_nights = last_day
+
+        loc_dict = {"lat": lat, "lon": lon, "display_name": display_name, "tz_name": str(_TZ)}
+
+        def _progress(done, total):
+            print(f"  Computing...  {done}/{total}", end="\r", flush=True)
+            if done == total:
+                print(" " * 30, end="\r", flush=True)
+
+        trip_report = _trip.plan_trip(
+            [loc_dict], date_start, date_end,
+            fetch_weather=args.weather,
+            progress_fn=_progress,
+        )
+        _print_calendar(trip_report.nights, display_name, date_start, date_end)
+        return
+
+    # ── Single-night mode ────────────────────────────────────────────────────
+    d_arg = args.date or date.today().isoformat()
     try:
-        target = date.fromisoformat(args.date)
+        target = date.fromisoformat(d_arg)
     except ValueError:
-        print(f"Error: '{args.date}' is not a valid date (expected YYYY-MM-DD).")
+        print(f"Error: '{d_arg}' is not a valid date (expected YYYY-MM-DD).")
         raise SystemExit(1)
 
     fetch_targets = args.targets or args.prime_targets
