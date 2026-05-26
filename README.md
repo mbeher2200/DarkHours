@@ -18,6 +18,7 @@ The tool displays:
 - **Prime Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
 - **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
+- **Month Calendar** — A full-month view of night scores, prime dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
 
 Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-05-14 --prime-targets --weather`):
 ```
@@ -355,12 +356,55 @@ Results are cached on disk — the first run computes everything, subsequent run
 --verbose, -v                     Print debug information
 ```
 
+## Month Calendar
+
+The `--calendar` flag shows a full-month view for a single location — useful for answering "what are my best nights this month?" without running the trip planner.
+
+```bash
+# Current month
+python pynightsky.py --location "Grand Canyon Village, Arizona" --calendar
+
+# Specific month
+python pynightsky.py --location "Grand Canyon Village, Arizona" --calendar --date 2026-03
+
+# Include weather scores for dates within the 16-day forecast window
+python pynightsky.py --location "Grand Canyon Village, Arizona" --calendar --weather
+```
+
+Each row shows one night. The **Moon** column shows the lunar interference score (0–10, same component as the Night Quality Score breakdown) and flags any special events inline:
+
+```
+Calendar — Grand Canyon Village, Coconino County, Arizona, United States
+Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
+March 2026
+
+  Date        Night Quality Score  Prime Dark Hours  Weather  Moon
+  ----------  -------------------  ----------------  -------  ----
+  2026-03-01               0.0/10            0h 00m        —  0.0
+  2026-03-02               0.0/10            0h 00m        —  0.0  ·  *** Total lunar eclipse at  4:33 AM  (mag umbral 1.149) ***
+  2026-03-03               0.0/10            0h 00m        —  0.0
+  2026-03-04               0.4/10            0h 10m        —  0.2
+  ...
+  2026-03-15               9.4/10            9h 10m        —  10.0
+  2026-03-19               9.8/10            9h 00m        —  10.0
+  ...
+  2026-03-31               0.0/10            0h 00m        —  0.0
+
+  Best nights:  Mar 19 (9.8/10)  ·  Mar 15 (9.4/10)  ·  Mar 16 (9.4/10)
+```
+
+The **Light Pollution** header line appends the location's Bortle score contribution (0–10) so you can immediately see how much light pollution is costing you on every night.
+
+Scores in the calendar are identical to those from the single-night report for the same date — the same engine runs both.
+
 ## pynightsky.py Options
 
 ```
 --location, -l NAME        Location name or city (geocoded and cached)
 --coords, -c LAT LON       Decimal-degree coordinates (e.g., -c 40.7128 -74.0060)
---date, -d YYYY-MM-DD      Date to predict (default: today)
+--date, -d DATE            Date to predict (YYYY-MM-DD, default: today);
+                           with --calendar, accepts YYYY-MM to pick a month
+--calendar                 Show a month-view calendar of night scores
 --weather, -w              Include weather forecast (requires internet)
 --targets, -t              Show all visible targets for the night
 --prime-targets, -p        Show only prime targets (see config.json for thresholds)
