@@ -416,13 +416,14 @@ Scores in the calendar are identical to those from the single-night report for t
 
 ## Architecture
 
-The project is structured as a layered engine with a thin CLI on top, making it straightforward to drive from a future web or application frontend.
+The project is split into three layers: a pure engine, a formatting context, and thin CLI shells. The engine layer has no print statements and returns only dataclasses, so it can be called directly from a web backend or any other frontend.
+
+**Engine layer** — no I/O, returns dataclasses:
 
 | Module | Role |
 |--------|------|
-| `pynightsky.py` | CLI entry point — argument parsing, formatting, and output |
-| `predictor.py` | Engine — assembles a `NightReport` dataclass from all data sources |
-| `scoring.py` | Scoring logic — night rating and weather score calculations |
+| `predictor.py` | Assembles a `NightReport` dataclass from all data sources |
+| `scoring.py` | Night rating and weather score calculations |
 | `sky_events.py` | Astronomical primitives — sun/moon events, dark intervals, moon phase |
 | `moonlight.py` | Krisciunas & Schaefer (1991) moonlight model — Δmag sky brightening, moon credit, severity thresholds, per-type contrast constants |
 | `moon_events.py` | Lunar distance, eclipse detection (`eclipselib`), and supermoon/micromoon classification |
@@ -433,9 +434,29 @@ The project is structured as a layered engine with a thin CLI on top, making it 
 | `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
 | `weather.py` | Weather forecast abstraction (Open-Meteo providers) |
 | `location.py` | Geocoding and timezone resolution |
-| `tripbuilder.py` | Trip Builder CLI — matrix output and ranked list across locations and dates |
 | `trip.py` | Trip planning engine — `plan_trip()` loops locations × dates, returns `TripReport` |
 | `cache.py` | Disk-backed JSON cache with per-entry TTL (SHA256-keyed files) |
+
+**Formatting layer** — timezone/unit conversion, locale detection:
+
+| Module | Role |
+|--------|------|
+| `format_ctx.py` | `FormatCtx` dataclass — bundles timezone and unit system; instantiated once per CLI invocation or per web request (no shared state) |
+
+**Render layer** — terminal output only; each module receives a dataclass and prints to stdout:
+
+| Module | Role |
+|--------|------|
+| `render_report.py` | Single-night report and targets table (`print_report`, `print_targets`) |
+| `render_calendar.py` | Month calendar view (`print_calendar`) |
+| `render_trip.py` | Trip matrix and ranked list (`print_matrix`, `print_ranked`) |
+
+**CLI shells** — argument parsing and orchestration only:
+
+| Module | Role |
+|--------|------|
+| `pynightsky.py` | Single-night and calendar CLI |
+| `tripbuilder.py` | Trip Builder CLI |
 
 To use the engine directly (e.g. from a backend service), call `predictor.assemble_night()`:
 
