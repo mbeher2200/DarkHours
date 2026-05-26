@@ -140,7 +140,7 @@ def assemble_night(
         moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
         moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * ks_moon_credit(illumination)), 1)
 
-        # Crescent exemption for the *displayed* Prime Dark Sky Hours:
+        # Crescent exemption for the *displayed* Clear Dark Sky Hours:
         # illumination ≤ 20% → K&S shows Δmag < 0.25 at 90° sep regardless of altitude
         # (imperceptible-to-minor).  Report the full astronomical window as dark rather
         # than subtracting the few hours the crescent is technically above the horizon.

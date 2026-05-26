@@ -140,7 +140,7 @@ _KS_CREDIT_ALT_DEG = 30.0
 
 # Illumination below which the moon's sky brightening is imperceptible-to-minor at
 # 90° separation regardless of altitude.  Used as the crescent-exemption threshold
-# for the "Prime Dark Sky Hours" display in predictor.py.
+# for the "Clear Dark Sky Hours" display in predictor.py.
 KS_CRESCENT_EXEMPTION_PCT = 20.0
 
 

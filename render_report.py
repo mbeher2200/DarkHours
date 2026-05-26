@@ -148,7 +148,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
           f"  |  {report.moon_distance_km:,} km{tag_str}")
     cycle     = report.dark_cycle
     cycle_str = f"avg {cycle['mean_hours']}h  ±{cycle['stdev_hours']}h over lunar cycle"
-    print(f"Prime Dark Sky Hours:  {dark_str}  ·  {cycle_str}")
+    print(f"Clear Dark Sky Hours:  {dark_str}  ·  {cycle_str}")
 
     if report.score is not None:
         comp   = report.score_components
