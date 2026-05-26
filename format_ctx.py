@@ -76,13 +76,17 @@ class FormatCtx:
             return f"{round(c * 9 / 5 + 32)}°F"
         return f"{c:.1f}°C"
 
-    def wind(self, ms) -> str:
-        """Format a wind speed (m/s) in the configured unit system."""
+    def wind(self, ms, direction_deg=None) -> str:
+        """Format wind speed (m/s) with optional direction, e.g. '12mph SW'."""
         if ms is None:
             return "—"
         if self.units == "imperial":
-            return f"{ms * 2.237:.1f}mph"
-        return f"{ms:.1f}m/s"
+            speed_str = f"{round(ms * 2.237)}mph"
+        else:
+            speed_str = f"{ms:.1f}m/s"
+        if direction_deg is not None:
+            return f"{speed_str} {cardinal(direction_deg)}"
+        return speed_str
 
 
 # ---------------------------------------------------------------------------

@@ -431,6 +431,29 @@ def load_targets() -> list:
         return []
 
 
+def active_meteor_showers(target_date) -> list:
+    """
+    Return basic info for all meteor showers active on target_date.
+
+    Does not compute sky positions — fast date-arithmetic only.
+
+    Returns a list of dicts: [{"name": str, "note": str, "zhr": int}, ...]
+    Showers outside their active window are excluded.
+    """
+    results = []
+    for entry in load_targets():
+        if entry.get("type") != "meteor_shower":
+            continue
+        note = _meteor_shower_note(entry, target_date)
+        if note is not None:
+            results.append({
+                "name": entry["name"],
+                "note": note,
+                "zhr":  entry.get("peak_zhr", 0),
+            })
+    return results
+
+
 def visible_targets(
     lat: float,
     lon: float,

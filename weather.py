@@ -51,7 +51,8 @@ class WeatherPoint:
     precip_type:     Optional[str]      # "none" | "rain" | "snow" | "frzr" | "icep"
     temperature_c:   Optional[float]    # °C
     feels_like_c:    Optional[float]    # °C apparent temperature
-    dew_point_c:     Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
+    dew_point_c:        Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
+    wind_direction_deg: Optional[float] = None  # degrees from north (meteorological)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +101,8 @@ def _parse_open_meteo_hourly(h: dict) -> list:
             precip_type=precip_type,
             temperature_c=h["temperature_2m"][i],
             feels_like_c=h.get("apparent_temperature", [None] * len(h["time"]))[i],
-            dew_point_c=h.get("dewpoint_2m", [None] * len(h["time"]))[i],
+            dew_point_c=h.get("dewpoint_2m",        [None] * len(h["time"]))[i],
+            wind_direction_deg=h.get("wind_direction_10m", [None] * len(h["time"]))[i],
         ))
     return points
 
@@ -115,7 +117,7 @@ class OpenMeteoProvider(WeatherProvider):
         "https://api.open-meteo.com/v1/forecast"
         "?latitude={lat}&longitude={lon}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
+        ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
@@ -159,7 +161,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         "?latitude={lat}&longitude={lon}"
         "&past_days={past_days}&forecast_days=1"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
+        ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -206,7 +208,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         "?latitude={lat}&longitude={lon}"
         "&start_date={start}&end_date={end}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
+        ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -299,12 +301,13 @@ def _parse_noaa_grid(data: dict) -> list:
     """Parse a NWS forecastGridData response → list[WeatherPoint]."""
     props = data["properties"]
 
-    sky     = _noaa_expand(props.get("skyCover",            {}).get("values", []))
-    temp    = _noaa_expand(props.get("temperature",          {}).get("values", []))
-    dewpt   = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
-    humid   = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
-    wind    = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
-    wx_vals = _noaa_expand(props.get("weather",              {}).get("values", []))
+    sky      = _noaa_expand(props.get("skyCover",            {}).get("values", []))
+    temp     = _noaa_expand(props.get("temperature",          {}).get("values", []))
+    dewpt    = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
+    humid    = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
+    wind     = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
+    wind_dir = _noaa_expand(props.get("windDirection",        {}).get("values", []))  # degrees
+    wx_vals  = _noaa_expand(props.get("weather",              {}).get("values", []))
 
     points = []
     for t in sorted(sky.keys()):
@@ -318,9 +321,10 @@ def _parse_noaa_grid(data: dict) -> list:
             wind_speed_ms   = round(wind_kmh / 3.6, 2) if wind_kmh is not None else None,
             lifted_index    = None,
             precip_type     = _noaa_precip_type(wx_vals.get(t)),
-            temperature_c   = temp.get(t),
-            feels_like_c    = None,               # not in NWS grid data
-            dew_point_c     = dewpt.get(t),
+            temperature_c      = temp.get(t),
+            feels_like_c       = None,               # not in NWS grid data
+            dew_point_c        = dewpt.get(t),
+            wind_direction_deg = wind_dir.get(t),
         ))
     return points
 
@@ -389,7 +393,9 @@ class SevenTimerProvider(WeatherProvider):
         5: "Fair",      6: "Fair",
         7: "Poor",      8: "Poor",
     }
-    _WIND_MS = {1: 0.2, 2: 1.5, 3: 3.3, 4: 5.5, 5: 8.0, 6: 11.0, 7: 13.9, 8: 17.2}
+    _WIND_MS  = {1: 0.2, 2: 1.5, 3: 3.3, 4: 5.5, 5: 8.0, 6: 11.0, 7: 13.9, 8: 17.2}
+    _WIND_DIR = {"N": 0, "NE": 45, "E": 90, "SE": 135,
+                 "S": 180, "SW": 225, "W": 270, "NW": 315}
 
     @staticmethod
     def _rh2m_to_pct(idx: int) -> int:
@@ -428,6 +434,7 @@ class SevenTimerProvider(WeatherProvider):
                 precip_type=entry.get("prec_type"),
                 temperature_c=float(temp) if temp is not None else None,
                 feels_like_c=None,
+                wind_direction_deg=self._WIND_DIR.get(wind.get("direction")),
             ))
 
         return points

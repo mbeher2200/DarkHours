@@ -86,6 +86,85 @@ def _transparency_score(label: str) -> int:
 
 
 
+def _best_weather_window(clear_intervals, weather_points, ctx):
+    """
+    Find the clear dark interval with the highest average weather score.
+
+    Returns (start, end, avg_score) for the best interval, or None if there
+    are no weather points within any clear interval.
+    """
+    if not clear_intervals or not weather_points:
+        return None
+
+    best = None
+    for ivl_start, ivl_end in clear_intervals:
+        pts = [p for p in weather_points if ivl_start <= p.time < ivl_end]
+        if not pts:
+            continue
+        avg = round(sum(wx.rate_conditions(p) for p in pts) / len(pts), 1)
+        if best is None or avg > best[2]:
+            best = (ivl_start, ivl_end, avg)
+    return best
+
+
+def _night_verdict(report: NightReport, clear_hours: float) -> str | None:
+    """Generate a plain-English one-line verdict for the night."""
+    score = report.score
+    if score is None:
+        return None
+
+    comp = report.score_components
+    # Identify the single most limiting component
+    worst_key = min(comp, key=lambda k: comp[k]) if comp else None
+
+    def _limit_phrase() -> str:
+        if worst_key == "moon":
+            return (f"{report.phase_name.lower()}"
+                    f" ({report.illumination_pct:.0f}% illuminated)")
+        if worst_key == "dark":
+            if clear_hours == 0:
+                return "no clear dark sky hours"
+            return f"short dark window ({clear_hours:.1f}h)"
+        if worst_key == "weather":
+            pts = report.weather_points
+            if pts:
+                avg_cloud = sum(p.cloud_cover_pct or 0 for p in pts) / len(pts)
+                has_precip = any(
+                    p.precip_type and p.precip_type not in ("none", None)
+                    for p in pts
+                )
+                if has_precip:
+                    types = {p.precip_type for p in pts
+                             if p.precip_type and p.precip_type not in ("none", None)}
+                    return "snow forecast" if "snow" in types else "rain forecast"
+                if avg_cloud > 70:
+                    return "heavy cloud cover forecast"
+                if avg_cloud > 40:
+                    return "partial cloud cover forecast"
+                return "poor sky conditions"
+            return "weather data limited"
+        if worst_key == "bortle":
+            lp = report.light_pollution
+            bc = lp.get("bortle_class") if lp else None
+            return f"severe light pollution (Bortle {bc})" if bc else "severe light pollution"
+        return ""
+
+    phrase = _limit_phrase()
+    suffix = f" — {phrase}" if phrase else ""
+
+    if score >= 9.0:
+        return "Excellent — ideal conditions"
+    if score >= 7.5:
+        return f"Good{suffix}"
+    if score >= 5.5:
+        return f"Fair{suffix}"
+    if score >= 3.0:
+        return f"Poor{suffix}"
+    if score > 0:
+        return f"Very poor{suffix}"
+    return f"Pass{suffix}"
+
+
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
@@ -146,6 +225,10 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
     tag_str = ("  ·  *** " + "  ·  ".join(tags) + " ***") if tags else ""
     print(f"Moon:               {report.phase_name}  |  {report.illumination_pct}% illuminated"
           f"  |  {report.moon_distance_km:,} km{tag_str}")
+    if report.active_showers:
+        shower_parts = [f"{s['name']} · {s['note']} · ZHR {s['zhr']}"
+                        for s in report.active_showers]
+        print(f"Meteor Showers:     {',  '.join(shower_parts)}")
     cycle     = report.dark_cycle
     cycle_str = f"avg {cycle['mean_hours']}h  ±{cycle['stdev_hours']}h over lunar cycle"
     print(f"Clear Dark Sky Hours:  {dark_str}  ·  {cycle_str}")
@@ -166,6 +249,14 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             else "Bortle —",
         ]
         print(f"Night Quality Score:  {report.score}/10  ({' · '.join(parts)})")
+        bw = _best_weather_window(disp_intervals, report.weather_points, ctx)
+        if bw:
+            bw_start, bw_end, bw_score = bw
+            print(f"  Best window:  {ctx.fmt_time(bw_start)} – {ctx.fmt_time(bw_end)}"
+                  f"  ·  avg {bw_score}/10")
+        verdict = _night_verdict(report, disp_hours)
+        if verdict:
+            print(f"  Verdict:      {verdict}")
     print()
 
     # Sky Events timeline
@@ -222,7 +313,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
                 row += [f"{_transparency_score(p.transparency)}/10" if p.transparency is not None else "—"] if has_transp else []
                 row += [
                     f"{p.humidity_pct}%" if p.humidity_pct is not None else "—",
-                    ctx.wind(p.wind_speed_ms),
+                    ctx.wind(p.wind_speed_ms, p.wind_direction_deg),
                     p.precip_type.capitalize() if p.precip_type and p.precip_type != "none" else "None",
                 ]
                 rows.append(row)

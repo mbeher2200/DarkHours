@@ -11,6 +11,7 @@ import darksky as _ds
 import moon_events as _me
 import scoring
 import sky_events as se
+import targets as _tgt
 from moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 import weather as wx
 
@@ -70,6 +71,9 @@ class NightReport:
 
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
+
+    # Active meteor showers tonight (always populated)
+    active_showers: list  = field(default_factory=list)
 
 
 def assemble_night(
@@ -239,10 +243,12 @@ def assemble_night(
         except RuntimeError as e:
             wx_error = str(e)
 
+    # --- Active meteor showers (always computed — fast date check only) ---
+    active_showers = _tgt.active_meteor_showers(target)
+
     # --- Visible targets ---
     target_list = []
     if fetch_targets:
-        import targets as _tgt  # full module; ks_moon_credit already imported at top
         site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
         target_list = _tgt.visible_targets(lat, lon, sunset, sunrise, illumination,
                                             night_start=night_start, night_end=night_end,
@@ -286,4 +292,5 @@ def assemble_night(
         score=rating["score"],
         score_components=rating["components"],
         visible_targets=target_list,
+        active_showers=active_showers,
     )
