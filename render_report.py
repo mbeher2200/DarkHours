@@ -128,8 +128,9 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             has_seeing = any(p.seeing_arcsec  is not None for p in pts)
             has_transp = any(p.transparency   is not None for p in pts)
 
-            wx_tz = ctx.local(pts[0].time).strftime("%Z")
-            print("Weather:\n")
+            wx_tz  = ctx.local(pts[0].time).strftime("%Z")
+            src    = f"  [{report.wx_source}]" if report.wx_source else ""
+            print(f"Weather{src}:\n")
             cols  = [(f"Time ({wx_tz})", "l"), ("Wx Rating", "r"), ("Cloud", "r")]
             cols += [("Temp",   "r")] if has_temp   else []
             cols += [("Feels",  "r")] if has_feels  else []

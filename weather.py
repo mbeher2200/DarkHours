@@ -554,10 +554,17 @@ def get_provider() -> WeatherProvider | None:
     return _provider
 
 
-def forecast(lat: float, lon: float) -> list:
+def forecast(lat: float, lon: float) -> tuple[list, str]:
     """
     Fetch a forecast for the given coordinates using the best available provider,
     then blend seeing / transparency / lifted_index from 7Timer ASTRO.
+
+    Returns
+    -------
+    points : list[WeatherPoint]
+    source : str
+        Human-readable description of data sources used, e.g.
+        "NOAA/NWS + 7Timer" or "Open-Meteo".
 
     Provider selection (when not overridden via set_provider):
       • NOAA/NWS    — US locations (continental US, Alaska, Hawaii, territories)
@@ -570,17 +577,23 @@ def forecast(lat: float, lon: float) -> list:
     """
     if _provider is not None:
         log.debug("Using explicit provider: %s", _provider.name)
+        primary_name = _provider.name
         points = _provider.forecast(lat, lon)
     else:
         # Auto-select: try NOAA, fall back to Open-Meteo for non-US coordinates
         try:
             points = NOAAProvider().forecast(lat, lon)
+            primary_name = "NOAA/NWS"
             log.debug("Using NOAA/NWS for %.4f, %.4f", lat, lon)
         except RuntimeError as e:
             if "not covered" in str(e).lower():
                 log.debug("Outside NOAA coverage — using Open-Meteo for %.4f, %.4f", lat, lon)
                 points = OpenMeteoProvider().forecast(lat, lon)
+                primary_name = "Open-Meteo"
             else:
                 raise
 
-    return _blend_7timer(points, lat, lon)
+    blended    = _blend_7timer(points, lat, lon)
+    has_seeing = any(p.seeing_arcsec is not None for p in blended)
+    source     = f"{primary_name} + 7Timer" if has_seeing else primary_name
+    return blended, source
