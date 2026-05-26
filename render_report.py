@@ -131,12 +131,12 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             wx_tz  = ctx.local(pts[0].time).strftime("%Z")
             src    = f"  [{report.wx_source}]" if report.wx_source else ""
             print(f"Weather{src}:\n")
-            cols  = [(f"Time ({wx_tz})", "l"), ("Wx Rating", "r"), ("Cloud", "r")]
-            cols += [("Temp",   "r")] if has_temp   else []
-            cols += [("Feels",  "r")] if has_feels  else []
-            cols += [("Seeing", "r")] if has_seeing else []
-            cols += [("Transp", "l")] if has_transp else []
-            cols += [("Humid", "r"), ("Wind", "r"), ("Precip", "l")]
+            cols  = [(f"Time ({wx_tz})", "l"), ("Wx Rating", "r"), ("Cloud Cover", "r")]
+            cols += [("Temp",         "r")] if has_temp   else []
+            cols += [("Feels",        "r")] if has_feels  else []
+            cols += [("Seeing",       "r")] if has_seeing else []
+            cols += [("Transparency", "l")] if has_transp else []
+            cols += [("Humidity", "r"), ("Wind", "r"), ("Precip", "l")]
 
             rows = []
             for p in pts:
