@@ -105,7 +105,7 @@ def save(name: str, lat: float, lon: float, display_name: str = None):
         "tz_name": _tz_name_for(lat, lon),
     }
     _save(cache)
-    print(f"Saved '{name}' → {lat}, {lon}")
+    log.info("Saved location '%s' → lat=%.4f, lon=%.4f", name, lat, lon)
 
 
 def timezone_for(lat: float, lon: float) -> ZoneInfo:

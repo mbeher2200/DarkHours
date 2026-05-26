@@ -514,6 +514,45 @@ def visible_targets(
     return results
 
 
+def is_prime(target, min_peak_alt: float, min_window_hours: float,
+             dark_intervals: list | None = None) -> bool:
+    """True if the target has a clean window meeting altitude and duration thresholds.
+
+    Milky Way targets skip the altitude floor (the arch is inherently low from
+    mid-latitudes) but still require the minimum window duration — without it,
+    setting waypoints with 1–30 minute windows show up as prime.
+
+    When every window has moon_interference=True (K&S ≥ 0.50 at some sample),
+    fall back to checking overlap with the geometric dark intervals (moon
+    physically below the horizon).  A target whose overnight window straddles
+    moonset gains a genuine moon-free sub-period; if that sub-period is long
+    enough, the target qualifies.  On full-moon nights dark_intervals=[] so no
+    window can pass this fallback — the moon-dominated message fires correctly.
+    """
+    clean = [w for w in target.windows if not w.moon_interference]
+    if not clean:
+        # No fully K&S-clean windows.  Check whether any window has a moon-free
+        # overlap with the geometric dark intervals (moonset → astronomical end).
+        if not dark_intervals:
+            return False
+        for w in target.windows:
+            for di_start, di_end in dark_intervals:
+                overlap_s = max(w.start, di_start)
+                overlap_e = min(w.end,   di_end)
+                overlap_h = (overlap_e - overlap_s).total_seconds() / 3600
+                if overlap_h >= min_window_hours:
+                    if target.type == "milky_way":
+                        return True
+                    return w.peak_alt_deg >= min_peak_alt
+        return False
+
+    best       = max(clean, key=lambda w: w.peak_alt_deg)
+    duration_h = (best.end - best.start).total_seconds() / 3600
+    if target.type == "milky_way":
+        return duration_h >= min_window_hours
+    return best.peak_alt_deg >= min_peak_alt and duration_h >= min_window_hours
+
+
 # K&S model and sky-brightness constants live in moonlight.py.
 # MW arch functions live in milky_way.py.
 # Re-export the names that pynightsky.py and predictor.py currently import
