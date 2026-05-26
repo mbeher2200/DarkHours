@@ -28,8 +28,9 @@ import math
 # Krisciunas & Schaefer (1991) model constants
 # ---------------------------------------------------------------------------
 
-_KS_K_EXT       = 0.172   # typical V-band atmospheric extinction coefficient
-KS_NATURAL_SKY  = 21.6    # Bortle 2 dark-sky baseline (mag/arcsec²); conservative
+_KS_K_EXT        = 0.172      # typical V-band atmospheric extinction coefficient
+KS_NATURAL_SKY   = 21.6      # Bortle 2 dark-sky baseline (mag/arcsec²); conservative
+_KS_MEAN_DIST_KM = 384_400.0  # mean Earth-Moon distance used by K&S (1991)
 
 # Severity thresholds in Δ mag/arcsec² (sky brightening from dark-sky baseline)
 _KS_MINOR_THRESH    = 0.10   # < 0.10 → None   : imperceptible
@@ -90,6 +91,7 @@ def ks_delta_mag(
     sep_deg: float,
     moon_alt_deg: float,
     sky_sqm: float = KS_NATURAL_SKY,
+    moon_earth_dist_km: float = _KS_MEAN_DIST_KM,
 ) -> float:
     """
     Return sky surface brightness increase Δ mag/arcsec² from scattered moonlight
@@ -97,6 +99,13 @@ def ks_delta_mag(
 
     Returns 0.0 when illumination is zero or the moon is below the horizon.
     sky_sqm is used for the natural-sky baseline I_sky denominator.
+
+    moon_earth_dist_km — actual Earth-Moon distance at observation time (km).
+    K&S (1991) assumes the Moon at its mean distance (384,400 km); passing the
+    true distance corrects the ±8.5 % variation via the inverse-square law,
+    removing up to ±0.35 mag/arcsec² error on supermoon / micromoon nights.
+    Defaults to the mean distance so callers without per-sample ephemeris data
+    remain accurate on average.
     """
     if illumination_pct <= 0 or moon_alt_deg <= 0:
         return 0.0
@@ -105,6 +114,7 @@ def ks_delta_mag(
     alpha  = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum - 1.0))))
     V_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha**4
     I_moon = 10 ** (-0.4 * (V_moon + 16.57))
+    I_moon *= (_KS_MEAN_DIST_KM / moon_earth_dist_km) ** 2  # inverse-square distance correction
 
     alt    = max(1.0, moon_alt_deg)
     X_moon = 1.0 / math.cos(math.radians(90.0 - alt))

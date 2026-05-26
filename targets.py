@@ -162,7 +162,7 @@ def _find_windows(alt_deg, az_deg, sample_dts: list, min_elev: float) -> list:
     return result
 
 
-def _moon_interferes(sep_deg, moon_alt_deg, window_indices: list,
+def _moon_interferes(sep_deg, moon_alt_deg, moon_dist_km, window_indices: list,
                      illumination_pct: float) -> bool:
     """True if the moon produces ≥ moderate sky brightening (Δμ ≥ 0.50) at any window sample.
 
@@ -174,7 +174,8 @@ def _moon_interferes(sep_deg, moon_alt_deg, window_indices: list,
         return False
     for i in window_indices:
         if _ml.ks_delta_mag(illumination_pct, float(sep_deg[i]),
-                            float(moon_alt_deg[i])) >= _ml.KS_MODERATE_THRESH:
+                            float(moon_alt_deg[i]),
+                            moon_earth_dist_km=float(moon_dist_km[i])) >= _ml.KS_MODERATE_THRESH:
             return True
     return False
 
@@ -218,7 +219,7 @@ def _meteor_shower_note(entry: dict, night_date) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
-                    moon_astr, moon_alt_deg_all,
+                    moon_astr, moon_alt_deg_all, moon_dist_km_all,
                     illumination_pct: float, night_date,
                     min_elevation: float,
                     obs_start: datetime, obs_end: datetime,
@@ -259,6 +260,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     obs_az           = az_deg[mask]
     obs_sep          = sep_deg[mask]
     obs_moon_alt     = moon_alt_deg_all[mask]      # moon altitude at each masked sample
+    obs_moon_dist    = moon_dist_km_all[mask]      # Earth-Moon distance at each masked sample
     obs_dts          = [dt for dt, m in zip(sample_dts, mask) if m]
 
     windows_with_idx = _find_windows(obs_alt, obs_az, obs_dts, min_elev)
@@ -299,8 +301,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
 
     windows = []
     for window, indices in windows_with_idx:
-        window.moon_interference = _moon_interferes(obs_sep, obs_moon_alt, indices,
-                                                    illumination_pct)
+        window.moon_interference = _moon_interferes(obs_sep, obs_moon_alt, obs_moon_dist,
+                                                    indices, illumination_pct)
 
         # Store moon separation and altitude at peak time for the K&S sky brightness model.
         try:
@@ -341,7 +343,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
             for i in win_indices:
                 sep      = float(obs_sep[i])
                 malt     = float(obs_moon_alt[i])
-                delta    = _ml.ks_delta_mag(illumination_pct, sep, malt, _sqm)
+                mdist    = float(obs_moon_dist[i])
+                delta    = _ml.ks_delta_mag(illumination_pct, sep, malt, _sqm, mdist)
                 sky_now  = _sqm - delta   # effective sky brightness this sample
 
                 if sb is not None:
@@ -477,6 +480,7 @@ def visible_targets(
     moon_astr  = observer.at(t_array).observe(eph["moon"])
     moon_alt_v, _, _ = moon_astr.apparent().altaz()
     moon_alt_deg_all = moon_alt_v.degrees          # ndarray, one value per sample
+    moon_dist_km_all = moon_astr.distance().km     # ndarray, Earth-Moon distance per sample
     night_date = sunset.date()
 
     # Use provided SQM or fall back to the K&S natural-sky baseline (Bortle 2).
@@ -493,7 +497,7 @@ def visible_targets(
         try:
             result = _compute_target(
                 entry, observer, eph, t_array, sample_dts,
-                moon_astr, moon_alt_deg_all,
+                moon_astr, moon_alt_deg_all, moon_dist_km_all,
                 illumination_pct, night_date,
                 min_elevation,
                 obs_start, obs_end,
