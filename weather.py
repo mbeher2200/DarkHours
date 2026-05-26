@@ -523,12 +523,6 @@ def rate_conditions(p: WeatherPoint) -> int:
         scores["humid"]  = max(0.0, 1 - max(0, p.humidity_pct - 50) / 40)
         weights["humid"] = 0.05
 
-    if p.temperature_c is not None and p.dew_point_c is not None:
-        # 0°C spread = dew forming on optics; 8°C+ = safe all night
-        spread = max(0.0, p.temperature_c - p.dew_point_c)
-        scores["dew"]  = min(1.0, spread / 8.0)
-        weights["dew"] = 0.05
-
     if not scores:
         return 5  # no data
 
