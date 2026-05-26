@@ -592,53 +592,71 @@ def _print_calendar(summaries: list, display_name: str, date_start: date, date_e
 
     print(f"\nCalendar — {display_name}")
     lp = _lp_str(_ds.lookup(lat, lon))
+    bortle_score = next((s.bortle_score for s in summaries if s.bortle_score is not None), None)
     if lp:
-        print(f"Light Pollution:    {lp}")
+        lp_suffix = f"  ·  Score {bortle_score}/10" if bortle_score is not None else ""
+        print(f"Light Pollution:    {lp}{lp_suffix}")
     print(f"{period_str}\n")
 
-    # Columns: Date | Score | Dark | Weather | Moon (last — left-aligned, no fixed width)
-    # Moon format matches the nightly report Moon line:
-    #   Waxing Crescent  |  15.8% illuminated  |  394,159 km
-    headers = ("Date",     "NQ Score", "Prime Dark", "Weather", "Moon")
-    widths  = (10,        8,          10,           7,          0)   # 0 = last col, no padding
-    aligns  = ("l",       "r",        "r",          "r",        "l")
+    # Column headers — exact names as in the nightly report
+    headers = ("Date", "Night Quality Score", "Prime Dark Hours", "Weather", "Moon")
+    aligns  = ("l",    "r",                   "r",                "r",       "l")
+
+    # Per-row value formatters
+    def _date_str(s):
+        return s.date.isoformat()   # → "2026-08-03"
+
+    def _score_str(s):
+        return f"{s.score:.1f}/10" if s.score is not None else "—"
+
+    def _dark_str(s):
+        h = s.dark_hours
+        return f"{int(h)}h {int((h % 1) * 60):02d}m"
+
+    def _wx_str(s):
+        if s.weather_informed and s.weather_score is not None:
+            return f"{s.weather_score:.1f}"
+        if s.wx_pending:
+            return "~"
+        return "—"
+
+    def _moon_str(s):
+        lunar_score = s.score_components.get("moon")
+        base_str    = f"{lunar_score}" if lunar_score is not None else "—"
+        tags = []
+        if s.moon_special:
+            tags.append(s.moon_special.title())
+        for e in s.moon_eclipses:
+            kind    = e["kind"].capitalize()
+            mag_str = (f"umbral {e['umbral_magnitude']:.3f}"
+                       if e["kind"] in ("partial", "total")
+                       else f"penumbral {e['penumbral_magnitude']:.3f}")
+            tags.append(f"{kind} lunar eclipse at {_fmt_time(e['time'])}  (mag {mag_str})")
+        tag_str = ("  ·  *** " + "  ·  ".join(tags) + " ***") if tags else ""
+        return f"{base_str}{tag_str}"
+
+    # Compute column widths: max(header width, widest data value)
+    date_w  = max(len(headers[0]), max((len(_date_str(s))  for s in summaries), default=0))
+    score_w = max(len(headers[1]), max((len(_score_str(s)) for s in summaries), default=0))
+    dark_w  = max(len(headers[2]), max((len(_dark_str(s))  for s in summaries), default=0))
+    wx_w    = max(len(headers[3]), max((len(_wx_str(s))    for s in summaries), default=0))
+    moon_w  = max(len(headers[4]), max((len(_moon_str(s))  for s in summaries), default=0))
+    widths  = (date_w, score_w, dark_w, wx_w, moon_w)
 
     def _row(vals):
         parts = [
             f"{v:>{w}}" if a == "r" else f"{v:<{w}}"
             for v, w, a in zip(vals[:-1], widths[:-1], aligns[:-1])
         ]
-        parts.append(vals[-1])
+        parts.append(vals[-1])   # Moon — no trailing padding on last col
         print("  " + "  ".join(parts))
 
-    # Separator: use max moon string width so the ─ line spans the full table
-    moon_w = max(
-        (len(f"{s.phase_name}  |  {s.illumination_pct:.1f}% illuminated  |  {int(s.moon_distance_km):,} km")
-         for s in summaries),
-        default=len("Moon"),
-    )
-    sep_widths = widths[:-1] + (moon_w,)
-
-    def _header_sep(char="─"):
-        print("  " + "  ".join(char * w for w in sep_widths))
-
     _row(headers)
-    _header_sep()
+    sep_widths = widths[:-1] + (len(headers[-1]),)  # Moon: header width only (data overflows freely)
+    _row(["-" * w for w in sep_widths])
 
     for s in summaries:
-        date_str  = s.date.isoformat()
-        score_str = f"{s.score:.1f}/10" if s.score is not None else "—"
-        h         = s.dark_hours
-        dark_str  = f"{int(h)}h {int((h % 1) * 60):02d}m"
-        if s.weather_informed and s.weather_score is not None:
-            wx_str = f"{s.weather_score:.1f}"
-        elif s.wx_pending:
-            wx_str = "~"
-        else:
-            wx_str = "—"
-        moon_str = (f"{s.phase_name}  |  {s.illumination_pct:.1f}% illuminated"
-                    f"  |  {int(s.moon_distance_km):,} km")
-        _row([date_str, score_str, dark_str, wx_str, moon_str])
+        _row([_date_str(s), _score_str(s), _dark_str(s), _wx_str(s), _moon_str(s)])
 
     # Best nights footer
     ranked = sorted(
