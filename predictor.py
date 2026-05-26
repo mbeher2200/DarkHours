@@ -58,6 +58,7 @@ class NightReport:
     # Weather
     weather_points: list  # list[WeatherPoint]
     weather_score: float | None
+    wx_source: str | None  # e.g. "NOAA/NWS + 7Timer" or "Open-Meteo"
     wx_pending: bool
     wx_no_data: bool
     wx_archive_error: bool
@@ -174,6 +175,7 @@ def assemble_night(
     # --- Weather ---
     night_points     = []
     weather_score    = None
+    wx_source        = None
     wx_error         = None
     wx_pending       = False
     wx_no_data       = False
@@ -203,6 +205,7 @@ def assemble_night(
                             weather_score = scoring.weighted_weather_score(
                                 night_points, night_start, night_end, wx.rate_conditions
                             )
+                            wx_source = provider.name
                         else:
                             wx_no_data   = True
                             night_points = []
@@ -214,7 +217,7 @@ def assemble_night(
                     wx_no_data       = not wx_archive_error
                     night_points     = []
             else:
-                points  = wx.forecast(lat, lon)
+                points, wx_source = wx.forecast(lat, lon)
                 before  = [p for p in points if sunset - timedelta(hours=6) <= p.time <= sunset]
                 during  = [p for p in points if sunset < p.time < sunrise]
                 after   = [p for p in points if sunrise <= p.time <= sunrise + timedelta(hours=12)]
@@ -227,9 +230,11 @@ def assemble_night(
                         )
                     else:
                         wx_no_data   = True
+                        wx_source    = None
                         night_points = []
                 else:
                     wx_pending   = True
+                    wx_source    = None
                     night_points = []
         except RuntimeError as e:
             wx_error = str(e)
@@ -273,6 +278,7 @@ def assemble_night(
         bortle_score=bortle_score,
         weather_points=night_points,
         weather_score=weather_score,
+        wx_source=wx_source,
         wx_pending=wx_pending,
         wx_no_data=wx_no_data,
         wx_archive_error=wx_archive_error,
