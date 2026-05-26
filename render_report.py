@@ -6,6 +6,7 @@ Public API:
 """
 
 import logging
+from datetime import timedelta
 
 import config as _cfg
 import weather as wx
@@ -17,10 +18,56 @@ from targets import DEFAULT_MIN_ELEVATION, is_prime
 
 log = logging.getLogger(__name__)
 
+_CLEAR_CLOUD_THRESHOLD = 30   # % cloud cover at or below which a dark hour counts as "clear"
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _clear_dark_intervals(dark_intervals: list, weather_points: list) -> tuple:
+    """
+    Clip dark_intervals to only the hours where cloud_cover_pct <= _CLEAR_CLOUD_THRESHOLD.
+
+    Each weather point is treated as covering the 1-hour window starting at its
+    timestamp.  Partial hours at interval boundaries are prorated correctly.
+
+    Returns (clipped_intervals, total_clear_hours).
+    Falls back to (dark_intervals, total_hours) if no cloud data is available.
+    """
+    cloud_by_hour = {
+        p.time.replace(minute=0, second=0, microsecond=0): p.cloud_cover_pct
+        for p in weather_points
+        if p.cloud_cover_pct is not None
+    }
+    if not cloud_by_hour:
+        total = sum((e - s).total_seconds() / 3600 for s, e in dark_intervals)
+        return dark_intervals, total
+
+    result = []
+    for ivl_start, ivl_end in dark_intervals:
+        h         = ivl_start.replace(minute=0, second=0, microsecond=0)
+        seg_start = seg_end = None
+        while h < ivl_end:
+            cloud    = cloud_by_hour.get(h)
+            seg_s    = max(h, ivl_start)
+            seg_e    = min(h + timedelta(hours=1), ivl_end)
+            is_clear = cloud is None or cloud <= _CLEAR_CLOUD_THRESHOLD
+            if is_clear:
+                if seg_start is None:
+                    seg_start = seg_s
+                seg_end = seg_e
+            else:
+                if seg_start is not None:
+                    result.append((seg_start, seg_end))
+                    seg_start = seg_end = None
+            h += timedelta(hours=1)
+        if seg_start is not None:
+            result.append((seg_start, seg_end))
+
+    total = round(sum((e - s).total_seconds() / 3600 for s, e in result), 2)
+    return result, total
+
 
 def _lp_line(report: NightReport) -> str | None:
     """Format the light pollution summary line from a NightReport."""
@@ -55,15 +102,27 @@ def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
 
 def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> None:
     """Print the standard single-night report to stdout."""
-    # Dark time string
-    if report.night_start and report.night_end and report.dark_intervals:
-        h            = report.dark_hours
-        duration_str = f"{int(h)}h {int((h % 1) * 60)}m"
-        tz_label     = ctx.local(report.night_start).strftime("%Z")
-        spans        = ",  ".join(
-            f"{ctx.fmt_time(s)} – {ctx.fmt_time(e)}" for s, e in report.dark_intervals
+    # Dark time string — weather-adjusted when cloud data is available
+    if report.dark_intervals and report.weather_points:
+        disp_intervals, disp_hours = _clear_dark_intervals(
+            report.dark_intervals, report.weather_points
         )
-        dark_str = f"{duration_str}  ({spans} {tz_label})"
+    else:
+        disp_intervals = report.dark_intervals
+        disp_hours     = report.dark_hours
+
+    if report.night_start and report.night_end and report.dark_intervals:
+        if disp_intervals:
+            h            = disp_hours
+            duration_str = f"{int(h)}h {int((h % 1) * 60)}m"
+            tz_label     = ctx.local(report.night_start).strftime("%Z")
+            spans        = ",  ".join(
+                f"{ctx.fmt_time(s)} – {ctx.fmt_time(e)}" for s, e in disp_intervals
+            )
+            dark_str = f"{duration_str}  ({spans} {tz_label})"
+        else:
+            dark_str = (f"None (overcast — {report.dark_hours:.1f}h "
+                        f"astronomical dark obscured by cloud)")
     elif report.night_start and report.night_end:
         dark_str = "None (moon up all night)"
     else:
