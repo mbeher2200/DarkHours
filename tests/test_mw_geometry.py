@@ -315,3 +315,22 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# Pytest entry point — discovered automatically by pytest
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402  (below __main__ guard by design)
+
+
+@pytest.mark.eph
+def test_mw_geometry():
+    """Run all five MW geometry regression cases under pytest."""
+    failures = []
+    for case in CASES:
+        failures.extend(_run_case(case, verbose=False))
+    if failures:
+        raise AssertionError(
+            f"{len(failures)} Milky Way geometry failure(s):\n" + "\n".join(failures)
+        )

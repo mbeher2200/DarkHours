@@ -476,7 +476,7 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
                    if e["kind"] in ("partial", "total")
                    else f"penumbral {e['penumbral_magnitude']:.3f}")
         tags.append(f"{kind} lunar eclipse at {_fmt_time(e['time'])}  (mag {mag_str})")
-    tag_str = ("  ·  " + "  ·  ".join(tags)) if tags else ""
+    tag_str = ("  ·  *** " + "  ·  ".join(tags) + " ***") if tags else ""
     print(f"Moon:               {report.phase_name}  |  {report.illumination_pct}% illuminated"
           f"  |  {report.moon_distance_km:,} km{tag_str}")
     cycle     = report.dark_cycle
