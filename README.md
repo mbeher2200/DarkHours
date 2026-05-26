@@ -14,7 +14,7 @@ The tool displays:
 - **Night Quality Score (1-10)** — Overall night sky quality, broken down by component
 - **Night Timeline** — Sunset, astronomical night begins/ends, moonrise/set, sunrise
 - **Light Pollution** — SQM reading, Bortle class, and djlorenz zone for the exact location
-- **Moon** — Phase and percent illumination at sunset
+- **Moon** — Phase, percent illumination, and Earth-Moon distance at sunset. Supermoon and micromoon events are flagged inline. Any lunar eclipse whose mid-point falls during the night is shown with its type (penumbral / partial / total) and magnitude
 - **Prime Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
 - **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
@@ -164,6 +164,8 @@ For per-target evaluation, the actual moon–target separation and moon altitude
 **Astrophotography Window per target** — For each target, K&S is evaluated at the actual moon–target separation and moon altitude at every sample. The photo window is clipped at the point where Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness minus sky background minus 3.2 mag; clusters: integrated magnitude minus site SQM minus 13.0; Milky Way: surface brightness minus sky background minus 1.5 mag).
 
 **Light pollution interaction** — The site's SQM (sky quality meter reading) enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
+
+**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5% over the lunar orbit, which translates to up to ±0.35 mag/arcsec² error on supermoon and micromoon nights. PyNightSkyPredictor corrects for this via the inverse-square law: the modelled lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample. The actual distance is obtained from the Skyfield ephemeris and is automatically applied to both the site-wide score and per-target K&S evaluations.
 
 ## Installation
 
@@ -378,6 +380,9 @@ The project is structured as a layered engine with a thin CLI on top, making it 
 | `predictor.py` | Engine — assembles a `NightReport` dataclass from all data sources |
 | `scoring.py` | Scoring logic — night rating and weather score calculations |
 | `sky_events.py` | Astronomical primitives — sun/moon events, dark intervals, moon phase |
+| `moonlight.py` | Krisciunas & Schaefer (1991) moonlight model — Δmag sky brightening, moon credit, severity thresholds, per-type contrast constants |
+| `moon_events.py` | Lunar distance, eclipse detection (`eclipselib`), and supermoon/micromoon classification |
+| `milky_way.py` | Galactic coordinate helpers (IAU matrix) and Milky Way arch synthesis |
 | `targets.py` | Visible targets engine — window computation, K&S moonlight interference, per-type photo/visual clipping |
 | `targets.json` | Curated target catalog — nebulae, galaxies, clusters, Milky Way, planets, meteor showers |
 | `config.py` | Configuration loader — reads `config.json` with built-in defaults |
@@ -424,6 +429,32 @@ Current satellite radiance data (2025). Used whenever the sensor detects a measu
 **Fallback: Falchi New World Atlas 2016** (GFZ Potsdam)
 
 A radiative-transfer physical model of artificial sky luminance. Used only when VIIRS reads zero — meaning the site is genuinely dark and below the satellite's detection floor. Unlike raw satellite data, Falchi's model propagates city-glow from all surrounding sources, so very dark sites (Bortle 1, 2, 3) get distinguishable values rather than all reading zero. A calibration factor is applied to Falchi values to align them with real-world observer SQM measurements and IDA dark-sky park classifications.
+
+## Testing
+
+```bash
+# Full suite — 105 tests (requires de421.bsp, included in the repo)
+python -m pytest
+
+# Fast suite — 94 tests, pure math only, no ephemeris needed
+python -m pytest -m "not eph"
+
+# Verbose output
+python -m pytest -v
+```
+
+Coverage spans the core physics and scoring layers:
+
+| Test file | What's covered |
+|---|---|
+| `test_moonlight.py` | `ks_delta_mag` (including distance correction), `ks_moon_credit` monotonicity, `moon_wash_severity` thresholds |
+| `test_scoring.py` | `rate_night` geometric mean formula, weight redistribution, `weighted_weather_score` 3× darkness weighting |
+| `test_milky_way.py` | `gal_to_radec` IAU rotation matrix, `mw_max_visible`, `mw_theoretical_core_max` |
+| `test_moon_events.py` | `classify_full_moon` thresholds + eclipse integration against known 2026 events |
+| `test_sky_events.py` | `dark_moon_intervals`, `find_event`, moon phase, sunset timing (ephemeris) |
+| `test_mw_geometry.py` | Five-location Milky Way geometry regression (Whitehorse → Ushuaia) |
+
+Tests marked `@pytest.mark.eph` require the bundled `de421.bsp` and are skipped by `-m "not eph"`. All other tests are pure math with no network or file dependencies.
 
 ## License
 
