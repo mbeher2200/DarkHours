@@ -107,63 +107,6 @@ def _best_weather_window(clear_intervals, weather_points, ctx):
     return best
 
 
-def _night_verdict(report: NightReport, clear_hours: float) -> str | None:
-    """Generate a plain-English one-line verdict for the night."""
-    score = report.score
-    if score is None:
-        return None
-
-    comp = report.score_components
-    # Identify the single most limiting component
-    worst_key = min(comp, key=lambda k: comp[k]) if comp else None
-
-    def _limit_phrase() -> str:
-        if worst_key == "moon":
-            return (f"{report.phase_name.lower()}"
-                    f" ({report.illumination_pct:.0f}% illuminated)")
-        if worst_key == "dark":
-            if clear_hours == 0:
-                return "no clear dark sky hours"
-            return f"short dark window ({clear_hours:.1f}h)"
-        if worst_key == "weather":
-            pts = report.weather_points
-            if pts:
-                avg_cloud = sum(p.cloud_cover_pct or 0 for p in pts) / len(pts)
-                has_precip = any(
-                    p.precip_type and p.precip_type not in ("none", None)
-                    for p in pts
-                )
-                if has_precip:
-                    types = {p.precip_type for p in pts
-                             if p.precip_type and p.precip_type not in ("none", None)}
-                    return "snow forecast" if "snow" in types else "rain forecast"
-                if avg_cloud > 70:
-                    return "heavy cloud cover forecast"
-                if avg_cloud > 40:
-                    return "partial cloud cover forecast"
-                return "poor sky conditions"
-            return "weather data limited"
-        if worst_key == "bortle":
-            lp = report.light_pollution
-            bc = lp.get("bortle_class") if lp else None
-            return f"severe light pollution (Bortle {bc})" if bc else "severe light pollution"
-        return ""
-
-    phrase = _limit_phrase()
-    suffix = f" — {phrase}" if phrase else ""
-
-    if score >= 9.0:
-        return "Excellent — ideal conditions"
-    if score >= 7.5:
-        return f"Good{suffix}"
-    if score >= 5.5:
-        return f"Fair{suffix}"
-    if score >= 3.0:
-        return f"Poor{suffix}"
-    if score > 0:
-        return f"Very poor{suffix}"
-    return f"Pass{suffix}"
-
 
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
@@ -254,9 +197,6 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             bw_start, bw_end, bw_score = bw
             print(f"  Best window:  {ctx.fmt_time(bw_start)} – {ctx.fmt_time(bw_end)}"
                   f"  ·  avg {bw_score}/10")
-        verdict = _night_verdict(report, disp_hours)
-        if verdict:
-            print(f"  Verdict:      {verdict}")
     print()
 
     # Sky Events timeline
