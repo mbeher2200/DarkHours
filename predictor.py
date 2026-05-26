@@ -43,7 +43,7 @@ class NightReport:
     moon_score: float
     moon_distance_km: float
     moon_special: str | None       # 'supermoon' | 'micromoon' | None
-    moon_events: list              # list[dict] from moon_events_for_night
+    moon_eclipses: list            # list[dict] — eclipses during this night
 
     # Dark time
     dark_intervals: list  # [(start_utc, end_utc), ...]
@@ -116,9 +116,9 @@ def assemble_night(
 
     # --- Moon ---
     phase_name, illumination = se.moon_phase_info(sunset)
-    moon_dist_km = _me.moon_distance_km(sunset)
-    moon_special = _me.classify_full_moon(illumination, moon_dist_km)
-    night_moon_events = _me.moon_events_for_night(target, sunset, sunrise)
+    moon_dist_km   = _me.moon_distance_km(sunset)
+    moon_special   = _me.classify_full_moon(illumination, moon_dist_km)
+    moon_eclipses  = _me.eclipses_for_night(sunset, sunrise)
 
     # --- Dark intervals ---
     if night_start and night_end:
@@ -264,7 +264,7 @@ def assemble_night(
         moon_score=moon_score,
         moon_distance_km=round(moon_dist_km),
         moon_special=moon_special,
-        moon_events=night_moon_events,
+        moon_eclipses=moon_eclipses,
         dark_intervals=display_dark_intervals,
         dark_hours=round(display_dark_hours, 2),
         dark_cycle=cycle,
