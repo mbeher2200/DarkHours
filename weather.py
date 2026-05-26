@@ -51,6 +51,7 @@ class WeatherPoint:
     precip_type:     Optional[str]      # "none" | "rain" | "snow" | "frzr" | "icep"
     temperature_c:   Optional[float]    # °C
     feels_like_c:    Optional[float]    # °C apparent temperature
+    dew_point_c:     Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,7 @@ def _parse_open_meteo_hourly(h: dict) -> list:
             precip_type=precip_type,
             temperature_c=h["temperature_2m"][i],
             feels_like_c=h.get("apparent_temperature", [None] * len(h["time"]))[i],
+            dew_point_c=h.get("dewpoint_2m", [None] * len(h["time"]))[i],
         ))
     return points
 
@@ -113,7 +115,7 @@ class OpenMeteoProvider(WeatherProvider):
         "https://api.open-meteo.com/v1/forecast"
         "?latitude={lat}&longitude={lon}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall"
+        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
@@ -157,7 +159,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         "?latitude={lat}&longitude={lon}"
         "&past_days={past_days}&forecast_days=1"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall"
+        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -204,7 +206,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         "?latitude={lat}&longitude={lon}"
         "&start_date={start}&end_date={end}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
-        ",relative_humidity_2m,wind_speed_10m,rain,snowfall"
+        ",relative_humidity_2m,wind_speed_10m,rain,snowfall,dewpoint_2m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -299,6 +301,7 @@ def _parse_noaa_grid(data: dict) -> list:
 
     sky     = _noaa_expand(props.get("skyCover",            {}).get("values", []))
     temp    = _noaa_expand(props.get("temperature",          {}).get("values", []))
+    dewpt   = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
     humid   = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
     wind    = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
     wx_vals = _noaa_expand(props.get("weather",              {}).get("values", []))
@@ -317,6 +320,7 @@ def _parse_noaa_grid(data: dict) -> list:
             precip_type     = _noaa_precip_type(wx_vals.get(t)),
             temperature_c   = temp.get(t),
             feels_like_c    = None,               # not in NWS grid data
+            dew_point_c     = dewpt.get(t),
         ))
     return points
 
@@ -518,6 +522,12 @@ def rate_conditions(p: WeatherPoint) -> int:
         # Below 50% = no penalty; above 90% = zero
         scores["humid"]  = max(0.0, 1 - max(0, p.humidity_pct - 50) / 40)
         weights["humid"] = 0.05
+
+    if p.temperature_c is not None and p.dew_point_c is not None:
+        # 0°C spread = dew forming on optics; 8°C+ = safe all night
+        spread = max(0.0, p.temperature_c - p.dew_point_c)
+        scores["dew"]  = min(1.0, spread / 8.0)
+        weights["dew"] = 0.05
 
     if not scores:
         return 5  # no data

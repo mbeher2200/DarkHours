@@ -37,6 +37,11 @@ def _transparency_score(label: str) -> int:
     return {"Excellent": 10, "Good": 8, "Fair": 4, "Poor": 1}.get(label, 5)
 
 
+def _dew_spread_score(spread: float) -> int:
+    """Score dew point spread (°C): 0°C = dew forming (1/10), 8°C+ = safe (10/10)."""
+    return max(1, min(10, round(spread / 8.0 * 10)))
+
+
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
@@ -137,6 +142,10 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             has_feels  = any(p.feels_like_c   is not None for p in pts)
             has_seeing = any(p.seeing_arcsec  is not None for p in pts)
             has_transp = any(p.transparency   is not None for p in pts)
+            has_dew    = any(
+                p.temperature_c is not None and p.dew_point_c is not None
+                for p in pts
+            )
 
             wx_tz  = ctx.local(pts[0].time).strftime("%Z")
             src    = f"  [{report.wx_source}]" if report.wx_source else ""
@@ -146,6 +155,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             cols += [("Feels",        "r")] if has_feels  else []
             cols += [("Seeing",       "l")] if has_seeing else []
             cols += [("Transparency", "r")] if has_transp else []
+            cols += [("Dew Spread",   "l")] if has_dew    else []
             cols += [("Humidity", "r"), ("Wind", "r"), ("Precip", "l")]
 
             rows = []
@@ -156,6 +166,12 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
                 row += [ctx.temp(p.feels_like_c)]  if has_feels  else []
                 row += [f"{_seeing_score(p.seeing_arcsec)}/10 ({p.seeing_arcsec:.2f}\")" if p.seeing_arcsec is not None else "—"] if has_seeing else []
                 row += [f"{_transparency_score(p.transparency)}/10" if p.transparency is not None else "—"] if has_transp else []
+                if has_dew:
+                    if p.temperature_c is not None and p.dew_point_c is not None:
+                        spread = p.temperature_c - p.dew_point_c
+                        row += [f"{_dew_spread_score(spread)}/10 ({spread:.0f}°)"]
+                    else:
+                        row += ["—"]
                 row += [
                     f"{p.humidity_pct}%" if p.humidity_pct is not None else "—",
                     ctx.wind(p.wind_speed_ms),
