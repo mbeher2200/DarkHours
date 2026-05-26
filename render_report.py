@@ -27,6 +27,15 @@ def _lp_line(report: NightReport) -> str | None:
     return lp_str(report.light_pollution)
 
 
+def _seeing_quality(arcsec: float) -> str:
+    """Classify a seeing value (arcseconds) into a human-readable quality label."""
+    if arcsec <= 0.50: return "Excellent"
+    if arcsec <= 0.75: return "Very Good"
+    if arcsec <= 1.10: return "Good"
+    if arcsec <= 1.75: return "Fair"
+    return "Poor"
+
+
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
@@ -144,7 +153,7 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
                 row += [f"{p.cloud_cover_pct}%" if p.cloud_cover_pct is not None else "—"]
                 row += [ctx.temp(p.temperature_c)] if has_temp   else []
                 row += [ctx.temp(p.feels_like_c)]  if has_feels  else []
-                row += [f"{p.seeing_arcsec:.2f}\"" if p.seeing_arcsec is not None else "—"] if has_seeing else []
+                row += [f"{p.seeing_arcsec:.2f}\" {_seeing_quality(p.seeing_arcsec)}" if p.seeing_arcsec is not None else "—"] if has_seeing else []
                 row += [p.transparency or "—"] if has_transp else []
                 row += [
                     f"{p.humidity_pct}%" if p.humidity_pct is not None else "—",
