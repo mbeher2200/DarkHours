@@ -599,9 +599,9 @@ def _print_calendar(summaries: list, display_name: str, date_start: date, date_e
     # Columns: Date | Score | Dark | Weather | Moon (last — left-aligned, no fixed width)
     # Moon format matches the nightly report Moon line:
     #   Waxing Crescent  |  15.8% illuminated  |  394,159 km
-    headers = ("Date",  "Score", "Dark",  "Weather", "Moon")
-    widths  = (10,      5,       6,       7,          0)   # 0 = last col, no padding
-    aligns  = ("l",     "r",     "r",     "r",        "l")
+    headers = ("Date",     "NQ Score", "Prime Dark", "Weather", "Moon")
+    widths  = (10,        8,          10,           7,          0)   # 0 = last col, no padding
+    aligns  = ("l",       "r",        "r",          "r",        "l")
 
     def _row(vals):
         parts = [
@@ -626,8 +626,8 @@ def _print_calendar(summaries: list, display_name: str, date_start: date, date_e
     _header_sep()
 
     for s in summaries:
-        date_str  = f"{s.date.strftime('%a')} {s.date.strftime('%b')} {s.date.day:>2}"
-        score_str = f"{s.score:.1f}" if s.score is not None else "—"
+        date_str  = s.date.isoformat()
+        score_str = f"{s.score:.1f}/10" if s.score is not None else "—"
         h         = s.dark_hours
         dark_str  = f"{int(h)}h {int((h % 1) * 60):02d}m"
         if s.weather_informed and s.weather_score is not None:
@@ -648,7 +648,7 @@ def _print_calendar(summaries: list, display_name: str, date_start: date, date_e
     )
     if ranked:
         top_str = "  ·  ".join(
-            f"{s.date.strftime('%b %-d')} ({s.score:.1f})"
+            f"{s.date.strftime('%b %-d')} ({s.score:.1f}/10)"
             for s in ranked[:3]
         )
         print(f"\n  Best nights:  {top_str}")
