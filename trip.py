@@ -36,6 +36,7 @@ class NightSummary:
     score_components: dict          # {moon, dark, weather, bortle}
     phase_name:       str
     illumination_pct: float
+    moon_distance_km: float
     dark_hours:       float
     bortle_score:     float | None
     weather_score:    float | None
@@ -68,6 +69,7 @@ def _to_dict(s: NightSummary) -> dict:
         "score_components": s.score_components,
         "phase_name":       s.phase_name,
         "illumination_pct": s.illumination_pct,
+        "moon_distance_km": s.moon_distance_km,
         "dark_hours":       s.dark_hours,
         "bortle_score":     s.bortle_score,
         "weather_score":    s.weather_score,
@@ -87,6 +89,7 @@ def _from_dict(d: dict) -> NightSummary:
         score_components = d["score_components"],
         phase_name       = d["phase_name"],
         illumination_pct = d["illumination_pct"],
+        moon_distance_km = d.get("moon_distance_km", 384_400),
         dark_hours       = d["dark_hours"],
         bortle_score     = d["bortle_score"],
         weather_score    = d["weather_score"],
@@ -156,6 +159,7 @@ def fetch_night(
         score_components = report.score_components,
         phase_name       = report.phase_name,
         illumination_pct = report.illumination_pct,
+        moon_distance_km = report.moon_distance_km,
         dark_hours       = report.dark_hours,
         bortle_score     = report.bortle_score,
         weather_score    = report.weather_score,

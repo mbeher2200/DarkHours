@@ -11,6 +11,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import config as _cfg
+import darksky as _ds
 import location as loc
 import trip as _trip
 import weather as wx
@@ -75,9 +76,8 @@ def _wind(ms):
     return f"{ms:.1f}m/s"
 
 
-def _lp_line(report: NightReport) -> str | None:
-    """Format the light pollution summary line from the report's raw lookup data."""
-    info = report.light_pollution
+def _lp_str(info: dict | None) -> str | None:
+    """Format a darksky.lookup() result dict into a display string."""
     if info is None:
         return None
     if info.get("below_detection"):
@@ -87,6 +87,11 @@ def _lp_line(report: NightReport) -> str | None:
     return (f"SQM {info['sqm']}  ·  Zone {info['lp_zone']}"
             f"  ·  Bortle {info['bortle_class']}"
             f"  ({info['bortle_desc']})  [{info['source']}]")
+
+
+def _lp_line(report: NightReport) -> str | None:
+    """Format the light pollution summary line from a NightReport."""
+    return _lp_str(report.light_pollution)
 
 
 def _cardinal(az_deg: float) -> str:
@@ -577,7 +582,8 @@ def _print_report(report: NightReport, show_weather: bool) -> None:
             print()
 
 
-def _print_calendar(summaries: list, display_name: str, date_start: date, date_end: date) -> None:
+def _print_calendar(summaries: list, display_name: str, date_start: date, date_end: date,
+                    lat: float, lon: float) -> None:
     """Print a chronological calendar of night scores across a date range."""
     if date_start.month == date_end.month and date_start.year == date_end.year:
         period_str = date_start.strftime("%B %Y")
@@ -585,34 +591,54 @@ def _print_calendar(summaries: list, display_name: str, date_start: date, date_e
         period_str = f"{date_start.strftime('%b %Y')} – {date_end.strftime('%b %Y')}"
 
     print(f"\nCalendar — {display_name}")
+    lp = _lp_str(_ds.lookup(lat, lon))
+    if lp:
+        print(f"Light Pollution:    {lp}")
     print(f"{period_str}\n")
 
-    headers = ("Date",  "Score", "Moon",  "Dark",  "Weather", "Phase")
-    widths  = (14,      5,       5,       5,       7,         22)
-    aligns  = ("l",     "r",     "r",     "r",     "r",       "l")
+    # Columns: Date | Score | Dark | Weather | Moon (last — left-aligned, no fixed width)
+    # Moon format matches the nightly report Moon line:
+    #   Waxing Crescent  |  15.8% illuminated  |  394,159 km
+    headers = ("Date",  "Score", "Dark",  "Weather", "Moon")
+    widths  = (10,      5,       6,       7,          0)   # 0 = last col, no padding
+    aligns  = ("l",     "r",     "r",     "r",        "l")
 
     def _row(vals):
         parts = [
             f"{v:>{w}}" if a == "r" else f"{v:<{w}}"
-            for v, w, a in zip(vals, widths, aligns)
+            for v, w, a in zip(vals[:-1], widths[:-1], aligns[:-1])
         ]
+        parts.append(vals[-1])
         print("  " + "  ".join(parts))
 
+    # Separator: use max moon string width so the ─ line spans the full table
+    moon_w = max(
+        (len(f"{s.phase_name}  |  {s.illumination_pct:.1f}% illuminated  |  {int(s.moon_distance_km):,} km")
+         for s in summaries),
+        default=len("Moon"),
+    )
+    sep_widths = widths[:-1] + (moon_w,)
+
+    def _header_sep(char="─"):
+        print("  " + "  ".join(char * w for w in sep_widths))
+
     _row(headers)
-    _row(["─" * w for w in widths])
+    _header_sep()
 
     for s in summaries:
         date_str  = f"{s.date.strftime('%a')} {s.date.strftime('%b')} {s.date.day:>2}"
         score_str = f"{s.score:.1f}" if s.score is not None else "—"
-        moon_str  = f"{round(s.illumination_pct)}%"
-        dark_str  = f"{s.dark_hours:.1f}h"
+        h         = s.dark_hours
+        dark_str  = f"{int(h)}h {int((h % 1) * 60):02d}m"
         if s.weather_informed and s.weather_score is not None:
             wx_str = f"{s.weather_score:.1f}"
         elif s.wx_pending:
             wx_str = "~"
         else:
             wx_str = "—"
-        _row([date_str, score_str, moon_str, dark_str, wx_str, s.phase_name])
+        moon_str = (f"{s.phase_name}  |  {s.illumination_pct:.1f}% illuminated"
+                    f"  |  {int(s.moon_distance_km):,} km")
+        _row([date_str, score_str, dark_str, wx_str, moon_str])
 
     # Best nights footer
     ranked = sorted(
@@ -735,7 +761,7 @@ def main():
             fetch_weather=args.weather,
             progress_fn=_progress,
         )
-        _print_calendar(trip_report.nights, display_name, date_start, date_end)
+        _print_calendar(trip_report.nights, display_name, date_start, date_end, lat, lon)
         return
 
     # ── Single-night mode ────────────────────────────────────────────────────
