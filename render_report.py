@@ -3,10 +3,9 @@
 Public API:
     print_report(report, ctx, show_weather)
     print_targets(report, ctx)
-    print_dark_nearby(result, ctx)
+    print_nearby(result, ctx)
 """
 
-import logging
 from datetime import timedelta
 
 import config as _cfg
@@ -533,11 +532,11 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
     print()
 
 
-def print_dark_nearby(result: dict | None, ctx: FormatCtx) -> None:
-    """Print the nearby dark-sky search results."""
+def print_nearby(result: dict | None, ctx: FormatCtx) -> None:
+    """Print the nearby sky conditions: darker areas and light domes."""
     radius = result["radius_miles"] if result else 60
 
-    print(f"Darker Skies Nearby  ({ctx.fmt_dist(radius)} radius):\n")
+    print(f"Nearby Skies  ({ctx.fmt_dist(radius)} radius):\n")
 
     if result is None:
         print("  Light pollution data unavailable.\n")
