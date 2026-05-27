@@ -30,7 +30,7 @@ def print_calendar(summaries: list, display_name: str,
     print(f"{period_str}\n")
 
     # Column headers — exact names as in the nightly report
-    headers = ("Date", "Night Quality Score", "Prime Dark Hours", "Weather", "Moon")
+    headers = ("Date", "Night Quality Score", "Clear Dark Hours", "Weather", "Moon")
     aligns  = ("l",    "r",                   "r",                "r",       "l")
 
     # Per-row value formatters
