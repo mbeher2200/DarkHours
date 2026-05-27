@@ -316,8 +316,8 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
         return
 
     _TYPE_ORDER = {
-        "meteor_shower": 0,
-        "milky_way":     1,
+        "milky_way":     0,
+        "meteor_shower": 1,
         "cluster":       2,
         "planet":        3,
         "nebula":        4,
