@@ -18,7 +18,7 @@ The tool displays:
 - **Meteor Showers** — Active showers tonight (always shown; no `--targets` required), with peak note and ZHR
 - **Clear Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for cloud cover and for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
 - **Weather** — Hourly conditions table with cloud cover, dew point, feels like, seeing, transparency, humidity, wind (speed + direction), and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
-- **Visible Targets** — Prime targets for the night, grouped by type (with `--targets`)
+- **Targets** — Prime targets for the night, grouped by type (with `--targets`)
 - **Month Calendar** — A full-month view of night scores, clear dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
 
 Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-08-12 --targets --weather`):
@@ -222,13 +222,13 @@ Precipitation of any kind caps the Wx Rating at 1. Weights redistribute automati
 - **Open-Meteo** — Global fallback for all non-US locations. Also used for past dates (up to 92 days via the recent archive, older dates via ERA5 reanalysis back to 1940).
 - **7Timer ASTRO** — Blended into primary-provider data to supply seeing and transparency, which are derived from Cn² profile integration through GFS — the only free scientifically grounded seeing source.
 
-### Visible targets
+### Targets
 
 ```bash
 python pynightsky.py --location "Death Valley" --targets
 ```
 
-Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude and azimuth, the full window with start/end elevations, and a **sky condition** indicating the lighting when the target peaks:
+Shows prime targets for the night — no moon interference, peak altitude ≥40°, visible window ≥1h. Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude and azimuth, the full window with start/end elevations, and a **sky condition** indicating the lighting when the target peaks:
 
 - **Dark sky** — peak falls within astronomical darkness *and* K&S sky brightening is below the moderate threshold (Δmag < 0.50); best conditions
 - **Astro night** — peak falls within astronomical darkness but K&S indicates minor moon interference
@@ -237,7 +237,7 @@ Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Ne
 
 The **Astro Window** column shows the time span during which K&S-modelled sky conditions are good enough for imaging. When scattered moonlight degrades the sky past the photo threshold, the window is clipped at the start or end accordingly.
 
-Milky Way targets are automatically included in prime results whenever they're visible during astronomical darkness.
+Milky Way targets are automatically included whenever they're visible during astronomical darkness.
 
 ### Milky Way
 
