@@ -279,18 +279,15 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             print()
 
 
-def print_targets(report: NightReport, ctx: FormatCtx, prime_only: bool = False) -> None:
-    """Print the visible targets table to stdout."""
-    targets = report.visible_targets
+def print_targets(report: NightReport, ctx: FormatCtx) -> None:
+    """Print the prime targets table to stdout."""
+    cfg     = _cfg.load()["prime_targets"]
+    min_alt = cfg["min_peak_altitude_deg"]
+    min_hrs = cfg["min_window_hours"]
+    targets = [t for t in report.visible_targets
+               if is_prime(t, min_alt, min_hrs, dark_intervals=report.dark_intervals)]
 
-    if prime_only:
-        cfg     = _cfg.load()["prime_targets"]
-        min_alt = cfg["min_peak_altitude_deg"]
-        min_hrs = cfg["min_window_hours"]
-        targets = [t for t in targets if is_prime(t, min_alt, min_hrs,
-                                                   dark_intervals=report.dark_intervals)]
-
-    label = "Prime Targets" if prime_only else "Visible Targets"
+    label = "Prime Targets"
 
     if not targets:
         all_visible = report.visible_targets
@@ -304,7 +301,7 @@ def print_targets(report: NightReport, ctx: FormatCtx, prime_only: bool = False)
             print(f"{label}:  none — {report.phase_name}"
                   f" ({report.illumination_pct:.0f}% illuminated) up throughout"
                   f" astronomical darkness; no moon-free window for prime targets.\n")
-        elif prime_only and all_visible:
+        elif all_visible:
             print(f"{label}:  none found for this night.\n")
         else:
             lp = report.light_pollution
@@ -506,7 +503,7 @@ def print_targets(report: NightReport, ctx: FormatCtx, prime_only: bool = False)
     # Targets table
     data_rows = [(name, peak, cond, win, flags)
                  for _, name, peak, cond, win, flags in tagged_rows]
-    headers   = ("Target", "Best Viewing", "Sky", "Astrophotography Window", "")
+    headers   = ("Target", "Best Viewing", "Sky", "Astro Window", "")
     widths    = [
         max(len(headers[i]), max(len(r[i]) for r in data_rows))
         for i in range(len(headers))
