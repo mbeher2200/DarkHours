@@ -2,96 +2,90 @@
 
 A night sky prediction tool for astronomy and astrophotography planning. For a given location and date, PyNightSkyPredictor predicts:
 
-- A Night Quality Score (1-10) by taking into consideration **sun and moon rise/set times**, **total night sky availability**, **moon phase, and percent illumination**, **light pollution levels**, and **weather conditions**.
+- A **Night Quality Score (1–10)** by taking into consideration sun and moon rise/set times, total night sky availability, moon phase and percent illumination, light pollution levels, and weather conditions.
 
-- Visible major targets, and prime target times and elevation.
+- **Visible major targets** with prime viewing times, elevations, and moon-interference windows.
 
-Perfect for dark sky observations, astrophotography sessions, and trips.
+Perfect for dark sky observations, astrophotography sessions, and trip planning.
 
 ## Output
 
 The tool displays:
-- **Night Quality Score (1-10)** — Overall night sky quality, broken down by component
+- **Night Quality Score (1–10)** — Overall night sky quality, broken down by component; followed by **Best Window** (the clear dark stretch with the highest average weather score)
 - **Night Timeline** — Sunset, astronomical night begins/ends, moonrise/set, sunrise
 - **Light Pollution** — SQM reading, Bortle class, and djlorenz zone for the exact location
 - **Moon** — Phase, percent illumination, and Earth-Moon distance at sunset. Supermoon and micromoon events are flagged inline. Any lunar eclipse whose mid-point falls during the night is shown with its type (penumbral / partial / total) and magnitude
-- **Prime Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
-- **Weather** — Hourly cloud cover, seeing, transparency, temperature, humidity, wind, and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
+- **Meteor Showers** — Active showers tonight (always shown; no `--targets` required), with peak note and ZHR
+- **Clear Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for cloud cover and for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
+- **Weather** — Hourly conditions table with cloud cover, dew point, feels like, seeing, transparency, humidity, wind (speed + direction), and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
-- **Month Calendar** — A full-month view of night scores, prime dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
+- **Month Calendar** — A full-month view of night scores, clear dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
 
-Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-05-14 --prime-targets --weather`):
+Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-08-12 --prime-targets --weather`):
 ```
-Date:               2026-05-14
+Date:               2026-08-12
 Location:           Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°, -112.1282°)
 Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]
-Moon:               Waning Crescent  |  4.4% illuminated
-Prime Dark Sky Hours:  6h 33m  ( 9:07 PM –  3:41 AM MST)  ·  avg 3.1h  ±2.5h over lunar cycle
-Night Quality Score:  9.4/10  (Lunar 10.0 · Dark Hours 10.0 · Weather 8.9 · Bortle 8.9)
+Moon:               New Moon  |  0.2% illuminated  |  368,212 km
+Meteor Showers:     Perseids · Peak night · ZHR 100
+Clear Dark Sky Hours:  7h 13m  ( 8:56 PM –  4:10 AM MST)  ·  avg 3.5h  ±2.9h over lunar cycle
+Night Quality Score:  9.7/10  (Lunar 10.0 · Dark Hours 9.8 · Weather 9.2 · Bortle 8.9)
+  Best window:   9:00 PM –  4:10 AM  ·  avg 9.2/10
 
 Night Timeline:
 
   Time (MST)        Event
   ----------------  -------------------------
-  May 14,  7:26 PM  Sunset
-  May 14,  9:07 PM  Astronomical night begins
-  May 15,  3:41 AM  Astronomical night ends
-  May 15,  4:11 AM  Moonrise
-  May 15,  5:22 AM  Sunrise
+  Aug 12,  5:35 AM  Moonrise
+  Aug 12,  5:44 AM  Sunrise
+  Aug 12,  7:21 PM  Sunset
+  Aug 12,  7:31 PM  Moonset
+  Aug 12,  8:56 PM  Astronomical night begins
+  Aug 13,  4:10 AM  Astronomical night ends
+  Aug 13,  5:45 AM  Sunrise
 
-Weather:
+Weather  [NOAA/NWS + 7Timer]:
 
-  Time (MST)        Wx Rating  Cloud  Temp  Feels  Humid     Wind  Precip
-  ----------------  ---------  -----  ----  -----  -----  -------  ------
-  May 14,  7:00 PM       9/10     0%  70°F   60°F    12%   9.4mph  None
-  May 14,  8:00 PM      10/10     0%  66°F   57°F    14%   7.0mph  None
-  May 14,  9:00 PM       5/10    40%  62°F   51°F    16%  11.4mph  None
-  May 14, 10:00 PM       9/10     0%  60°F   49°F    18%  13.1mph  None
-  May 14, 11:00 PM       9/10     0%  59°F   47°F    18%  15.1mph  None
-  May 15, 12:00 AM       9/10     0%  55°F   43°F    18%  15.6mph  None
-  May 15,  1:00 AM       9/10     0%  54°F   43°F    20%  12.1mph  None
-  May 15,  2:00 AM       9/10     0%  54°F   42°F    18%  13.5mph  None
-  May 15,  3:00 AM       9/10     0%  50°F   39°F    28%  12.9mph  None
-  May 15,  4:00 AM       9/10     0%  48°F   38°F    30%  11.1mph  None
-  May 15,  5:00 AM       9/10     0%  48°F   38°F    34%  10.2mph  None
-  May 15,  6:00 AM       9/10     0%  49°F   39°F    31%  10.9mph  None
+  Time (MST)        Wx Rating  Cloud Cover  Temp  Dew Pt  Feels  Seeing        Transparency  Humidity      Wind  Precip
+  ----------------  ---------  -----------  ----  ------  -----  ------------  ------------  --------  --------  ------
+  Aug 12,  7:00 PM       8/10          10%  88°F    54°F   86°F  8/10 (0.87")         10/10       32%  10mph SW  None
+  Aug 12,  8:00 PM       9/10           5%  84°F    54°F   84°F  8/10 (0.87")         10/10       36%   8mph SW  None
+  Aug 12,  9:00 PM       9/10           3%  80°F    55°F   80°F  8/10 (0.87")         10/10       40%    5mph S  None
+  Aug 12, 10:00 PM       9/10           4%  76°F    56°F   76°F  7/10 (1.12")         10/10       48%    4mph S  None
+  Aug 12, 11:00 PM       9/10           5%  72°F    56°F   72°F  7/10 (1.12")         10/10       54%    3mph S  None
+  Aug 13, 12:00 AM       9/10           4%  69°F    56°F   69°F  7/10 (1.12")         10/10       59%   3mph NE  None
+  Aug 13,  1:00 AM       9/10           3%  67°F    57°F   67°F  7/10 (1.12")         10/10       63%   4mph NE  None
+  Aug 13,  2:00 AM       9/10           5%  65°F    57°F   65°F  7/10 (1.12")         10/10       67%   5mph NE  None
+  Aug 13,  3:00 AM       9/10           6%  63°F    58°F   63°F  7/10 (1.12")         10/10       73%   6mph NE  None
+  Aug 13,  4:00 AM       8/10          12%  62°F    58°F   62°F  6/10 (1.37")         10/10       78%   7mph NE  None
+  Aug 13,  5:00 AM       8/10          10%  62°F    57°F   62°F  6/10 (1.37")         10/10       77%   8mph NE  None
+  Aug 13,  6:00 AM       8/10           8%  64°F    56°F   64°F  6/10 (1.37")         10/10       73%   9mph NE  None
 
-Prime Targets  ( 7:26 PM –  5:22 AM MST):
+Prime Targets  ( 7:21 PM –  5:45 AM MST):
 
-  Milky Way: 9.0/10  (Altitude 10.0/10  ·  Waypoints 7.5/10  ·  Window 8.5/10)
-  Visible  11:26 PM –  3:41 AM  ·  4h 12m  ·  Core 25°/25°  ·  6 of 8 waypoints visible
-  Best time      2:46 AM  —  core 25° S, arch sweeps to Cygnus Star Cloud (72° E)
+  Milky Way: 8.5/10  (Altitude 10.0/10  ·  Waypoints 7.5/10  ·  Window 6.2/10)
+  Visible   8:56 PM – 12:01 AM  ·  3h 06m  ·  Core 25°/25°  ·  6 of 8 waypoints visible
+  Best time      8:56 PM  —  core 25° S, arch sweeps to Cygnus Star Cloud (88° S)
 
 
-  Target                Best Viewing                                  Sky       Astrophotography Window
-  --------------------  --------------------------------------------  --------  -------------------------------
+  Target                  Best Viewing                                  Sky       Astrophotography Window
+  ----------------------  --------------------------------------------  --------  -------------------------------
+  Meteor Showers
+  Perseids Meteor Shower   4:10 AM @ 61°  32°(NE)                       Dark sky  10:41 PM @ 20° –  4:10 AM @ 61°
 
-  Galactic Core          2:46 AM @ 25°  181°(S)  arch 50° (moderate)  Dark sky  11:26 PM @ 10° –  3:41 AM @ 24°
-  Cygnus Star Cloud      3:41 AM @ 72°   89°(E)  arch 56° (moderate)  Dark sky  10:16 PM @ 10° –  3:41 AM @ 72°
-  Scutum Star Cloud      3:41 AM @ 57°  174°(S)  arch 25° (flat)      Dark sky  10:36 PM @ 10° –  3:41 AM @ 57°
-  Cepheus Cloud          3:41 AM @ 45°   39°(NE)  arch 73° (steep)    Dark sky  10:16 PM @ 10° –  3:41 AM @ 45°
+  Galactic Core            8:56 PM @ 25°  182°(S)  arch 50° (moderate)  Dark sky   8:56 PM @ 25° – 12:01 AM @ 11°
+  Cygnus Star Cloud       11:11 PM @ 88°  158°(S)  arch 81° (steep)     Dark sky   8:56 PM @ 62° –  4:10 AM @ 31°
 
   Clusters
-  Beehive Cluster        9:07 PM @ 42°  265°(W)                       Dark sky   9:07 PM @ 42° – 10:46 PM @ 22°
-  Hercules Cluster       1:36 AM @ 89°   48°(NE)                      Dark sky   9:07 PM @ 36° –  3:41 AM @ 65°
-  Wild Duck Cluster      3:41 AM @ 48°  178°(S)                       Dark sky  11:56 PM @ 21° –  3:41 AM @ 48°
+  Hercules Cluster         8:56 PM @ 75°  277°(W)                       Dark sky   8:56 PM @ 75° –  1:41 AM @ 21°
+  Double Cluster           4:10 AM @ 66°  24°(NE)                       Dark sky  10:01 PM @ 20° –  4:10 AM @ 66°
 
   Planets
-  Jupiter                7:26 PM @ 49°  263°(W)                       Twilight   7:26 PM @ 49° –  9:46 PM @ 21°
+  Saturn                   4:01 AM @ 57°  182°(S)                       Dark sky  11:31 PM @ 21° –  5:45 AM @ 49°
 
   Nebulae
-  Eagle Nebula           3:16 AM @ 40°  180°(S)                       Dark sky  11:56 PM @ 21° –  3:41 AM @ 40°
-  Ring Nebula            3:41 AM @ 86°  148°(SE)                      Dark sky  10:06 PM @ 22° –  3:41 AM @ 86°
-  Dumbbell Nebula        3:41 AM @ 69°  124°(SE)                      Dark sky  11:36 PM @ 21° –  3:41 AM @ 69°
-  Veil Nebula            3:41 AM @ 64°   93°(E)                       Dark sky  11:56 PM @ 20° –  3:41 AM @ 64°
-  North America Nebula   3:41 AM @ 63°   61°(NE)                      Dark sky  11:36 PM @ 21° –  3:41 AM @ 63°
-
-  Galaxies
-  Leo Triplet            9:07 PM @ 64°  209°(SW)                      Dark sky   9:07 PM @ 64° –  1:06 AM @ 22°
-  Bode's Galaxy          9:07 PM @ 52°  341°(N)                       Dark sky   9:07 PM @ 52° –  3:41 AM @ 21°
-  Sombrero Galaxy        9:36 PM @ 42°  180°(S)                       Dark sky   9:07 PM @ 42° –  1:06 AM @ 21°
-  Whirlpool Galaxy      10:26 PM @ 79°    1°(N)                       Dark sky   9:07 PM @ 71° –  3:41 AM @ 33°
-  Pinwheel Galaxy       10:56 PM @ 72°    2°(N)                       Dark sky   9:07 PM @ 63° –  3:41 AM @ 40°
+  Ring Nebula              9:51 PM @ 87°  162°(S)                       Dark sky   8:56 PM @ 77° –  3:41 AM @ 21°
+  Andromeda Galaxy         3:41 AM @ 85°  7°(N)                         Dark sky   9:31 PM @ 21° –  4:10 AM @ 83°
 ```
 
 ## Night Quality Score (1–10)
@@ -149,7 +143,7 @@ The transition from negligible to severe is sharp — it occurs between roughly 
 
 ### Proxy geometry for site-wide evaluation
 
-K&S is inherently directional — it depends on where in the sky you're looking relative to the moon. For site-wide metrics (night score, prime dark sky hours) a reference sky position is needed. PyNightSkyPredictor uses **90° separation at 30° altitude** as the proxy:
+K&S is inherently directional — it depends on where in the sky you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. PyNightSkyPredictor uses **90° separation at 30° altitude** as the proxy:
 
 - **90° separation** is the darkest accessible sky position: the K&S scattering function reaches its minimum there (the cos²ρ term vanishes), so 90° represents the best realistic observing position when the moon is up — not the worst case and not an unreachable antipode
 - **30° altitude** is a representative mid-sky moon position over the course of an evening
@@ -160,7 +154,7 @@ For per-target evaluation, the actual moon–target separation and moon altitude
 
 **Lunar Interference score** — The moon-up fraction of the astronomical night is weighted by the K&S credit at the proxy geometry rather than the naive `(1 − illumination/100)` formula. A quarter moon's moonlit hours receive 0.31 credit (down from 0.50); a gibbous moon's moonlit hours receive 0 (down from 0.25).
 
-**Prime Dark Sky Hours** — When illumination is ≤20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as prime dark sky time rather than subtracting the brief crescent-up intervals.
+**Clear Dark Sky Hours** — When illumination is ≤20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as dark sky time rather than subtracting the brief crescent-up intervals. When weather data is available, each dark interval is further clipped to hours where cloud cover is ≤30%.
 
 **Astrophotography Window per target** — For each target, K&S is evaluated at the actual moon–target separation and moon altitude at every sample. The photo window is clipped at the point where Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness minus sky background minus 3.2 mag; clusters: integrated magnitude minus site SQM minus 13.0; Milky Way: surface brightness minus sky background minus 1.5 mag).
 
@@ -196,7 +190,22 @@ python pynightsky.py --coords 40.7128 -74.0060
 python pynightsky.py --location "New York" --weather
 ```
 
-The `Wx Rating` column scores each hour 1–10 for astrophotography suitability. Precipitation of any kind caps the score at 1. Otherwise the score is a weighted combination of:
+The weather table shows one row per hour across the night window. Columns:
+
+| Column | Description |
+|--------|-------------|
+| **Wx Rating** | 1–10 astrophotography score for that hour |
+| **Cloud Cover** | Percentage sky coverage |
+| **Temp** | Air temperature at 2 m |
+| **Dew Pt** | Dew point temperature — a Dew Pt close to Temp means high moisture and dew risk |
+| **Feels** | Apparent temperature (wind chill in cold conditions, heat index in hot/humid conditions) |
+| **Seeing** | Atmospheric steadiness as an N/10 score and arcsecond value, e.g. `8/10 (0.87")` — lower arcseconds = steadier (sourced from 7Timer when available) |
+| **Transparency** | Sky clarity and extinction as an N/10 score, e.g. `10/10` (sourced from 7Timer when available) |
+| **Humidity** | Relative humidity at 2 m |
+| **Wind** | Speed and compass direction, e.g. `12mph SW` |
+| **Precip** | Precipitation type: None / Rain / Snow |
+
+The **Wx Rating** is a weighted combination of:
 
 | Factor | Weight | Notes |
 |--------|--------|-------|
@@ -206,7 +215,12 @@ The `Wx Rating` column scores each hour 1–10 for astrophotography suitability.
 | Wind speed | 10% | Vibration, tracking error, and turbulence |
 | Humidity | 5% | Dew risk; no penalty below 50%, zero above 90% |
 
-Weights redistribute automatically when a field is not available from the provider.
+Precipitation of any kind caps the Wx Rating at 1. Weights redistribute automatically when a field is not available from the provider (e.g. seeing and transparency are only available when 7Timer is reachable).
+
+**Weather providers:**
+- **NOAA/NWS** — Used automatically for US locations. NAM-based, no API key, accurate cloud percentages, wind chill, and heat index.
+- **Open-Meteo** — Global fallback for all non-US locations. Also used for past dates (up to 92 days via the recent archive, older dates via ERA5 reanalysis back to 1940).
+- **7Timer ASTRO** — Blended into primary-provider data to supply seeing and transparency, which are derived from Cn² profile integration through GFS — the only free scientifically grounded seeing source.
 
 ### Visible targets
 
@@ -378,7 +392,7 @@ Calendar — Grand Canyon Village, Coconino County, Arizona, United States
 Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
 March 2026
 
-  Date        Night Quality Score  Prime Dark Hours  Weather  Moon
+  Date        Night Quality Score  Clear Dark Hours  Weather  Moon
   ----------  -------------------  ----------------  -------  ----
   2026-03-01               0.0/10            0h 00m        —  0.0
   2026-03-02               0.0/10            0h 00m        —  0.0  ·  *** Total lunar eclipse at  4:33 AM  (mag umbral 1.149) ***
@@ -428,11 +442,11 @@ The project is split into three layers: a pure engine, a formatting context, and
 | `moonlight.py` | Krisciunas & Schaefer (1991) moonlight model — Δmag sky brightening, moon credit, severity thresholds, per-type contrast constants |
 | `moon_events.py` | Lunar distance, eclipse detection (`eclipselib`), and supermoon/micromoon classification |
 | `milky_way.py` | Galactic coordinate helpers (IAU matrix) and Milky Way arch synthesis |
-| `targets.py` | Visible targets engine — window computation, K&S moonlight interference, per-type photo/visual clipping |
+| `targets.py` | Visible targets engine — window computation, K&S moonlight interference, per-type photo/visual clipping; `active_meteor_showers()` for fast date-only shower lookup |
 | `targets.json` | Curated target catalog — nebulae, galaxies, clusters, Milky Way, planets, meteor showers |
 | `config.py` | Configuration loader — reads `config.json` with built-in defaults |
 | `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
-| `weather.py` | Weather forecast abstraction (Open-Meteo providers) |
+| `weather.py` | Weather forecast abstraction — NOAA/NWS (US), Open-Meteo (global/historical), 7Timer ASTRO (seeing/transparency blend) |
 | `location.py` | Geocoding and timezone resolution |
 | `trip.py` | Trip planning engine — `plan_trip()` loops locations × dates, returns `TripReport` |
 | `cache.py` | Disk-backed JSON cache with per-entry TTL (SHA256-keyed files) |
@@ -473,7 +487,8 @@ report = assemble_night(
 )
 print(report.score)           # overall 0–10 score
 print(report.phase_name)      # e.g. "First Quarter"
-print(report.dark_hours)      # moon-free dark hours tonight
+print(report.dark_hours)      # clear dark sky hours tonight
+print(report.active_showers)  # list of active meteor showers (always populated)
 print(report.weather_points)  # list of WeatherPoint dataclasses
 ```
 

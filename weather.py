@@ -301,13 +301,15 @@ def _parse_noaa_grid(data: dict) -> list:
     """Parse a NWS forecastGridData response → list[WeatherPoint]."""
     props = data["properties"]
 
-    sky      = _noaa_expand(props.get("skyCover",            {}).get("values", []))
-    temp     = _noaa_expand(props.get("temperature",          {}).get("values", []))
-    dewpt    = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
-    humid    = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
-    wind     = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
-    wind_dir = _noaa_expand(props.get("windDirection",        {}).get("values", []))  # degrees
-    wx_vals  = _noaa_expand(props.get("weather",              {}).get("values", []))
+    sky        = _noaa_expand(props.get("skyCover",            {}).get("values", []))
+    temp       = _noaa_expand(props.get("temperature",          {}).get("values", []))
+    dewpt      = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
+    humid      = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
+    wind       = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
+    wind_dir   = _noaa_expand(props.get("windDirection",        {}).get("values", []))  # degrees
+    wind_chill = _noaa_expand(props.get("windChill",            {}).get("values", []))  # °C
+    heat_index = _noaa_expand(props.get("heatIndex",            {}).get("values", []))  # °C
+    wx_vals    = _noaa_expand(props.get("weather",              {}).get("values", []))
 
     points = []
     for t in sorted(sky.keys()):
@@ -317,6 +319,20 @@ def _parse_noaa_grid(data: dict) -> list:
         if t not in temp:
             continue
         wind_kmh = wind.get(t)
+
+        # Apparent temperature: prefer windChill (cold/windy), then heatIndex
+        # (hot/humid); NWS only populates these when conditions warrant them.
+        # When neither applies, conditions are mild and apparent temp ≈ actual
+        # temp, so fall back to temperature_c to keep the column populated.
+        wc = wind_chill.get(t)
+        hi = heat_index.get(t)
+        if wc is not None:
+            feels = wc
+        elif hi is not None:
+            feels = hi
+        else:
+            feels = temp.get(t)   # mild — apparent temp equals actual temp
+
         points.append(WeatherPoint(
             time            = t,
             cloud_cover_pct = round(sky[t])       if t in sky   else None,
@@ -327,7 +343,7 @@ def _parse_noaa_grid(data: dict) -> list:
             lifted_index    = None,
             precip_type     = _noaa_precip_type(wx_vals.get(t)),
             temperature_c      = temp.get(t),
-            feels_like_c       = None,               # not in NWS grid data
+            feels_like_c       = feels,
             dew_point_c        = dewpt.get(t),
             wind_direction_deg = wind_dir.get(t),
         ))
