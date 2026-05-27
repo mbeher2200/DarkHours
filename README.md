@@ -18,10 +18,10 @@ The tool displays:
 - **Meteor Showers** — Active showers tonight (always shown; no `--targets` required), with peak note and ZHR
 - **Clear Dark Sky Hours** — Effective dark hours within astronomical darkness tonight, adjusted for cloud cover and for actual sky impact using the Krisciunas & Schaefer moonlight model (see [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)). When the moon is ≤20% illuminated its scattered light is negligible and the full astronomical window is reported; brighter phases use the geometric moon-free window. The average and standard deviation across the current 30-night lunar cycle are shown alongside for context.
 - **Weather** — Hourly conditions table with cloud cover, dew point, feels like, seeing, transparency, humidity, wind (speed + direction), and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
-- **Visible Targets** — What's observable tonight, grouped by type (with `--targets` or `--prime-targets`)
+- **Visible Targets** — Prime targets for the night, grouped by type (with `--targets`)
 - **Month Calendar** — A full-month view of night scores, clear dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
 
-Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-08-12 --prime-targets --weather`):
+Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-08-12 --targets --weather`):
 ```
 Date:               2026-08-12
 Location:           Grand Canyon Village, Coconino County, Arizona, United States  (36.0578°, -112.1282°)
@@ -68,7 +68,7 @@ Prime Targets  ( 7:21 PM –  5:45 AM MST):
   Best time      8:56 PM  —  core 25° S, arch sweeps to Cygnus Star Cloud (88° S)
 
 
-  Target                  Best Viewing                                  Sky       Astrophotography Window
+  Target                  Best Viewing                                  Sky       Astro Window
   ----------------------  --------------------------------------------  --------  -------------------------------
   Meteor Showers
   Perseids Meteor Shower   4:10 AM @ 61°  32°(NE)                       Dark sky  10:41 PM @ 20° –  4:10 AM @ 61°
@@ -156,7 +156,7 @@ For per-target evaluation, the actual moon–target separation and moon altitude
 
 **Clear Dark Sky Hours** — When illumination is ≤20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as dark sky time rather than subtracting the brief crescent-up intervals. When weather data is available, each dark interval is further clipped to hours where cloud cover is ≤30%.
 
-**Astrophotography Window per target** — For each target, K&S is evaluated at the actual moon–target separation and moon altitude at every sample. The photo window is clipped at the point where Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness minus sky background minus 3.2 mag; clusters: integrated magnitude minus site SQM minus 13.0; Milky Way: surface brightness minus sky background minus 1.5 mag).
+**Astro Window per target** — For each target, K&S is evaluated at the actual moon–target separation and moon altitude at every sample. The photo window is clipped at the point where Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness minus sky background minus 3.2 mag; clusters: integrated magnitude minus site SQM minus 13.0; Milky Way: surface brightness minus sky background minus 1.5 mag).
 
 **Light pollution interaction** — The site's SQM (sky quality meter reading) enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
 
@@ -225,11 +225,7 @@ Precipitation of any kind caps the Wx Rating at 1. Weights redistribute automati
 ### Visible targets
 
 ```bash
-# All visible targets tonight, grouped by type
 python pynightsky.py --location "Death Valley" --targets
-
-# Prime targets only — no moon interference, peak ≥40°, visible window ≥1h
-python pynightsky.py --location "Death Valley" --prime-targets
 ```
 
 Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies. Each entry shows best viewing time, peak altitude and azimuth, the full window with start/end elevations, and a **sky condition** indicating the lighting when the target peaks:
@@ -239,7 +235,7 @@ Targets are grouped as: Meteor Showers · Milky Way · Clusters · Planets · Ne
 - **Moon wash** — K&S sky brightening at the target's position is ≥0.50 mag/arcsec² (moderate or severe); sky background is significantly elevated
 - **Twilight** — peak falls outside astronomical darkness (sun less than 18° below horizon)
 
-The **Astrophotography Window** column shows the time span during which K&S-modelled sky conditions are good enough for imaging. When scattered moonlight degrades the sky past the photo threshold, the window is clipped at the start or end accordingly.
+The **Astro Window** column shows the time span during which K&S-modelled sky conditions are good enough for imaging. When scattered moonlight degrades the sky past the photo threshold, the window is clipped at the start or end accordingly.
 
 Milky Way targets are automatically included in prime results whenever they're visible during astronomical darkness.
 
@@ -420,8 +416,7 @@ Scores in the calendar are identical to those from the single-night report for t
                            with --calendar, accepts YYYY-MM to pick a month
 --calendar                 Show a month-view calendar of night scores
 --weather, -w              Include weather forecast (requires internet)
---targets, -t              Show all visible targets for the night
---prime-targets, -p        Show only prime targets (see config.json for thresholds)
+--targets, -t              Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)
 --list-locations           Show all saved/cached locations
 --save-location NAME       Save coordinates under a name for future use
 --units imperial|si        Temperature/wind units (default: auto-detect from locale)

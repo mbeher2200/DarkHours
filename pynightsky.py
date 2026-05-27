@@ -40,9 +40,7 @@ def main():
     parser.add_argument("--weather", "-w", action="store_true",
                         help="Include weather forecast for the night (requires internet)")
     parser.add_argument("--targets", "-t", action="store_true",
-                        help="Show visible targets summary for the night")
-    parser.add_argument("--prime-targets", "-p", action="store_true",
-                        help="Show only prime targets (no moon interference, peak ≥40°, window ≥1h)")
+                        help="Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -131,18 +129,16 @@ def main():
         print(f"Error: '{d_arg}' is not a valid date (expected YYYY-MM-DD).")
         raise SystemExit(1)
 
-    fetch_targets = args.targets or args.prime_targets
-
     try:
         report = assemble_night(lat, lon, target, tz, display_name=display_name,
-                                fetch_targets=fetch_targets)
+                                fetch_targets=args.targets)
     except ValueError as e:
         print(f"Error: {e}")
         raise SystemExit(1)
 
     print_report(report, ctx, show_weather=args.weather)
-    if fetch_targets:
-        print_targets(report, ctx, prime_only=args.prime_targets)
+    if args.targets:
+        print_targets(report, ctx)
 
 
 if __name__ == "__main__":
