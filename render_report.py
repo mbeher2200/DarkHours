@@ -2,7 +2,8 @@
 
 Public API:
     print_report(report, ctx, show_weather)
-    print_targets(report, ctx, prime_only)
+    print_targets(report, ctx)
+    print_dark_nearby(result, ctx)
 """
 
 import logging
@@ -528,5 +529,93 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
                 print(f"  {_TYPE_LABELS.get(ttype, ttype)}")
             current_type = ttype
         _row((name, peak, cond, win, flags))
+
+    print()
+
+
+def print_dark_nearby(result: dict | None, ctx: FormatCtx) -> None:
+    """Print the nearby dark-sky search results."""
+    radius = result["radius_miles"] if result else 60
+
+    print(f"Darker Skies Nearby  ({ctx.fmt_dist(radius)} radius):\n")
+
+    if result is None:
+        print("  Light pollution data unavailable.\n")
+        return
+
+    origin = result["origin_bortle"]
+    sqm    = result["origin_sqm"]
+    sqm_s  = f"  (SQM {sqm:.1f})" if sqm is not None else ""
+
+    if origin <= 1:
+        print(f"  Origin is already Bortle {origin}{sqm_s} — optimal dark sky conditions.\n")
+        return
+
+    results    = result["results"]
+    domes      = result["light_domes"]
+    best_avail = result["best_available"]
+
+    if not results:
+        print(f"  Origin:  Bortle {origin}{sqm_s}")
+        print(f"  No significantly darker sky found within {ctx.fmt_dist(radius)}.")
+        if best_avail:
+            n = best_avail
+            print(f"  Closest: Bortle {n['bortle_class']}"
+                  f"  ·  {ctx.fmt_dist(n['distance_miles'])} {n['direction']}"
+                  f"  ({n['name']})")
+        print()
+        return
+
+    # Nearest and darkest highlights
+    nearest = min(results, key=lambda r: r["distance_miles"])
+    darkest = min(results, key=lambda r: (r["bortle_class"], r["distance_miles"]))
+    print(f"  Nearest:  Bortle {nearest['bortle_class']}"
+          f"  ·  {ctx.fmt_dist(nearest['distance_miles'])} {nearest['direction']}"
+          f"  ({nearest['name']})")
+    if darkest is not nearest and darkest["bortle_class"] < nearest["bortle_class"]:
+        print(f"  Darkest:  Bortle {darkest['bortle_class']}"
+              f"  ·  {ctx.fmt_dist(darkest['distance_miles'])} {darkest['direction']}"
+              f"  ({darkest['name']})")
+    print()
+
+    # Results table — sort by distance for readability
+    display = sorted(results, key=lambda r: (r["distance_miles"], r["bortle_class"]))
+    headers = ("Area", "Bortle", "SQM", "Distance", "Direction")
+    aligns  = ("l",    "r",      "r",   "r",         "r")
+    rows    = [
+        (
+            r["name"] or f"{r['lat']:.2f}°, {r['lon']:.2f}°",
+            str(r["bortle_class"]),
+            f"{r['sqm']:.1f}" if r["sqm"] is not None else "—",
+            ctx.fmt_dist(r["distance_miles"]),
+            r["direction"],
+        )
+        for r in display
+    ]
+    widths = [
+        max(len(headers[i]), max(len(row[i]) for row in rows))
+        for i in range(len(headers))
+    ]
+
+    def _row(vals):
+        parts = [
+            f"{v:>{w}}" if a == "r" else f"{v:<{w}}"
+            for v, a, w in zip(vals, aligns, widths)
+        ]
+        print("  " + "  ".join(parts))
+
+    _row(headers)
+    _row(["-" * w for w in widths])
+    for row in rows:
+        _row(row)
+
+    # Light domes (only populated for dark-origin sites, Bortle <= 5)
+    if domes:
+        print()
+        print("  Light domes:")
+        for dome in domes:
+            print(f"    {dome['name']}"
+                  f"  ·  Bortle {dome['bortle_class']}"
+                  f"  ·  {ctx.fmt_dist(dome['distance_miles'])} {dome['direction']}")
 
     print()

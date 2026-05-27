@@ -88,6 +88,12 @@ class FormatCtx:
             return f"{speed_str} {cardinal(direction_deg)}"
         return speed_str
 
+    def fmt_dist(self, miles: float) -> str:
+        """Format a distance: '45 mi' (imperial) or '72 km' (SI)."""
+        if self.units == "imperial":
+            return f"{round(miles)} mi"
+        return f"{round(miles * 1.60934)} km"
+
 
 # ---------------------------------------------------------------------------
 # Pure display helpers (no state dependencies)
