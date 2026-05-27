@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import math
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -338,21 +339,6 @@ def lookup(lat: float, lon: float) -> dict | None:
     }
 
 
-def summary_line(lat: float, lon: float) -> str | None:
-    """
-    Return a one-line display string, e.g.:
-      'SQM 19.2  ·  Zone 6a  ·  Bortle 6  (Bright suburban sky)  [VIIRS 2025]'
-    Returns None if the lookup fails entirely.
-    """
-    info = lookup(lat, lon)
-    if info is None:
-        return None
-    if info["below_detection"]:
-        return "Light pollution data unavailable"
-    return (f"SQM {info['sqm']}  ·  Zone {info['lp_zone']}"
-            f"  ·  Bortle {info['bortle_class']}"
-            f"  ({info['bortle_desc']})  [{info['source']}]")
-
 
 # ---------------------------------------------------------------------------
 # Nearby dark-sky search
@@ -368,11 +354,14 @@ _SAMPLE_BEARINGS    = [i * 22.5 for i in range(16)]
 
 _OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
 _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
+_OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
-_OVERPASS_SLEEP  = 3.0               # minimum seconds between Overpass requests
+_OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests
 _NOMINATIM_SLEEP = 1.1               # minimum seconds between Nominatim requests
 
-# Module-level rate-limit trackers (updated only on actual network calls)
+# Thread-safe rate-limit state
+_overpass_lock       = threading.Lock()
+_nominatim_lock      = threading.Lock()
 _last_overpass_call  = 0.0
 _last_nominatim_call = 0.0
 
@@ -531,36 +520,61 @@ def _cluster_points(points: list, merge_miles: float = 8.0) -> list:
     return clusters
 
 
-def _overpass_area_name(lat: float, lon: float) -> str | None:
+def _tags_to_priority(tags: dict) -> int:
+    """Return _AREA_PRIORITY int from an OSM element's tags dict."""
+    name     = tags.get("name", "")
+    boundary = tags.get("boundary", "")
+    landuse  = tags.get("landuse",  "")
+    leisure  = tags.get("leisure",  "")
+    if "wilderness" in name.lower():
+        return _AREA_PRIORITY["wilderness"]
+    if boundary == "national_park":
+        return _AREA_PRIORITY["national_park"]
+    if boundary in ("protected_area", "national_forest"):
+        return _AREA_PRIORITY.get(boundary, 3)
+    if leisure == "nature_reserve":
+        return _AREA_PRIORITY["nature_reserve"]
+    if landuse == "forest":
+        return _AREA_PRIORITY["forest"]
+    return 10
+
+
+def _overpass_natural_areas_in_radius(
+    lat: float, lon: float, radius_miles: int
+) -> list[dict]:
     """
-    Find the most prominent named natural/protected area containing (lat, lon)
-    using the Overpass API.  Results cached for 90 days.
-    Returns None if no matching area found or request fails.
+    Fetch all named protected/natural areas whose boundary intersects a circle
+    around (lat, lon).  One HTTP call covers the entire search area.
+
+    Returns list of dicts: {name, minlat, minlon, maxlat, maxlon, priority}
+    Bounding-box corners come from "out bb tags" — used in _best_area_name_for_cluster
+    to test containment rather than mere proximity to centre.
+    Cached per origin coordinate + radius for 90 days.
     """
-    cache_key = f"overpass_area|{lat:.2f}|{lon:.2f}"
+    cache_key = f"overpass_areas2|{lat:.2f}|{lon:.2f}|{radius_miles}"
     cached    = cache.get(cache_key)
     if cached is not None:
-        return cached or None   # "" stored when no area found
+        return cached
 
+    radius_m = int(radius_miles * 1609.344 * 1.15)   # +15 % margin for edge-overlap
+    # Single around: lookup with an (if:) tag filter — ~3× faster than 5 separate
+    # around: sub-queries because Overpass performs only one spatial index scan.
+    # "out bb tags" returns the bounding-box corners so we can test containment.
     query = (
-        f"[out:json][timeout:20];\n"
-        f"is_in({lat:.4f},{lon:.4f})->.a;\n"
-        f"(\n"
-        f'  relation(pivot.a)["name"]["boundary"="national_park"];\n'
-        f'  relation(pivot.a)["name"]["boundary"="protected_area"];\n'
-        f'  relation(pivot.a)["name"]["boundary"="national_forest"];\n'
-        f'  relation(pivot.a)["name"]["leisure"="nature_reserve"];\n'
-        f'  relation(pivot.a)["name"]["landuse"="forest"];\n'
-        f'  way(pivot.a)["name"]["boundary"="national_park"];\n'
-        f'  way(pivot.a)["name"]["leisure"="nature_reserve"];\n'
-        f");\n"
-        f"out tags;"
+        f"[out:json][timeout:30];\n"
+        f'relation(around:{radius_m},{lat:.4f},{lon:.4f})["name"]'
+        f'(if: t["boundary"]=="national_park" || t["boundary"]=="national_forest" || '
+        f't["boundary"]=="protected_area" || t["leisure"]=="nature_reserve" || '
+        f't["landuse"]=="forest");\n'
+        f"out bb tags;"
     )
-    # Rate-limit: enforce minimum gap between actual network calls
+
     global _last_overpass_call
-    wait = _OVERPASS_SLEEP - (time.time() - _last_overpass_call)
-    if wait > 0:
-        time.sleep(wait)
+    with _overpass_lock:
+        wait = _OVERPASS_SLEEP - (time.time() - _last_overpass_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_overpass_call = time.time()
 
     params = urllib.parse.urlencode({"data": query})
     url    = f"{_OVERPASS_URL}?{params}"
@@ -569,46 +583,87 @@ def _overpass_area_name(lat: float, lon: float) -> str | None:
             url,
             headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        with urllib.request.urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read())
-        _last_overpass_call = time.time()
     except Exception as e:
-        _last_overpass_call = time.time()
-        log.debug("Overpass area lookup failed for (%.4f, %.4f): %s", lat, lon, e)
-        return None
+        log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
+        cache.set(cache_key, [], ttl_seconds=300)   # short cache on failure
+        return []
 
-    elements = data.get("elements", [])
-    best_name, best_priority = None, 999
-
-    for el in elements:
-        tags    = el.get("tags", {})
-        name    = tags.get("name")
-        if not name:
+    areas = []
+    for el in data.get("elements", []):
+        tags   = el.get("tags", {})
+        name   = tags.get("name")
+        bounds = el.get("bounds", {})
+        if not name or not bounds:
             continue
-        boundary = tags.get("boundary", "")
-        landuse  = tags.get("landuse", "")
-        leisure  = tags.get("leisure", "")
+        # OSM sometimes packs multiple names with ";" — keep the longest segment
+        # e.g. "Abbotts Bridge Unit;CRNRA - Abbotts Bridge Unit" → "CRNRA - Abbotts Bridge Unit"
+        if ";" in name:
+            name = max(name.split(";"), key=len).strip()
+        areas.append({
+            "name":     name,
+            "minlat":   bounds["minlat"],
+            "maxlat":   bounds["maxlat"],
+            "minlon":   bounds["minlon"],
+            "maxlon":   bounds["maxlon"],
+            "priority": _tags_to_priority(tags),
+        })
 
-        if "wilderness" in name.lower():
-            priority = _AREA_PRIORITY["wilderness"]
-        elif boundary == "national_park":
-            priority = _AREA_PRIORITY["national_park"]
-        elif boundary == "protected_area":
-            priority = _AREA_PRIORITY["protected_area"]
-        elif boundary == "national_forest":
-            priority = _AREA_PRIORITY["national_forest"]
-        elif leisure == "nature_reserve":
-            priority = _AREA_PRIORITY["nature_reserve"]
-        elif landuse == "forest":
-            priority = _AREA_PRIORITY["forest"]
-        else:
-            priority = 10
+    log.debug("Overpass areas-in-radius: %d areas found for (%.4f, %.4f)", len(areas), lat, lon)
+    cache.set(cache_key, areas, ttl_seconds=_GEO_CACHE_TTL)
+    return areas
 
-        if priority < best_priority:
-            best_priority = priority
-            best_name     = name
 
-    cache.set(cache_key, best_name or "", ttl_seconds=_GEO_CACHE_TTL)
+# National forests have bboxes 60–135 miles wide — far too coarse for
+# containment matching (the rectangle includes towns, private land, gaps).
+# Wilderness areas and monuments are 5–20 miles wide and are reliable.
+# Only trust bbox containment when the bbox is compact enough.
+_MAX_BBOX_MILES = 30.0
+
+
+def _bbox_width_miles(area: dict) -> float:
+    """Return the larger of the two bbox dimensions in miles."""
+    dlat = (area["maxlat"] - area["minlat"]) * 69.0
+    mid_lat = (area["minlat"] + area["maxlat"]) / 2
+    dlon = (area["maxlon"] - area["minlon"]) * 69.0 * math.cos(math.radians(mid_lat))
+    return max(dlat, dlon)
+
+
+def _best_area_name_for_cluster(
+    cluster_lat: float,
+    cluster_lon: float,
+    areas: list[dict],
+) -> str | None:
+    """
+    CPU-only: find the best named area for a dark-sky cluster.
+
+    Uses bounding-box containment (from "out bb tags").  Only areas whose bbox
+    is ≤ _MAX_BBOX_MILES (30 mi) on each side are eligible — national forests
+    have 60–135 mi bboxes that are too coarse to be meaningful for containment.
+    Wilderness areas and national monuments (5–20 mi) are reliable.
+
+    Among all containing areas, pick the highest-priority one; break ties by
+    the smallest bbox (more specific / smaller area wins).
+    """
+    best_name, best_priority, best_bbox_area = None, 999, float("inf")
+
+    for area in areas:
+        if _bbox_width_miles(area) > _MAX_BBOX_MILES:
+            continue
+
+        # Bounding-box containment check
+        if not (area["minlat"] <= cluster_lat <= area["maxlat"] and
+                area["minlon"] <= cluster_lon <= area["maxlon"]):
+            continue
+
+        p = area["priority"]
+        # Prefer higher priority; break ties by smaller bbox (more specific area)
+        bbox_area = ((area["maxlat"] - area["minlat"]) *
+                     (area["maxlon"] - area["minlon"]))
+        if p < best_priority or (p == best_priority and bbox_area < best_bbox_area):
+            best_priority, best_name, best_bbox_area = p, area["name"], bbox_area
+
     return best_name
 
 
@@ -623,11 +678,13 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
     if cached is not None:
         return cached or None
 
-    # Rate-limit: enforce minimum gap between actual network calls
+    # Thread-safe rate limiting
     global _last_nominatim_call
-    wait = _NOMINATIM_SLEEP - (time.time() - _last_nominatim_call)
-    if wait > 0:
-        time.sleep(wait)
+    with _nominatim_lock:
+        wait = _NOMINATIM_SLEEP - (time.time() - _last_nominatim_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_nominatim_call = time.time()
 
     params = urllib.parse.urlencode({
         "lat": f"{lat:.4f}", "lon": f"{lon:.4f}",
@@ -641,25 +698,42 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-        _last_nominatim_call = time.time()
     except Exception as e:
-        _last_nominatim_call = time.time()
         log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
         return None
 
     address    = data.get("address", {})
-    name       = address.get("city") or address.get("town") or address.get("village")
+    # Check progressively less specific place types before giving up
+    name = (address.get("city") or address.get("town") or address.get("village")
+            or address.get("hamlet") or address.get("suburb") or address.get("municipality"))
     state_code = address.get("ISO3166-2-lvl4", "")   # e.g. "US-AZ"
     state_abbr = state_code.split("-")[-1] if "-" in state_code else ""
-    result     = f"{name}, {state_abbr}" if (name and state_abbr) else name or ""
+    county_raw = address.get("county", "")
+
+    if not name:
+        # Last resort: strip "County"/"Parish" suffix and use that
+        name = (county_raw.replace(" County", "").replace(" Parish", "").strip()) or None
+
+    result = f"{name}, {state_abbr}" if (name and state_abbr) else name or ""
+
+    if not result:
+        # No state AND no county → ocean, large lake, or international waters.
+        # Grid sample points over water are dark simply because no one lives there;
+        # they're useless as observing sites and should be excluded from results.
+        if not county_raw and not address.get("state"):
+            cache.set(cache_key, _OVER_WATER, ttl_seconds=_GEO_CACHE_TTL)
+            return _OVER_WATER
+        # Has state/country context but no settlement — cache briefly and return None
+        cache.set(cache_key, "", ttl_seconds=86400)
+        return None
 
     cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
-    return result or None
+    return result
 
 
-def find_darker_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
+def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     """
-    Search for areas with significantly darker skies within radius_miles of (lat, lon).
+    Search for darker sky areas and nearby light domes within radius_miles of (lat, lon).
 
     Samples Bortle class on a ring grid, clusters nearby dark spots, then names
     each cluster via Overpass (natural/protected areas) or Nominatim (settlements).
@@ -669,7 +743,7 @@ def find_darker_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict |
       origin_sqm      float | None
       radius_miles    int
       results         list[dict]  — dark clusters meeting the threshold
-      light_domes     list[dict]  — bright city glows (only when origin <= Bortle 5)
+      light_domes     list[dict]  — bright city glows visible from the origin
       has_dark_sky    bool
       best_available  dict | None — nearest/darkest point when threshold not met
 
@@ -707,9 +781,15 @@ def find_darker_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict |
     sample_coords = _grid_sample_points(lat, lon, radius_miles)
     bulk          = _bulk_bortle_lookup(sample_coords)
 
+    # Absolute floor: a result must be genuinely dark, not just a forested island
+    # in a suburban metro whose VIIRS reading is low because there are no street-
+    # lights inside its perimeter.  Bortle 4 = Rural/suburban transition — the
+    # faintest the Milky Way becomes perceptible to the naked eye.
+    _ABS_DARK_FLOOR = 4
+
     all_darker      = []   # any point darker than origin (for best_available fallback)
-    dark_candidates = []   # meets dark_threshold
-    dome_candidates = []   # light dome candidates (Bortle 7+, only for dark origins)
+    dark_candidates = []   # meets dark_threshold AND absolute floor
+    dome_candidates = []   # bright city glows (Bortle 7+, ≥15 mi away)
 
     for (plat, plon), info in zip(sample_coords, bulk):
         if info is None:
@@ -727,13 +807,22 @@ def find_darker_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict |
         }
         if bortle < origin_bortle:
             all_darker.append(pt)
-        if bortle <= dark_threshold:
+        if bortle <= dark_threshold and bortle <= _ABS_DARK_FLOOR:
             dark_candidates.append(pt)
-        # Only report light domes when the observer is at a dark site
-        if origin_bortle <= 5 and bortle >= 7 and dist >= 15:
+        # Light domes: areas strictly brighter than the origin AND at least 2 Bortle
+        # classes above it.  The +2 threshold is capped at 9 so Bortle-8 origins can
+        # surface Bortle-9 domes (10 doesn't exist).  The "bortle > origin_bortle"
+        # guard ensures same-brightness neighbours never qualify — from a Bortle-9
+        # origin the cap gives threshold 9 = origin, so nothing would fire anyway.
+        # Min distance scales with origin brightness: dark-site observers want distant
+        # city glows on the horizon (15 mi); suburban observers want nearby urban cores (5 mi).
+        _dome_min_dist = 15 if origin_bortle <= 5 else 5
+        if (bortle > origin_bortle
+                and bortle >= min(origin_bortle + 2, 9)
+                and dist >= _dome_min_dist):
             dome_candidates.append(pt)
 
-    _MAX_RESULTS = 10   # max dark-sky areas to name and display
+    _MAX_RESULTS = 6    # max dark-sky areas to name and display
     _MAX_DOMES   = 4    # max light domes to name and display
 
     # Sort and cap before naming — every returned entry will be named
@@ -744,29 +833,72 @@ def find_darker_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict |
     dark_clusters = sorted(dark_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_RESULTS]
     dome_clusters = sorted(dome_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_DOMES]
 
-    # Best-available fallback when threshold not met
+    # ── Naming ─────────────────────────────────────────────────────────────
+    # Strategy: one Overpass around: call fetches ALL named natural areas in
+    # the search radius at once (~3s, cached per origin).  Cluster naming is
+    # then pure CPU (instant).  Nominatim dome calls run concurrently in the
+    # main thread while the Overpass fetch runs in a background thread.
+    # Total first-run time ≈ max(Overpass_call, Nominatim_dome_calls) ≈ 4-5s.
+
     best_available = None
+    best_candidate = None
     if not dark_clusters and all_darker:
-        best = sorted(all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"]))[0]
-        name = _overpass_area_name(best["lat"], best["lon"])
-        if not name:
-            name = _nominatim_settlement(best["lat"], best["lon"])
-        best["name"] = name or f"{best['lat']:.2f}°, {best['lon']:.2f}°"
-        best_available = best
+        best_candidate = sorted(
+            all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
+        )[0]
 
-    # Name dark clusters — Overpass first (natural areas), Nominatim as fallback
-    for cluster in dark_clusters:
-        name = _overpass_area_name(cluster["lat"], cluster["lon"])
-        if not name:
-            name = _nominatim_settlement(cluster["lat"], cluster["lon"])
-        cluster["name"] = name or f"{cluster['lat']:.2f}°, {cluster['lon']:.2f}°"
+    # Launch Overpass area fetch in background
+    natural_areas: list = []
 
-    # Name light domes — Nominatim first (city names), Overpass as fallback
+    def _fetch_areas():
+        natural_areas.extend(
+            _overpass_natural_areas_in_radius(lat, lon, radius_miles)
+        )
+
+    areas_thread = threading.Thread(target=_fetch_areas, daemon=True)
+    areas_thread.start()
+
+    # Concurrently: name light domes via Nominatim (main thread, rate-limited)
     for dome in dome_clusters:
-        name = _nominatim_settlement(dome["lat"], dome["lon"])
+        dome_name = _nominatim_settlement(dome["lat"], dome["lon"])
+        dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
+
+    # Wait for Overpass result (usually already done by the time domes are named)
+    areas_thread.join()
+
+    # Name clusters from fetched areas — CPU only, instant
+    all_to_name = dark_clusters + ([best_candidate] if best_candidate else [])
+    for c in all_to_name:
+        name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
         if not name:
-            name = _overpass_area_name(dome["lat"], dome["lon"])
-        dome["name"] = name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
+            name = _nominatim_settlement(c["lat"], c["lon"])
+        if name == _OVER_WATER:
+            c["name"] = None          # flagged for removal below
+        else:
+            c["name"] = name or f"{c['lat']:.2f}°, {c['lon']:.2f}°"
+
+    # Drop clusters over ocean / large water bodies — they're dark only because
+    # no one lives there, not because they're useful observing sites.
+    dark_clusters = [c for c in dark_clusters if c.get("name") is not None]
+
+    # Deduplicate dark_clusters by name: when multiple sample points resolve to the
+    # same named area, keep only the best representative (darkest Bortle, then best
+    # SQM, then closest) so the table doesn't repeat the same area four times.
+    seen: dict[str, dict] = {}
+    for c in dark_clusters:
+        key = c["name"]
+        prev = seen.get(key)
+        if prev is None:
+            seen[key] = c
+        else:
+            # Prefer lower Bortle; break ties by higher SQM; then closer distance
+            if (c["bortle_class"], -(c["sqm"] or 0), c["distance_miles"]) < \
+               (prev["bortle_class"], -(prev["sqm"] or 0), prev["distance_miles"]):
+                seen[key] = c
+    dark_clusters = list(seen.values())
+
+    if best_candidate is not None:
+        best_available = best_candidate
 
     return {
         "origin_bortle":  origin_bortle,

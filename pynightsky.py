@@ -9,11 +9,11 @@ from zoneinfo import ZoneInfo
 
 import location as loc
 import trip as _trip
-from darksky import find_darker_nearby
+from darksky import find_nearby
 from format_ctx import FormatCtx, detect_units
 from predictor import assemble_night
 from render_calendar import print_calendar
-from render_report import print_report, print_targets, print_dark_nearby
+from render_report import print_report, print_targets, print_nearby
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +42,8 @@ def main():
                         help="Include weather forecast for the night (requires internet)")
     parser.add_argument("--targets", "-t", action="store_true",
                         help="Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)")
-    parser.add_argument("--dark-nearby", metavar="MILES", nargs="?", const=60, type=int,
-                        help="Find darker sky areas within MILES radius (default 60)")
+    parser.add_argument("--show-nearby", metavar="MILES", nargs="?", const=60, type=int,
+                        help="Show darker sky areas and light domes within MILES radius (default 60)")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -142,13 +142,13 @@ def main():
     print_report(report, ctx, show_weather=args.weather)
     if args.targets:
         print_targets(report, ctx)
-    if args.dark_nearby:
-        radius = args.dark_nearby
-        msg = f"  Searching for darker skies within {ctx.fmt_dist(radius)}..."
+    if args.show_nearby:
+        radius = args.show_nearby
+        msg = f"  Scanning nearby skies within {ctx.fmt_dist(radius)}..."
         print(msg, end="\r", flush=True)
-        nearby = find_darker_nearby(lat, lon, radius)
+        nearby = find_nearby(lat, lon, radius)
         print(" " * (len(msg) + 2), end="\r", flush=True)
-        print_dark_nearby(nearby, ctx)
+        print_nearby(nearby, ctx)
 
 
 if __name__ == "__main__":
