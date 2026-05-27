@@ -21,9 +21,12 @@ This project was developed with substantial assistance from:
   - Reference: https://datapub.gfz-potsdam.de/
 
 ### Geospatial Data
-- **Nominatim**: Geocoding service powered by OpenStreetMap contributors
+- **Nominatim**: Reverse-geocoding and location name resolution, powered by OpenStreetMap contributors
   - https://nominatim.org/
   - Data licensed under ODbL
+- **Overpass API**: OpenStreetMap query API used to fetch named protected and natural areas (national parks, wilderness areas, nature reserves) for the `--show-nearby` feature
+  - https://overpass-api.de/
+  - Data © OpenStreetMap contributors, licensed under ODbL
 
 ### Astronomical Data
 - **JPL Ephemeris (DE421)**: NASA Jet Propulsion Laboratory

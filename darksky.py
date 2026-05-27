@@ -349,7 +349,8 @@ _DIRS_16 = [
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
 ]
 
-_SAMPLE_RINGS_MILES = [5, 10, 15, 20, 30, 45, 60, 80, 100, 120]
+_SAMPLE_RINGS_MILES = [5, 10, 15, 20, 30, 45, 60, 80, 100, 120, 150]
+_MAX_SEARCH_RADIUS  = 150   # beyond this the Overpass query grows unreliable and driving isn't practical
 _SAMPLE_BEARINGS    = [i * 22.5 for i in range(16)]
 
 _OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
@@ -829,8 +830,11 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     dark_clusters = _cluster_points(dark_candidates)          if dark_candidates else []
     dome_clusters = _cluster_points(dome_candidates, merge_miles=20) if dome_candidates else []
 
-    # Nearest-first within Bortle tiers — ensures closest dark sky is always shown
-    dark_clusters = sorted(dark_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_RESULTS]
+    # Cap selection: darkest-first so the genuinely dark areas always make it into
+    # the result set regardless of how many mediocre-but-close candidates exist.
+    # Within the same Bortle class, prefer closer.  The table display re-sorts by
+    # distance, so the final order presented to the user is still nearest-first.
+    dark_clusters = sorted(dark_clusters, key=lambda p: (p["bortle_class"], p["distance_miles"]))[:_MAX_RESULTS]
     dome_clusters = sorted(dome_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_DOMES]
 
     # ── Naming ─────────────────────────────────────────────────────────────

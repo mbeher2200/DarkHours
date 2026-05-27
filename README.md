@@ -20,6 +20,7 @@ The tool displays:
 - **Weather** — Hourly conditions table with cloud cover, dew point, feels like, seeing, transparency, humidity, wind (speed + direction), and precipitation — each hour rated 1–10 for astrophotography conditions (with `--weather`)
 - **Targets** — Prime targets for the night, grouped by type (with `--targets`)
 - **Month Calendar** — A full-month view of night scores, clear dark hours, weather, and lunar conditions — one row per night, best nights highlighted at the bottom (with `--calendar`)
+- **Nearby Skies** — Darker sky areas and light domes within a search radius, with Bortle class, SQM, distance, direction, and named location (with `--show-nearby`)
 
 Example output (`python pynightsky.py --location "Grand Canyon Village, Arizona" --date 2026-08-12 --targets --weather`):
 ```
@@ -407,6 +408,34 @@ The **Light Pollution** header line appends the location's Bortle score contribu
 
 Scores in the calendar are identical to those from the single-night report for the same date — the same engine runs both.
 
+### Nearby Skies
+
+```bash
+python pynightsky.py --location "Roswell, GA" --show-nearby
+python pynightsky.py --location "Sedona, Arizona" --show-nearby 40
+```
+
+Scans a grid of sample points within the radius (default 60 miles), clusters them by proximity, and reports:
+
+- **Darker sky areas** — clusters at least 2 Bortle classes darker than your origin, and no worse than Bortle 4 (Rural/suburban transition). Named from OpenStreetMap protected areas (wilderness, national parks, nature reserves) when a match is found inside the area's bounding box, otherwise from Nominatim reverse-geocoding (county or settlement name).
+- **Light domes** — areas at least 2 Bortle classes *brighter* than your origin and at least 5 miles away (15 miles for dark-site origins). These represent city glows on your horizon. Not shown when you are already at the maximum (Bortle 9).
+
+```
+Nearby Skies  (60 mi radius):
+
+  Nearest:  Bortle 2  ·  5 mi N  (Red Rock-Secret Mountain Wilderness)
+  Darkest:  Bortle 1  ·  15 mi ENE  (Coconino, AZ)
+
+  Area                                 Bortle   SQM  Distance  Direction
+  -----------------------------------  ------  ----  --------  ---------
+  Red Rock-Secret Mountain Wilderness       2  21.8      5 mi          N
+  Munds Mountain Wilderness                 2  21.8      5 mi        ESE
+  Yavapai, AZ                               2  21.8     10 mi          S
+  Coconino, AZ                              1  22.0     15 mi        ENE
+```
+
+Results are cached — the first run fetches and names each cluster (typically 4–6 seconds); subsequent runs for the same origin and radius return instantly.
+
 ## pynightsky.py Options
 
 ```
@@ -417,6 +446,7 @@ Scores in the calendar are identical to those from the single-night report for t
 --calendar                 Show a month-view calendar of night scores
 --weather, -w              Include weather forecast (requires internet)
 --targets, -t              Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)
+--show-nearby [MILES]      Show darker sky areas and light domes within MILES radius (default 60)
 --list-locations           Show all saved/cached locations
 --save-location NAME       Save coordinates under a name for future use
 --units imperial|si        Temperature/wind units (default: auto-detect from locale)
@@ -440,7 +470,7 @@ The project is split into three layers: a pure engine, a formatting context, and
 | `targets.py` | Visible targets engine — window computation, K&S moonlight interference, per-type photo/visual clipping; `active_meteor_showers()` for fast date-only shower lookup |
 | `targets.json` | Curated target catalog — nebulae, galaxies, clusters, Milky Way, planets, meteor showers |
 | `config.py` | Configuration loader — reads `config.json` with built-in defaults |
-| `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016) |
+| `darksky.py` | Light pollution lookup (VIIRS 2025 + Falchi 2016); `find_nearby()` for dark-sky area and light-dome search via Overpass + Nominatim |
 | `weather.py` | Weather forecast abstraction — NOAA/NWS (US), Open-Meteo (global/historical), 7Timer ASTRO (seeing/transparency blend) |
 | `location.py` | Geocoding and timezone resolution |
 | `trip.py` | Trip planning engine — `plan_trip()` loops locations × dates, returns `TripReport` |
@@ -543,9 +573,10 @@ The application automatically downloads and caches external datasets:
 
 - **VIIRS Black Marble 2025** (Satellite light pollution data)
 - **Falchi World Atlas 2016** (Physical light pollution model)
-- **Nominatim Geocoding** (Location name resolution)
+- **Nominatim Geocoding** (Location name resolution and reverse-geocoding for `--show-nearby`)
+- **Overpass API** (OpenStreetMap named area lookups for `--show-nearby`)
 
-These datasets are downloaded **on first use** and cached locally in `~/.pynightsky-predictor/` for offline access.
+The GeoTIFF datasets are downloaded **on first use** and stored locally in `~/.pynightsky-predictor/`. API responses (Nominatim, Overpass) are disk-cached with a 90-day TTL so repeat runs are instant.
 
 ### Bundled Ephemeris
 
@@ -559,7 +590,7 @@ All datasets remain under their original open licenses and attributions (see [AC
 - DE421 Ephemeris: NASA/JPL (Public Domain)
 - VIIRS: NASA/NOAA (Public Domain)
 - Falchi: GFZ Potsdam (ODbL with attribution)
-- Nominatim: OpenStreetMap contributors (ODbL)
+- Nominatim / Overpass API: OpenStreetMap contributors (ODbL)
 - Krisciunas & Schaefer moonlight model: cited below (academic use)
 
 ### Fair Use
@@ -568,7 +599,7 @@ This project uses these datasets for non-commercial research and educational pur
 - DE421/NASA: Public domain, free for all uses
 - VIIRS/NASA: Free for most uses
 - Falchi: Academic citation required
-- OSM/Nominatim: Attribution required; share-alike if redistributing
+- OSM/Nominatim/Overpass: Attribution required; share-alike if redistributing derived data
 
 For details, see [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
 

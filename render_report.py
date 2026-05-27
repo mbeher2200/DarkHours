@@ -16,8 +16,6 @@ from moonlight import moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT
 from predictor import NightReport
 from targets import DEFAULT_MIN_ELEVATION, is_prime
 
-log = logging.getLogger(__name__)
-
 _CLEAR_CLOUD_THRESHOLD = 30   # % cloud cover at or below which a dark hour counts as "clear"
 
 

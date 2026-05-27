@@ -2,14 +2,17 @@
 """PyNightSky — command-line interface for the night sky predictor."""
 
 import calendar as _cal
+import itertools
 import logging
+import threading
+import time
 from datetime import date, datetime
 
 from zoneinfo import ZoneInfo
 
 import location as loc
 import trip as _trip
-from darksky import find_nearby
+from darksky import find_nearby, _MAX_SEARCH_RADIUS
 from format_ctx import FormatCtx, detect_units
 from predictor import assemble_night
 from render_calendar import print_calendar
@@ -43,7 +46,7 @@ def main():
     parser.add_argument("--targets", "-t", action="store_true",
                         help="Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)")
     parser.add_argument("--show-nearby", metavar="MILES", nargs="?", const=60, type=int,
-                        help="Show darker sky areas and light domes within MILES radius (default 60)")
+                        help=f"Show darker sky areas and light domes within MILES radius (default 60, max {_MAX_SEARCH_RADIUS})")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -143,12 +146,32 @@ def main():
     if args.targets:
         print_targets(report, ctx)
     if args.show_nearby:
+        import sys
         radius = args.show_nearby
-        msg = f"  Scanning nearby skies within {ctx.fmt_dist(radius)}..."
-        print(msg, end="\r", flush=True)
-        nearby = find_nearby(lat, lon, radius)
-        print(" " * (len(msg) + 2), end="\r", flush=True)
-        print_nearby(nearby, ctx)
+        if radius > _MAX_SEARCH_RADIUS:
+            print(f"  --show-nearby: radius capped at {_MAX_SEARCH_RADIUS} mi "
+                  f"(requested {radius} mi — beyond this the area search becomes unreliable "
+                  f"and the Trip Builder is a better fit for long-range planning).")
+            radius = _MAX_SEARCH_RADIUS
+        _result  = [None]
+        _done    = threading.Event()
+
+        def _run():
+            _result[0] = find_nearby(lat, lon, radius)
+            _done.set()
+
+        threading.Thread(target=_run, daemon=True).start()
+
+        base = f"  Scanning nearby skies within {ctx.fmt_dist(radius)}"
+        if sys.stdout.isatty():
+            frames = itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            while not _done.wait(timeout=0.1):
+                print(f"\r{base}  {next(frames)}", end="", flush=True)
+            print(f"\r{' ' * (len(base) + 4)}\r", end="", flush=True)
+        else:
+            _done.wait()
+
+        print_nearby(_result[0], ctx)
 
 
 if __name__ == "__main__":
