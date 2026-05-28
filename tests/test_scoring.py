@@ -9,7 +9,7 @@ from typing import Optional
 
 import pytest
 
-from scoring import rate_night, weighted_weather_score
+from PyNightSkyPredictor.scoring import rate_night, weighted_weather_score
 
 
 # ---------------------------------------------------------------------------

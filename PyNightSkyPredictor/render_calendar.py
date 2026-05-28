@@ -7,8 +7,8 @@ calendar of night scores.
 
 from datetime import date
 
-import darksky as _ds
-from format_ctx import FormatCtx, lp_str
+from . import darksky as _ds
+from .format_ctx import FormatCtx, lp_str
 
 
 def print_calendar(summaries: list, display_name: str,

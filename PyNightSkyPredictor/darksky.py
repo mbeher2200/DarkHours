@@ -35,7 +35,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-import cache
+from . import cache
 
 log = logging.getLogger(__name__)
 

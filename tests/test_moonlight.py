@@ -3,7 +3,7 @@ Tests for moonlight.py — Krisciunas & Schaefer (1991) model (pure math, no dep
 """
 
 import pytest
-from moonlight import (
+from PyNightSkyPredictor.moonlight import (
     ks_delta_mag,
     ks_moon_credit,
     moon_wash_severity,

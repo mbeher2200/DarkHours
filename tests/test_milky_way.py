@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from milky_way import gal_to_radec, mw_max_visible, mw_theoretical_core_max
+from PyNightSkyPredictor.milky_way import gal_to_radec, mw_max_visible, mw_theoretical_core_max
 
 
 # ---------------------------------------------------------------------------

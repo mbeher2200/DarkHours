@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from sky_events import dark_moon_intervals, find_event, find_last_event
+from PyNightSkyPredictor.sky_events import dark_moon_intervals, find_event, find_last_event
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ class TestFindLastEvent:
 @pytest.mark.eph
 class TestMoonPhaseInfo:
     def test_known_full_moon_2026_05_31(self):
-        from sky_events import moon_phase_info
+        from PyNightSkyPredictor.sky_events import moon_phase_info
         # Full moon on 2026-05-31; check at 12:00 UTC (near peak illumination)
         t = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
         phase_name, illum = moon_phase_info(t)
@@ -176,7 +176,7 @@ class TestMoonPhaseInfo:
         assert "Full" in phase_name, f"Expected 'Full' in phase name, got {phase_name!r}"
 
     def test_known_new_moon_2026_06_14(self):
-        from sky_events import moon_phase_info
+        from PyNightSkyPredictor.sky_events import moon_phase_info
         t = datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc)
         phase_name, illum = moon_phase_info(t)
         assert illum < 2.0, f"Expected new moon illumination < 2%, got {illum}%"
@@ -189,7 +189,7 @@ class TestSkyEventsIntegration:
     LON = -112.1129
 
     def test_sunset_grand_canyon_2026_03_02(self):
-        from sky_events import sky_events, find_event
+        from PyNightSkyPredictor.sky_events import sky_events, find_event
         from zoneinfo import ZoneInfo
         d = date(2026, 3, 2)
         tz = ZoneInfo("America/Phoenix")
@@ -207,7 +207,7 @@ class TestSkyEventsIntegration:
 
     def test_eclipse_night_has_moonrise_and_moonset(self):
         """The night of 2026-03-02 (total lunar eclipse ~11:33 UTC March 3) has moonrise and moonset."""
-        from sky_events import sky_events
+        from PyNightSkyPredictor.sky_events import sky_events
         d = date(2026, 3, 2)
         events = sky_events(self.LAT, self.LON, d)
         labels = {e["label"] for e in events}
