@@ -1,0 +1,391 @@
+# pynightsky.py — Reference Documentation
+
+Single-night reports, monthly calendars, and nearby dark-sky search for a single location.
+
+```bash
+python pynightsky.py --location "Grand Canyon Village, AZ" --date 2026-08-12 --targets --weather
+python pynightsky.py --location "Roswell, GA" --show-nearby
+python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
+```
+
+---
+
+## Contents
+
+- [Night Quality Score](#night-quality-score)
+- [Moonlight Modeling](#moonlight-modeling-krisciunas--schaefer-1991)
+- [Clear Dark Sky Hours](#clear-dark-sky-hours)
+- [Weather](#weather)
+- [Targets](#targets)
+- [Milky Way](#milky-way)
+- [Nearby Skies](#nearby-skies)
+- [Month Calendar](#month-calendar)
+- [Light Pollution](#light-pollution)
+- [Location Formats](#location-formats)
+- [Past Dates & Historical Weather](#past-dates--historical-weather)
+
+---
+
+## Night Quality Score
+
+The Night Quality Score (1–10) is a composite of four factors:
+
+| Factor | Weight | Scoring |
+|--------|--------|---------|
+| **Weather** | 40% | Cloud cover, seeing, transparency, humidity, and precipitation |
+| **Lunar Interference** | 25% | K&S sky-brightening credit at 90° separation, 30° altitude — 10 = new moon, ≈0 = gibbous or full |
+| **Dark Sky Hours** | 25% | Based on your location's typical lunar cycle; scored relative to best conditions |
+| **Light Pollution** | 10% | 10 = Bortle 1 (no pollution), decreasing to near-zero at Bortle 9 (inner city) |
+
+Weights redistribute automatically when a factor is unavailable (e.g., no weather data — Dark Sky Hours and Lunar each absorb part of the 40% weather weight).
+
+**Formula — weighted geometric mean:**
+
+```
+score = (weather^0.40) × (lunar^0.25) × (dark_hours^0.25) × (light_pollution^0.10)
+```
+
+The geometric mean means every factor influences the result proportionally, and a single zero factor (complete cloud cover, full moon) zeros the overall score. A factor of 1/10 with 40% weight contributes roughly 0.25× to the product, so bad factors drag the score down significantly without a separate penalty term.
+
+**Score interpretation:**
+
+| Score | Tier | Meaning |
+|-------|------|---------|
+| 9–10 | Excellent | Ideal conditions for astronomy |
+| 7–8 | Good | Suitable for astrophotography and observing |
+| 5–6 | Fair | Usable but compromised (clouds, moon, or light pollution) |
+| 3–4 | Poor | Challenging conditions |
+| 1–2 | Unusable | Heavy clouds, full moon, or severe weather |
+| 0 | Pass | Complete cloud cover or full moon — no viable window |
+
+
+---
+
+## Moonlight Modeling (Krisciunas & Schaefer 1991)
+
+PyNightSkyPredictor models scattered moonlight using the empirical photometric model of **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* PASP 103(667), 1033–1039. [doi:10.1086/132921](https://doi.org/10.1086/132921)
+
+The model computes the sky surface brightness increase (Δ mag/arcsec²) at any sky position given the moon's illumination, altitude, and angular separation from the target. It accounts for the moon's phase-dependent luminosity, atmospheric extinction along the moon's air-mass path, and a scattering phase function that produces the characteristic brightening both near the moon *and* at the antisolar point.
+
+### Why it matters
+
+A simple moonrise/moonset boundary treats all moon phases identically — a 5% crescent and a 90% gibbous count as equally "moon-up." K&S makes the distinction physically meaningful:
+
+| Phase | Δmag at 90° sep, 30° alt | Impact |
+|-------|--------------------------|--------|
+| 5% crescent | 0.06 | Imperceptible |
+| 15% crescent | 0.21 | Minor |
+| 50% quarter | 1.03 | Severe |
+| 75% gibbous | 1.73 | Severe |
+| 100% full | 3.16 | Very severe |
+
+The transition from negligible to severe is sharp — between roughly 20% and 30% illumination. A waxing crescent above the horizon is not meaningfully different from a moonless night.
+
+### Severity thresholds
+
+| Threshold | Δmag/arcsec² | Meaning |
+|-----------|--------------|---------|
+| Imperceptible | < 0.10 | No practical effect on deep-sky imaging |
+| Minor | 0.10 – 0.50 | Slight brightening; faint nebulae unaffected |
+| Moderate | 0.50 – 1.50 | Noticeable; low-surface-brightness targets impacted |
+| Severe | ≥ 1.50 | Sky substantially brighter; deep DSO imaging limited |
+
+### Proxy geometry for site-wide evaluation
+
+K&S is inherently directional — it depends on where you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. PyNightSkyPredictor uses **90° separation at 30° altitude** as the proxy:
+
+- **90° separation** is the darkest accessible sky position: the scattering function reaches its minimum there (the cos²ρ term vanishes), representing the best realistic position when the moon is up
+- **30° altitude** is a representative mid-sky moon position over the course of an evening
+
+For per-target evaluation, the actual moon–target separation and moon altitude are computed from the Skyfield ephemeris at each 20-minute sample window.
+
+### How it affects the output
+
+**Lunar Interference score** — The moon-up fraction of the astronomical night is weighted by the K&S credit at the proxy geometry rather than `(1 − illumination/100)`. A quarter moon's moonlit hours receive 0.31 credit (down from 0.50); a gibbous moon's moonlit hours receive 0 (down from 0.25).
+
+**Clear Dark Sky Hours** — When illumination is ≤ 20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as dark sky time. When weather data is available, each dark interval is further clipped to hours where cloud cover ≤ 30%.
+
+**Astro Window per target** — K&S is evaluated at the actual moon–target separation and altitude at every 20-minute sample. The window is clipped when Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness − sky background − 3.2 mag; clusters: integrated magnitude − site SQM − 13.0; Milky Way: surface brightness − sky background − 1.5 mag).
+
+**Light pollution interaction** — The site's SQM enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
+
+**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. PyNightSkyPredictor corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
+
+---
+
+## Clear Dark Sky Hours
+
+Effective dark sky time is computed as the overlap of three windows:
+
+1. **Astronomical darkness** — sun more than 18° below the horizon (computed from Skyfield ephemeris)
+2. **Moon-free periods** — K&S moonlight ≤ 0.10 Δmag at the proxy geometry, OR illumination ≤ 20% (crescent threshold)
+3. **Clear sky** — when weather data is available, cloud cover ≤ 30% during the dark window
+
+The output shows tonight's hours alongside a lunar-cycle average ± standard deviation, giving context for how typical tonight is for this location:
+
+```
+Clear Dark Sky Hours:  6h 7m  (10:34 PM –  4:41 AM EDT)  ·  avg 3.0h  ±2.1h over lunar cycle
+```
+
+---
+
+## Weather
+
+### `--weather` flag
+
+Adds an hourly conditions table across the night window:
+
+```
+Weather  [NOAA/NWS + 7Timer]:
+
+  Time (MST)        Wx Rating  Cloud Cover  Temp  Dew Pt  Feels  Seeing        Transparency  Humidity      Wind  Precip
+  ----------------  ---------  -----------  ----  ------  -----  ------------  ------------  --------  --------  ------
+  Aug 12,  9:00 PM       9/10           3%  80°F    55°F   80°F  8/10 (0.87")         10/10       40%    5mph S  None
+  ...
+```
+
+| Column | Description |
+|--------|-------------|
+| **Wx Rating** | 1–10 astrophotography score for that hour |
+| **Cloud Cover** | Percentage sky coverage |
+| **Temp** | Air temperature at 2 m |
+| **Dew Pt** | Dew point — a Dew Pt close to Temp means high moisture and dew risk |
+| **Feels** | Apparent temperature (wind chill / heat index) |
+| **Seeing** | Atmospheric steadiness as N/10 + arcsecond value — lower arcseconds = steadier |
+| **Transparency** | Sky clarity and extinction as N/10 |
+| **Humidity** | Relative humidity at 2 m |
+| **Wind** | Speed and compass direction, e.g. `12mph SW` |
+| **Precip** | Precipitation type: None / Rain / Snow |
+
+### Wx Rating formula
+
+Weighted combination of all available hourly parameters:
+
+| Factor | Weight | Notes |
+|--------|--------|-------|
+| Cloud cover | 50% | Non-linear — heavy cloud penalised more steeply above 50% |
+| Seeing | 20% | Atmospheric steadiness |
+| Transparency | 15% | Sky clarity and extinction |
+| Wind speed | 10% | Vibration, tracking error, turbulence |
+| Humidity | 5% | Dew risk; no penalty below 50%, zero score above 90% |
+
+Precipitation of any kind caps the Wx Rating at 1. Weights redistribute automatically when a field is unavailable.
+
+### Providers
+
+| Provider | Coverage | Used for |
+|----------|----------|---------|
+| **NOAA/NWS** | US locations only | Primary for US: NAM-based, accurate cloud percentages, wind chill, heat index |
+| **Open-Meteo** | Global | Primary for non-US; also used for past dates up to 92 days (recent archive) and older dates via ERA5 reanalysis back to 1940 |
+| **7Timer ASTRO** | Global | Blended in to supply seeing and transparency; derived from Cn² profile integration through GFS — the only free scientifically-grounded seeing source |
+
+---
+
+## Targets
+
+The `--targets` flag shows prime targets for the night — no significant moon interference, peak altitude ≥ 40°, visible window ≥ 1 hour. Targets are grouped by type: Meteor Showers · Milky Way · Clusters · Planets · Nebulae · Galaxies.
+
+### Sky condition tags
+
+Each target's **sky condition** reflects the lighting when the target peaks:
+
+| Tag | Meaning |
+|-----|---------|
+| **Dark sky** | Peak within astronomical darkness and K&S Δmag < 0.50 |
+| **Astro night** | Peak within astronomical darkness but K&S indicates minor moon interference (0.10–0.50) |
+| **Moon wash** | K&S Δmag ≥ 0.50 at the target's position — sky background significantly elevated |
+| **Twilight** | Peak outside astronomical darkness (sun less than 18° below horizon) |
+
+### Astro Window
+
+The **Astro Window** column shows the span during which K&S-modelled sky conditions are good enough for imaging. When scattered moonlight degrades the sky past the contrast threshold, the window is clipped at the start or end accordingly.
+
+### Meteor showers
+
+Active meteor showers are always shown in the report header (without needing `--targets`):
+
+```
+Meteor Showers:     Perseids · Peak night · ZHR 100
+```
+
+With `--targets`, showers also appear in the targets table with the full astro window.
+
+---
+
+## Milky Way
+
+The Milky Way section synthesises visibility across a catalog of 10 waypoints placed at uniform 36° galactic-longitude intervals, creating 5 symmetric declination pairs. Each visible waypoint represents a distinct 36° slice of the galactic plane, making the visible fraction (e.g. "5 of 8 waypoints visible") a meaningful sky-coverage metric.
+
+```
+Milky Way: 8.5/10  (Altitude 10.0/10  ·  Waypoints 7.5/10  ·  Window 6.2/10)
+Visible   8:56 PM – 12:01 AM  ·  3h 06m  ·  Core 25°/25°  ·  6 of 8 waypoints visible
+Best time      8:56 PM  —  core 25° S, arch sweeps to Cygnus Star Cloud (88° S)
+```
+
+### Score components
+
+| Component | Weight | What it measures |
+|-----------|--------|-----------------|
+| **Altitude** | 50% | Tonight's core peak altitude ÷ the geometric maximum from this latitude |
+| **Waypoints** | 30% | Visible waypoints ÷ maximum ever visible from this latitude |
+| **Window** | 20% | Moon-free arch window ÷ 5-hour reference |
+| **Moon penalty** | ×0.7 | Applied when the moon clips the usable window or directly interferes with the core |
+
+### Core altitude ratio
+
+The **Core altitude ratio** (e.g. `25°/25°`) shows tonight's peak versus the latitude's geometric ceiling (`90° − |lat − (−29°)|`). Denver (40°N) can never see the core above 21°; Buenos Aires (35°S) can reach 84°; Quito (0°) reaches 61°. Identical values mean tonight is as good as it ever gets from this location.
+
+### Moon handling
+
+K&S sky-brightening is sampled at each waypoint's position throughout the night. When scattered moonlight degrades a waypoint past the photo threshold (Δmag ≥ 0.50):
+
+- The arch window is clipped at the first/last photo-viable sample
+- The `· moon-limited` flag appears on the Visible line
+- Any waypoint that straddles the K&S cutoff shows direction and arch angle only — no peak time
+
+**High-latitude note:** From latitudes where the galactic core never clears the 10° elevation floor (roughly above 51°N or below 51°S), the summary block is replaced by a "Core below horizon" note listing the visible northern or southern band waypoints.
+
+---
+
+## Nearby Skies
+
+```bash
+python pynightsky.py --location "Roswell, GA" --show-nearby
+python pynightsky.py --location "Sedona, AZ" --show-nearby 40
+python pynightsky.py --location "Denver, CO" --show-nearby 95
+```
+
+Scans a grid of sample points (up to 16 bearings × 11 distance rings, out to 150 miles), clusters them by proximity, and reports darker sky areas and light domes.
+
+### Dark sky areas
+
+Clusters qualify if they are:
+- At least **2 Bortle classes darker** than the origin
+- No worse than **Bortle 4** (Rural/suburban transition) — prevents suburban parks with locally low radiance readings from appearing as "dark sky" destinations
+
+Up to 6 areas are shown, selected darkest-first (nearest tiebreak), then re-sorted by distance for display.
+
+Naming uses two sources in order:
+1. **OpenStreetMap Overpass API** — a single batch query fetches all named protected and natural areas (national parks, wilderness areas, nature reserves, state/national forests) whose bounding box intersects the search radius. Each cluster is matched to the highest-priority area that contains it.
+2. **Nominatim reverse-geocoding** — fallback when no OSM area match is found; returns county or settlement name.
+
+### Light domes
+
+A grid point qualifies as a light dome if:
+- Bortle class is **strictly brighter** than the origin
+- At least **2 Bortle classes above** the origin (threshold capped at 9 — Bortle-8 origins can surface Bortle-9 domes)
+- At least **5 miles away** (15 miles if the origin is a dark site, Bortle ≤ 5)
+
+Not shown when origin is already at Bortle 9.
+
+### Performance & caching
+
+Results are cached per origin + radius for 90 days. First run: ~4–6 seconds (one Overpass query + Nominatim calls for unnamed clusters). Subsequent runs: ~1 second.
+
+A spinner is shown during computation when stdout is a terminal.
+
+---
+
+## Month Calendar
+
+```bash
+python pynightsky.py --location "Grand Canyon Village, AZ" --calendar
+python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
+python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --weather
+```
+
+Shows one row per night across a calendar month. The **Moon** column shows the lunar interference score (0–10) and flags special events inline:
+
+```
+Calendar — Grand Canyon Village, Coconino County, Arizona, United States
+Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
+March 2026
+
+  Date        Night Quality Score  Clear Dark Hours  Weather  Moon
+  ----------  -------------------  ----------------  -------  ----
+  2026-03-01               0.0/10            0h 00m        —  0.0
+  2026-03-02               0.0/10            0h 00m        —  0.0  ·  *** Total lunar eclipse at  4:33 AM  (mag umbral 1.149) ***
+  ...
+  2026-03-15               9.4/10            9h 10m        —  10.0
+  2026-03-19               9.8/10            9h 00m        —  10.0
+  ...
+
+  Best nights:  Mar 19 (9.8/10)  ·  Mar 15 (9.4/10)  ·  Mar 16 (9.4/10)
+```
+
+The Light Pollution header appends the location's Bortle score contribution (0–10) so you can see how much light pollution costs you every night.
+
+Calendar scores are identical to single-night report scores for the same date — the same engine runs both.
+
+---
+
+## Light Pollution
+
+Light pollution is expressed as three values:
+
+- **SQM** (Sky Quality Meter, mag/arcsec²) — higher is darker; a truly dark site reads ~22.0
+- **Bortle class** (1–9) — the standard astronomer's scale; 1 = exceptional dark sky, 9 = inner city
+- **Zone** — the djlorenz Light Pollution Index, a finer subdivision of the Bortle scale (e.g. Zone 2a, 7b)
+
+### Two-tier data strategy
+
+**Primary: VIIRS Black Marble 2025** (NASA/NOAA satellite)
+
+Current satellite radiance data. Used whenever the sensor detects a measurable signal (> ~0.2 nW/cm²/sr). Most up-to-date; reflects post-2016 light growth that older datasets miss.
+
+**Fallback: Falchi New World Atlas 2016** (GFZ Potsdam)
+
+A radiative-transfer physical model of artificial sky luminance. Used only when VIIRS reads zero — meaning the site is genuinely dark and below the satellite's detection floor. Unlike raw satellite data, Falchi's model propagates city-glow from surrounding sources, so very dark sites (Bortle 1–3) get distinguishable values rather than all reading zero.
+
+### `[VIIRS 2025]` vs `[Falchi 2016]` label
+
+The label in the Light Pollution line indicates which dataset was used for the displayed SQM. A `[Falchi 2016]` label means the site is dark enough that no satellite radiance was detected; a `[VIIRS 2025]` label means measurable light pollution was recorded by the satellite.
+
+---
+
+## Location Formats
+
+`--location` accepts any OpenStreetMap geocoding format:
+
+- City names: `"New York"`, `"Tokyo"`, `"London"`
+- Place names: `"Sedona, Arizona"`, `"Mauna Kea Observatory"`, `"Death Valley"`
+- Addresses: `"1600 Pennsylvania Avenue, Washington DC"`
+- Landmarks: `"Statue of Liberty"`
+
+Geocoding results are cached — repeated lookups for the same name are instant.
+
+### Save & reuse locations
+
+```bash
+# Save coordinates under a name
+python pynightsky.py --coords 40.7128 -74.0060 --save-location "home"
+
+# Use saved location
+python pynightsky.py --location "home"
+
+# List saved locations
+python pynightsky.py --list-locations
+```
+
+---
+
+## Past Dates & Historical Weather
+
+```bash
+# Past date with weather
+python pynightsky.py --location "Sedona, AZ" --date 2025-06-21 --weather
+```
+
+Astronomical events are always shown regardless of date. Weather data for past dates:
+
+| Date range | Source | Notes |
+|------------|--------|-------|
+| Within 16 days | NOAA / Open-Meteo forecast | Same as future dates |
+| 17–92 days ago | Open-Meteo recent archive | High-resolution, usually available |
+| > 92 days ago | Open-Meteo ERA5 reanalysis | Covers back to 1940; occasionally unavailable |
+
+---
+
+## Target Catalog
+
+Targets are defined in [`targets.json`](targets.json). The schema is documented in [`TARGETS.md`](TARGETS.md). Global observation thresholds and defaults are in [`config.json`](config.json).

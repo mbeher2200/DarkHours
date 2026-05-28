@@ -84,26 +84,6 @@ def _transparency_score(label: str) -> int:
 
 
 
-def _best_weather_window(clear_intervals, weather_points, ctx):
-    """
-    Find the clear dark interval with the highest average weather score.
-
-    Returns (start, end, avg_score) for the best interval, or None if there
-    are no weather points within any clear interval.
-    """
-    if not clear_intervals or not weather_points:
-        return None
-
-    best = None
-    for ivl_start, ivl_end in clear_intervals:
-        pts = [p for p in weather_points if ivl_start <= p.time < ivl_end]
-        if not pts:
-            continue
-        avg = round(sum(wx.rate_conditions(p) for p in pts) / len(pts), 1)
-        if best is None or avg > best[2]:
-            best = (ivl_start, ivl_end, avg)
-    return best
-
 
 
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
@@ -190,11 +170,6 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
             else "Bortle —",
         ]
         print(f"Night Quality Score:  {report.score}/10  ({' · '.join(parts)})")
-        bw = _best_weather_window(disp_intervals, report.weather_points, ctx)
-        if bw:
-            bw_start, bw_end, bw_score = bw
-            print(f"  Best window:  {ctx.fmt_time(bw_start)} – {ctx.fmt_time(bw_end)}"
-                  f"  ·  avg {bw_score}/10")
     print()
 
     # Sky Events timeline
