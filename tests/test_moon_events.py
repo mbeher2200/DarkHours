@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from moon_events import (
+from PyNightSkyPredictor.moon_events import (
     classify_full_moon,
     eclipses_for_night,
     find_lunar_eclipses,
@@ -125,7 +125,7 @@ class TestEclipsesForNight:
         Uses local Arizona time (UTC-7, no DST) to identify the correct night,
         mirroring how predictor.py filters sunset by local date.
         """
-        from sky_events import sky_events, find_event
+        from PyNightSkyPredictor.sky_events import sky_events, find_event
         from zoneinfo import ZoneInfo
         lat, lon = 36.1069, -112.1129
         tz = ZoneInfo("America/Phoenix")  # MST, no daylight saving

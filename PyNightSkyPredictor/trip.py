@@ -15,8 +15,8 @@ from datetime import date, datetime, timedelta, timezone as _utc
 
 from zoneinfo import ZoneInfo
 
-import cache as _cache
-import predictor as _pred
+from . import cache as _cache
+from . import predictor as _pred
 
 log = logging.getLogger(__name__)
 

@@ -11,9 +11,9 @@ from pathlib import Path
 import numpy as np
 from skyfield.api import Loader, Star, load, wgs84
 
-import config as _cfg
-import milky_way as _mw
-import moonlight as _ml
+from . import config as _cfg
+from . import milky_way as _mw
+from . import moonlight as _ml
 
 try:
     from skyfield.magnitudelib import planetary_magnitude as _planetary_magnitude
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 # Galactic coordinate helpers live in milky_way.py; re-export for any
 # callers that import gal_to_radec directly from targets.
-from milky_way import gal_to_radec
+from .milky_way import gal_to_radec
 
 
 _c = _cfg.load()["targets"]
@@ -580,9 +580,9 @@ def is_prime(target, min_peak_alt: float, min_window_hours: float,
 # MW arch functions live in milky_way.py.
 # Re-export the names that pynightsky.py and predictor.py currently import
 # directly from targets, so their import lines stay unchanged.
-from moonlight import (
+from .moonlight import (
     ks_moon_credit,
     moon_wash_severity,
     KS_CRESCENT_EXEMPTION_PCT,
 )
-from milky_way import milky_way_arch_summary, mw_theoretical_core_max
+from .milky_way import milky_way_arch_summary, mw_theoretical_core_max

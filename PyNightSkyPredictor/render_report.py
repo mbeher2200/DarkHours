@@ -8,13 +8,13 @@ Public API:
 
 from datetime import timedelta
 
-import config as _cfg
-import weather as wx
-from format_ctx import FormatCtx, lp_str, cardinal
-from milky_way import milky_way_arch_summary, mw_theoretical_core_max
-from moonlight import moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT
-from predictor import NightReport
-from targets import DEFAULT_MIN_ELEVATION, is_prime
+from . import config as _cfg
+from . import weather as wx
+from .format_ctx import FormatCtx, lp_str, cardinal
+from .milky_way import milky_way_arch_summary, mw_theoretical_core_max
+from .moonlight import moon_wash_severity, KS_CRESCENT_EXEMPTION_PCT
+from .predictor import NightReport
+from .targets import DEFAULT_MIN_ELEVATION, is_prime
 
 _CLEAR_CLOUD_THRESHOLD = 30   # % cloud cover at or below which a dark hour counts as "clear"
 

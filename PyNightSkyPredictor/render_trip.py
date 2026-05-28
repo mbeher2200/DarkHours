@@ -6,7 +6,7 @@ Neither needs FormatCtx — trip renderers contain no timezone or units formatti
 
 from datetime import date, timedelta
 
-from trip import NightSummary, TripReport
+from .trip import NightSummary, TripReport
 
 
 def _short_name(display_name: str, max_len: int = 18) -> str:

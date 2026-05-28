@@ -10,13 +10,13 @@ from datetime import date, datetime
 
 from zoneinfo import ZoneInfo
 
-import location as loc
-import trip as _trip
-from darksky import find_nearby, _MAX_SEARCH_RADIUS
-from format_ctx import FormatCtx, detect_units
-from predictor import assemble_night
-from render_calendar import print_calendar
-from render_report import print_report, print_targets, print_nearby
+from PyNightSkyPredictor import location as loc
+from PyNightSkyPredictor import trip as _trip
+from PyNightSkyPredictor.darksky import find_nearby, _MAX_SEARCH_RADIUS
+from PyNightSkyPredictor.format_ctx import FormatCtx, detect_units
+from PyNightSkyPredictor.predictor import assemble_night
+from PyNightSkyPredictor.render_calendar import print_calendar
+from PyNightSkyPredictor.render_report import print_report, print_targets, print_nearby
 
 log = logging.getLogger(__name__)
 
