@@ -30,7 +30,7 @@ The two primary CLI scripts are:
 
 Single-night reports, monthly calendars, and nearby dark-sky search for a single location.
 
-Full documentation: [PYNIGHTSKY.md](PYNIGHTSKY.md)
+Full documentation: [PYNIGHTSKY.md](docs/PYNIGHTSKY.md)
 
 ### Options
 
@@ -203,7 +203,7 @@ June 2026
 
 Compare multiple dark-sky sites across a date range — score matrix, ranked best nights, and weather-adjusted totals.
 
-Full documentation: [TRIPBUILDER.md](TRIPBUILDER.md)
+Full documentation: [TRIPBUILDER.md](docs/TRIPBUILDER.md)
 
 ### Options
 
