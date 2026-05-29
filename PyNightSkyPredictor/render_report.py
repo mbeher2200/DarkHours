@@ -605,16 +605,23 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
               + SEP
               + "  ".join(cells[6:]))
 
-    # Phase header then column names
+    # Column widths are computed across all passes so alignment is consistent.
+    # Each pass is printed as its own block: Duration/Moon Sep → phase header
+    # → column names → separator → data row.
     g0_w = widths[0] + 2 + widths[1] + 2 + widths[2]
     g1_w = widths[3] + 2 + widths[4] + 2 + widths[5]
-    print(f"  {'Rise':<{g0_w}}{SEP}{'Peak':<{g1_w}}{SEP}Set")
-    _print_row(HDRS)
-    _print_row(tuple("-" * widths[i] for i in range(len(HDRS))))
 
-    for row, (dur_str, moon_str) in zip(rows, meta):
-        print(f"    Duration: {dur_str},  Moon Separation: {moon_str}")
+    def _print_pass_block(row, dur_str, moon_str):
+        print(f"  Duration: {dur_str},  Moon Separation: {moon_str}")
+        print(f"  {'Rise':<{g0_w}}{SEP}{'Peak':<{g1_w}}{SEP}Set")
+        _print_row(HDRS)
+        _print_row(tuple("-" * widths[i] for i in range(len(HDRS))))
         _print_row(row)
+
+    for i, (row, (dur_str, moon_str)) in enumerate(zip(rows, meta)):
+        if i > 0:
+            print()
+        _print_pass_block(row, dur_str, moon_str)
 
     # Footnotes
     footnotes = []
