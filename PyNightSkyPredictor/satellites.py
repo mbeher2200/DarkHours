@@ -56,17 +56,25 @@ _USER_AGENT   = "PyNightSkyPredictor/1.0 (open-source astronomical observation p
 
 @dataclass
 class SatPass:
-    """One satellite pass over the observer."""
+    """One satellite pass over the observer.
+
+    rise_time and set_time reflect the actual *visible* window — whichever
+    boundary comes first: the geometric _MIN_PASS_ALT crossing or shadow
+    entry/exit.  set_alt_deg shows how high the ISS is when it disappears;
+    when ends_in_shadow is True it will be well above the altitude floor.
+    """
     satellite_name:       str
-    rise_time:            datetime         # UTC; rises above _MIN_PASS_ALT
-    peak_time:            datetime         # UTC; maximum altitude
-    set_time:             datetime         # UTC; falls below _MIN_PASS_ALT
+    rise_time:            datetime   # UTC; first visible moment (shadow exit or geometric rise)
+    peak_time:            datetime   # UTC; maximum altitude
+    set_time:             datetime   # UTC; last visible moment (shadow entry or geometric set)
     peak_alt_deg:         float
     peak_az_deg:          float
     rise_az_deg:          float
-    set_az_deg:           float
-    duration_min:         float
-    in_sunlight:          bool             # False → ISS in Earth's shadow, not visible
+    set_az_deg:           float      # azimuth at set_time (not necessarily at 10°)
+    set_alt_deg:          float      # altitude at set_time (> floor when ends_in_shadow)
+    duration_min:         float      # visible duration: set_time − rise_time
+    in_sunlight:          bool       # False → pass is entirely in Earth's shadow (not visible)
+    ends_in_shadow:       bool       # True → ISS disappears into shadow while still high
     # Moon proximity — all None when Moon is below the horizon at pass time
     moon_sep_deg:         Optional[float]  # angular sep from Moon at pass peak
     moon_transit:         bool             # True → min sep < Moon's angular radius
@@ -151,6 +159,49 @@ def _az_alt(satellite, observer, t) -> tuple[float, float]:
     topo       = (satellite - observer).at(t)
     alt, az, _ = topo.altaz()
     return float(az.degrees), float(alt.degrees)
+
+
+# ---------------------------------------------------------------------------
+# Shadow-aware visible window
+# ---------------------------------------------------------------------------
+
+_SHADOW_STEP = 5   # seconds — resolution for shadow transition scan
+
+def _visible_window(satellite, planets, ts, t_rise, t_set):
+    """
+    Refine the geometric (t_rise, t_set) window to account for Earth's shadow.
+
+    Scans at _SHADOW_STEP resolution to find:
+      - Shadow exit: if the ISS is dark when it crosses the altitude floor,
+        the visible start shifts to when it first becomes sunlit.
+      - Shadow entry: if the ISS enters shadow before it sets, the visible
+        end shifts to the last sunlit moment.
+
+    Returns (vis_rise, vis_set, ends_in_shadow):
+        vis_rise       — Skyfield Time of first visible moment
+        vis_set        — Skyfield Time of last visible moment
+        ends_in_shadow — True when vis_set is a shadow-entry, not a descent
+
+    Returns (None, None, False) when the ISS is never sunlit in this window.
+    """
+    duration_s = (t_set.tt - t_rise.tt) * 86400.0
+    n          = max(4, int(duration_s / _SHADOW_STEP) + 1)
+    t_arr      = ts.tt_jd(np.linspace(t_rise.tt, t_set.tt, n))
+
+    sunlit = satellite.at(t_arr).is_sunlit(planets)   # vectorised bool array
+
+    if not np.any(sunlit):
+        return None, None, False
+
+    # Index of first / last sunlit sample
+    first_lit = int(np.argmax(sunlit))
+    last_lit  = int(len(sunlit) - 1 - np.argmax(sunlit[::-1]))
+
+    vis_rise       = t_arr[first_lit]
+    vis_set        = t_arr[last_lit]
+    ends_in_shadow = (last_lit < n - 1) and (not bool(sunlit[-1]))
+
+    return vis_rise, vis_set, ends_in_shadow
 
 
 # ---------------------------------------------------------------------------
@@ -272,28 +323,67 @@ def satellite_passes(
         results = []
 
         for group in groups:
-            t_rise, t_peak, t_set = group
+            t_geom_rise, t_peak, t_geom_set = group
 
-            rise_az, _        = _az_alt(satellite, observer, t_rise)
             peak_az, peak_alt = _az_alt(satellite, observer, t_peak)
-            set_az,  _        = _az_alt(satellite, observer, t_set)
 
-            sunlit  = bool(satellite.at(t_peak).is_sunlit(planets))
-            dur_min = (t_set.tt - t_rise.tt) * 86400.0 / 60.0
+            # Refine rise/set to actual visible window (shadow-aware)
+            t_vis_rise, t_vis_set, ends_in_shadow = _visible_window(
+                satellite, planets, ts, t_geom_rise, t_geom_set
+            )
 
-            moon_data = _moon_proximity(satellite, observer, planets, ts, group)
+            # Entirely in shadow — include as invisible pass
+            if t_vis_rise is None:
+                rise_az, _  = _az_alt(satellite, observer, t_geom_rise)
+                set_az,  set_alt = _az_alt(satellite, observer, t_geom_set)
+                dur_min     = (t_geom_set.tt - t_geom_rise.tt) * 86400.0 / 60.0
+                moon_data   = _moon_proximity(
+                    satellite, observer, planets, ts,
+                    (t_geom_rise, t_peak, t_geom_set)
+                )
+                results.append(SatPass(
+                    satellite_name       = name,
+                    rise_time            = t_geom_rise.utc_datetime(),
+                    peak_time            = t_peak.utc_datetime(),
+                    set_time             = t_geom_set.utc_datetime(),
+                    peak_alt_deg         = round(peak_alt, 1),
+                    peak_az_deg          = round(peak_az,  1),
+                    rise_az_deg          = round(rise_az,  1),
+                    set_az_deg           = round(set_az,   1),
+                    set_alt_deg          = round(set_alt,  1),
+                    duration_min         = round(dur_min,  1),
+                    in_sunlight          = False,
+                    ends_in_shadow       = False,
+                    moon_sep_deg         = moon_data["moon_sep_deg"],
+                    moon_transit         = moon_data["moon_transit"],
+                    moon_transit_time    = moon_data["moon_transit_time"],
+                    moon_transit_sep_deg = moon_data["moon_transit_sep_deg"],
+                ))
+                continue
+
+            # Visible pass — use shadow-corrected rise/set
+            rise_az,  _       = _az_alt(satellite, observer, t_vis_rise)
+            set_az,   set_alt = _az_alt(satellite, observer, t_vis_set)
+            dur_min           = (t_vis_set.tt - t_vis_rise.tt) * 86400.0 / 60.0
+
+            moon_data = _moon_proximity(
+                satellite, observer, planets, ts,
+                (t_vis_rise, t_peak, t_vis_set)
+            )
 
             results.append(SatPass(
                 satellite_name       = name,
-                rise_time            = t_rise.utc_datetime(),
+                rise_time            = t_vis_rise.utc_datetime(),
                 peak_time            = t_peak.utc_datetime(),
-                set_time             = t_set.utc_datetime(),
+                set_time             = t_vis_set.utc_datetime(),
                 peak_alt_deg         = round(peak_alt, 1),
                 peak_az_deg          = round(peak_az,  1),
                 rise_az_deg          = round(rise_az,  1),
                 set_az_deg           = round(set_az,   1),
+                set_alt_deg          = round(set_alt,  1),
                 duration_min         = round(dur_min,  1),
-                in_sunlight          = sunlit,
+                in_sunlight          = True,
+                ends_in_shadow       = ends_in_shadow,
                 moon_sep_deg         = moon_data["moon_sep_deg"],
                 moon_transit         = moon_data["moon_transit"],
                 moon_transit_time    = moon_data["moon_transit_time"],
