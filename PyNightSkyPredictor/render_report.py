@@ -511,6 +511,9 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     hdr_range = f"{ctx.fmt_time(report.sunset)} – {ctx.fmt_time(report.sunrise)} {tz_label}"
     print(f"ISS Passes  ({hdr_range}):\n")
 
+    if report.sat_future_warn:
+        print("  ⚠  Pass times are approximate — TLE accuracy is limited beyond ~3 days.\n")
+
     if not report.sat_passes:
         if report.sat_stale:
             print("  ISS pass data unavailable for historical dates"
