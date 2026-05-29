@@ -545,12 +545,14 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
         print(f"  No passes after dark — {len(twilight)} {noun} during civil twilight"
               f" (sky too bright):\n")
 
-    # ── 3-phase table: Rise (Time Alt Az) | Peak (Time Alt Az) | Set (Time Alt Az Dur Moon) ──
-    # Row tuple indices:
-    #  0: rise time   1: rise alt   2: rise az
-    #  3: peak time   4: peak alt   5: peak az
-    #  6: set time    7: set alt    8: set az   9: dur  10: moon sep
-    rows     = []
+    # ── 3-phase table: Rise (Time Alt Az) | Peak (Time Alt Az) | Set (Time Alt Az) ──
+    # Duration and Moon Separation shown as a labelled sub-line below each pass row.
+    # Az format: "179°(S)"
+    def _az(deg):
+        return f"{deg:.0f}°({cardinal(deg)})"
+
+    rows     = []   # 9-tuple: rise(time alt az) peak(time alt az) set(time alt az)
+    meta     = []   # per-pass (dur_str, moon_str) for the sub-line
     transits = []
 
     for p in visible + twilight:
@@ -569,22 +571,20 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
             moon_str = "—"
 
         rows.append((
-            ctx.fmt(p.rise_time),           # 0 rise time  (date + time)
-            f"{p.rise_alt_deg:.0f}°",       # 1 rise alt
-            cardinal(p.rise_az_deg),        # 2 rise az
-            ctx.fmt_time(p.peak_time),      # 3 peak time
-            f"{p.peak_alt_deg:.0f}°",       # 4 peak alt
-            cardinal(p.peak_az_deg),        # 5 peak az
-            ctx.fmt_time(p.set_time),       # 6 set time
-            set_alt_str,                    # 7 set alt (possibly with *)
-            cardinal(p.set_az_deg),         # 8 set az
-            f"{p.duration_min:.0f}m",       # 9 dur
-            moon_str,                       # 10 moon sep
+            ctx.fmt(p.rise_time),       # 0 rise time  (date + time)
+            f"{p.rise_alt_deg:.0f}°",   # 1 rise alt
+            _az(p.rise_az_deg),         # 2 rise az
+            ctx.fmt_time(p.peak_time),  # 3 peak time
+            f"{p.peak_alt_deg:.0f}°",   # 4 peak alt
+            _az(p.peak_az_deg),         # 5 peak az
+            ctx.fmt_time(p.set_time),   # 6 set time
+            set_alt_str,                # 7 set alt (possibly with *)
+            _az(p.set_az_deg),          # 8 set az
         ))
+        meta.append((f"{p.duration_min:.0f}m", moon_str))
 
-    # Column headers, alignments, group membership (0=Rise, 1=Peak, 2=Set)
-    HDRS   = ("Time",  "Alt",  "Az",  "Time",  "Alt",  "Az",  "Time",  "Alt",  "Az",  "Dur",  "Moon Sep")
-    ALIGNS = ("l",     "r",    "l",   "r",     "r",    "l",   "r",     "r",    "l",   "r",    "l")
+    HDRS   = ("Time",  "Alt",  "Az",  "Time",  "Alt",  "Az",  "Time",  "Alt",  "Az")
+    ALIGNS = ("l",     "r",    "l",   "r",     "r",    "l",   "r",     "r",    "l")
 
     widths = [
         max(len(HDRS[i]), max(len(r[i]) for r in rows))
@@ -605,14 +605,16 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
               + SEP
               + "  ".join(cells[6:]))
 
-    # Phase header (Rise | Peak | Set labels above column names)
+    # Phase header then column names
     g0_w = widths[0] + 2 + widths[1] + 2 + widths[2]
     g1_w = widths[3] + 2 + widths[4] + 2 + widths[5]
     print(f"  {'Rise':<{g0_w}}{SEP}{'Peak':<{g1_w}}{SEP}Set")
     _print_row(HDRS)
     _print_row(tuple("-" * widths[i] for i in range(len(HDRS))))
-    for row in rows:
+
+    for row, (dur_str, moon_str) in zip(rows, meta):
         _print_row(row)
+        print(f"    Duration: {dur_str},  Moon Separation: {moon_str}")
 
     # Footnotes
     footnotes = []
