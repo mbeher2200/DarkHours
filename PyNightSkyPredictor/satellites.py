@@ -298,15 +298,17 @@ def satellite_passes(
     t_start:  datetime,
     t_end:    datetime,
     norad_id: int = ISS_NORAD_ID,
-) -> list[SatPass]:
+) -> list[SatPass] | None:
     """
     Return all passes of *norad_id* over (*lat*, *lon*) between *t_start* and *t_end*.
 
     Passes are included regardless of sunlight status; see SatPass.in_sunlight.
     Moon proximity is computed for every pass.
 
-    Returns an empty list if TLE data is unavailable, Celestrak is unreachable,
-    or no passes occur during the window.
+    Returns None  if the TLE is too stale for the requested window (caller
+                  should inform the user that predictions are unavailable).
+    Returns []    if the TLE is usable but no passes occur during the window.
+    Returns []    if TLE data is unavailable or Celestrak is unreachable.
     """
     try:
         name, line1, line2 = _get_tle(norad_id)
@@ -338,7 +340,7 @@ def satellite_passes(
                 t_end.strftime("%Y-%m-%d %H:%M UTC"),
                 tle_epoch.strftime("%Y-%m-%d %H:%M UTC"),
             )
-            return []
+            return None
         window_mid = t_start + (t_end - t_start) / 2
         future_days = (window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds() / 86400
         if future_days > 7:
@@ -347,7 +349,7 @@ def satellite_passes(
                 "predictions unreliable; skipping satellite passes",
                 tle_epoch.strftime("%Y-%m-%d %H:%M UTC"), future_days,
             )
-            return []
+            return None
 
         times, events = satellite.find_events(
             observer, t0, t1, altitude_degrees=_MIN_PASS_ALT

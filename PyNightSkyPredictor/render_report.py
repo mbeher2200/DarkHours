@@ -511,15 +511,21 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     hdr_range = f"{ctx.fmt_time(report.sunset)} – {ctx.fmt_time(report.sunrise)} {tz_label}"
     print(f"ISS Passes  ({hdr_range}):\n")
 
+    # Unavailability messages take priority over the table
+    if report.sat_stale:
+        print("  ISS pass predictions require a current TLE —"
+              " historical dates are not supported.\n")
+        return
+    if report.sat_future_stale:
+        print("  ISS pass predictions unavailable — TLE expires after ~7 days"
+              " and cannot cover this date.\n")
+        return
+
     if report.sat_future_warn:
         print("  ⚠  Pass times are approximate — TLE accuracy is limited beyond ~3 days.\n")
 
     if not report.sat_passes:
-        if report.sat_stale:
-            print("  ISS pass predictions require a current TLE —"
-                  " historical dates are not supported.\n")
-        else:
-            print("  No visible ISS passes this night.\n")
+        print("  No visible ISS passes this night.\n")
         return
 
     visible   = [p for p in report.sat_passes if p.in_sunlight and p.sky_dark]

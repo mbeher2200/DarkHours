@@ -76,9 +76,10 @@ class NightReport:
     active_showers: list  = field(default_factory=list)
 
     # ISS (and other satellite) passes (populated when fetch_satellites=True)
-    sat_passes: list = field(default_factory=list)
-    sat_stale:  bool = False   # True → historical date, TLE unusable
-    sat_future_warn: bool = False  # True → future date > 3 days, accuracy limited
+    sat_passes:       list = field(default_factory=list)
+    sat_stale:        bool = False  # True → past date, no historical TLE
+    sat_future_stale: bool = False  # True → too far ahead, TLE has expired
+    sat_future_warn:  bool = False  # True → 3-7 days out, accuracy warning only
 
 
 def assemble_night(
@@ -254,14 +255,22 @@ def assemble_night(
 
     # --- Satellite passes (optional — requires Celestrak TLE fetch) ---
     sat_pass_list = []
-    sat_stale       = False
-    sat_future_warn = False
+    sat_stale        = False
+    sat_future_stale = False
+    sat_future_warn  = False
     if fetch_satellites:
         from . import satellites as _sat
-        days_offset     = (target - date.today()).days   # negative = past, positive = future
-        sat_stale       = days_offset < 0   # any past date — no historical TLE available
-        sat_future_warn = days_offset > 3
-        sat_pass_list   = _sat.satellite_passes(lat, lon, sunset, sunrise)
+        days_offset = (target - date.today()).days   # negative = past, positive = future
+        sat_stale   = days_offset < 0               # fast-path: past dates, don't even try
+        if not sat_stale:
+            sat_future_warn = days_offset > 3
+            result = _sat.satellite_passes(lat, lon, sunset, sunrise)
+            if result is None:
+                # satellite_passes() refused due to TLE staleness (too far in future)
+                sat_future_stale = True
+                sat_future_warn  = False   # stale supersedes the softer warning
+            else:
+                sat_pass_list = result
 
     # --- Visible targets ---
     target_list = []
@@ -312,5 +321,6 @@ def assemble_night(
         active_showers=active_showers,
         sat_passes=sat_pass_list,
         sat_stale=sat_stale,
+        sat_future_stale=sat_future_stale,
         sat_future_warn=sat_future_warn,
     )
