@@ -324,6 +324,22 @@ def satellite_passes(
         t0           = ts.from_datetime(t_start)
         t1           = ts.from_datetime(t_end)
 
+        # TLE epoch sanity check — SGP4 accuracy degrades rapidly with age.
+        # Beyond ~3 days the positional error exceeds tens of km; beyond a week
+        # the output is essentially meaningless.  Historical pass data requires
+        # a TLE from near that date, which we don't have.
+        from datetime import timezone as _tz
+        tle_epoch  = satellite.epoch.utc_datetime()
+        window_mid = t_start + (t_end - t_start) / 2
+        age_days   = abs((window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds()) / 86400
+        if age_days > 3:
+            log.warning(
+                "TLE epoch %s is %.1f days from target window — "
+                "predictions unreliable; skipping satellite passes",
+                tle_epoch.strftime("%Y-%m-%d %H:%M UTC"), age_days,
+            )
+            return []
+
         times, events = satellite.find_events(
             observer, t0, t1, altitude_degrees=_MIN_PASS_ALT
         )

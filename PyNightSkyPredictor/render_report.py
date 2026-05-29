@@ -512,7 +512,11 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     print(f"ISS Passes  ({hdr_range}):\n")
 
     if not report.sat_passes:
-        print("  No visible ISS passes this night.\n")
+        if report.sat_stale:
+            print("  ISS pass data unavailable for historical dates"
+                  " — TLE accuracy degrades after ~3 days.\n")
+        else:
+            print("  No visible ISS passes this night.\n")
         return
 
     visible   = [p for p in report.sat_passes if p.in_sunlight and p.sky_dark]

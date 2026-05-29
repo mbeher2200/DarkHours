@@ -77,6 +77,7 @@ class NightReport:
 
     # ISS (and other satellite) passes (populated when fetch_satellites=True)
     sat_passes: list = field(default_factory=list)
+    sat_stale:  bool = False   # True → TLE too old to trust for this date
 
 
 def assemble_night(
@@ -252,8 +253,11 @@ def assemble_night(
 
     # --- Satellite passes (optional — requires Celestrak TLE fetch) ---
     sat_pass_list = []
+    sat_stale     = False
     if fetch_satellites:
         from . import satellites as _sat
+        # TLEs are only valid for a few days; historical dates get no prediction.
+        sat_stale     = (date.today() - target).days > 3
         sat_pass_list = _sat.satellite_passes(lat, lon, sunset, sunrise)
 
     # --- Visible targets ---
@@ -304,4 +308,5 @@ def assemble_night(
         visible_targets=target_list,
         active_showers=active_showers,
         sat_passes=sat_pass_list,
+        sat_stale=sat_stale,
     )
