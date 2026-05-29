@@ -75,6 +75,9 @@ class NightReport:
     # Active meteor showers tonight (always populated)
     active_showers: list  = field(default_factory=list)
 
+    # ISS (and other satellite) passes (populated when fetch_satellites=True)
+    sat_passes: list = field(default_factory=list)
+
 
 def assemble_night(
     lat: float,
@@ -84,6 +87,7 @@ def assemble_night(
     display_name: str = "",
     fetch_weather: bool = True,
     fetch_targets: bool = False,
+    fetch_satellites: bool = False,
 ) -> NightReport:
     """
     Compute a complete NightReport for the given location and date.
@@ -246,6 +250,12 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
+    # --- Satellite passes (optional — requires Celestrak TLE fetch) ---
+    sat_pass_list = []
+    if fetch_satellites:
+        from . import satellites as _sat
+        sat_pass_list = _sat.satellite_passes(lat, lon, sunset, sunrise)
+
     # --- Visible targets ---
     target_list = []
     if fetch_targets:
@@ -293,4 +303,5 @@ def assemble_night(
         score_components=rating["components"],
         visible_targets=target_list,
         active_showers=active_showers,
+        sat_passes=sat_pass_list,
     )

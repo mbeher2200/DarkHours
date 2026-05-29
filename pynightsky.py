@@ -16,7 +16,7 @@ from PyNightSkyPredictor.darksky import find_nearby, _MAX_SEARCH_RADIUS
 from PyNightSkyPredictor.format_ctx import FormatCtx, detect_units
 from PyNightSkyPredictor.predictor import assemble_night
 from PyNightSkyPredictor.render_calendar import print_calendar
-from PyNightSkyPredictor.render_report import print_report, print_targets, print_nearby
+from PyNightSkyPredictor.render_report import print_report, print_targets, print_nearby, print_sat_passes
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ def main():
                         help="Show prime targets for the night (no moon interference, peak ≥40°, window ≥1h)")
     parser.add_argument("--show-nearby", metavar="MILES", nargs="?", const=60, type=int,
                         help=f"Show darker sky areas and light domes within MILES radius (default 60, max {_MAX_SEARCH_RADIUS})")
+    parser.add_argument("--satellites", "-s", action="store_true",
+                        help="Show ISS pass times and Moon proximity for the night")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -137,7 +139,8 @@ def main():
 
     try:
         report = assemble_night(lat, lon, target, tz, display_name=display_name,
-                                fetch_targets=args.targets)
+                                fetch_targets=args.targets,
+                                fetch_satellites=args.satellites)
     except ValueError as e:
         print(f"Error: {e}")
         raise SystemExit(1)
@@ -145,6 +148,8 @@ def main():
     print_report(report, ctx, show_weather=args.weather)
     if args.targets:
         print_targets(report, ctx)
+    if args.satellites:
+        print_sat_passes(report, ctx)
     if args.show_nearby:
         import sys
         radius = args.show_nearby
