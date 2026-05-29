@@ -324,19 +324,28 @@ def satellite_passes(
         t0           = ts.from_datetime(t_start)
         t1           = ts.from_datetime(t_end)
 
-        # TLE epoch sanity check — SGP4 accuracy degrades rapidly with age.
-        # Beyond ~3 days the positional error exceeds tens of km; beyond a week
-        # the output is essentially meaningless.  Historical pass data requires
-        # a TLE from near that date, which we don't have.
+        # TLE epoch sanity check — SGP4 accuracy degrades rapidly with age, and
+        # backward propagation through ISS maneuvers produces garbage output.
+        # Refuse any window that ends before the TLE epoch (historical date) or
+        # whose midpoint is more than 7 days ahead (far future).
         from datetime import timezone as _tz
-        tle_epoch  = satellite.epoch.utc_datetime()
-        window_mid = t_start + (t_end - t_start) / 2
-        age_days   = abs((window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds()) / 86400
-        if age_days > 3:
+        tle_epoch   = satellite.epoch.utc_datetime()
+        window_end_aware = t_end.replace(tzinfo=_tz.utc)
+        if window_end_aware < tle_epoch:
             log.warning(
-                "TLE epoch %s is %.1f days from target window — "
+                "Target window ends %s before TLE epoch %s — "
+                "backward propagation unreliable; skipping satellite passes",
+                t_end.strftime("%Y-%m-%d %H:%M UTC"),
+                tle_epoch.strftime("%Y-%m-%d %H:%M UTC"),
+            )
+            return []
+        window_mid = t_start + (t_end - t_start) / 2
+        future_days = (window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds() / 86400
+        if future_days > 7:
+            log.warning(
+                "TLE epoch %s is %.1f days before target window — "
                 "predictions unreliable; skipping satellite passes",
-                tle_epoch.strftime("%Y-%m-%d %H:%M UTC"), age_days,
+                tle_epoch.strftime("%Y-%m-%d %H:%M UTC"), future_days,
             )
             return []
 
