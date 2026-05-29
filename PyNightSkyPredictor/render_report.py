@@ -505,6 +505,84 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
     print()
 
 
+def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
+    """Print ISS visible-pass table to stdout."""
+    tz_label  = ctx.local(report.sunset).strftime("%Z")
+    hdr_range = f"{ctx.fmt_time(report.sunset)} – {ctx.fmt_time(report.sunrise)} {tz_label}"
+    print(f"ISS Passes  ({hdr_range}):\n")
+
+    if not report.sat_passes:
+        print("  No visible ISS passes this night.\n")
+        return
+
+    visible = [p for p in report.sat_passes if p.in_sunlight]
+    shadow  = [p for p in report.sat_passes if not p.in_sunlight]
+
+    if not visible:
+        noun = "pass" if len(shadow) == 1 else "passes"
+        print(f"  {len(shadow)} {noun} tonight but ISS is in Earth's shadow — not visible.\n")
+        return
+
+    # Build display rows
+    rows     = []
+    transits = []
+
+    for p in visible:
+        rise_str = ctx.fmt(p.rise_time)           # date + time
+        peak_str = ctx.fmt_time(p.peak_time)      # time only
+        set_str  = ctx.fmt_time(p.set_time)       # time only
+        alt_str  = f"{p.peak_alt_deg:.0f}°"
+        dir_str  = (f"{cardinal(p.rise_az_deg)}"
+                    f"→{cardinal(p.peak_az_deg)}"
+                    f"→{cardinal(p.set_az_deg)}")
+        dur_str  = f"{p.duration_min:.0f}m"
+
+        if p.moon_transit:
+            moon_str = f"*** TRANSIT {p.moon_transit_sep_deg:.3f}° ***"
+            transits.append(p)
+        elif p.moon_transit_sep_deg is not None:
+            # Fine scan ran — show the actual minimum separation
+            moon_str = f"{p.moon_transit_sep_deg:.2f}° (close)"
+        elif p.moon_sep_deg is not None:
+            moon_str = f"{p.moon_sep_deg:.1f}°"
+        else:
+            moon_str = "—"
+
+        rows.append((rise_str, peak_str, set_str, alt_str, dir_str, dur_str, moon_str))
+
+    headers = ("Rise", "Peak", "Set", "Alt", "Direction", "Dur", "Moon Sep")
+    aligns  = ("l",    "r",    "r",   "r",   "l",         "r",   "l")
+    widths  = [
+        max(len(headers[i]), max(len(r[i]) for r in rows))
+        for i in range(len(headers))
+    ]
+
+    def _row(vals):
+        parts = [
+            f"{v:>{w}}" if a == "r" else f"{v:<{w}}"
+            for v, a, w in zip(vals, aligns, widths)
+        ]
+        print("  " + "  ".join(parts))
+
+    _row(headers)
+    _row(["-" * w for w in widths])
+    for row in rows:
+        _row(row)
+
+    if shadow:
+        n    = len(shadow)
+        noun = "pass" if n == 1 else "passes"
+        print(f"\n  +{n} {noun} in Earth's shadow (not visible)")
+
+    if transits:
+        print()
+        for tp in transits:
+            print(f"  *** Moon transit at {ctx.fmt(tp.moon_transit_time)}"
+                  f" — ISS crosses Moon's disc"
+                  f" ({tp.moon_transit_sep_deg:.3f}° minimum separation) ***")
+    print()
+
+
 def print_nearby(result: dict | None, ctx: FormatCtx) -> None:
     """Print the nearby sky conditions: darker areas and light domes."""
     radius = result["radius_miles"] if result else 60
