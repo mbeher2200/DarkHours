@@ -71,6 +71,7 @@ class SatPass:
     peak_alt_deg:         float
     peak_az_deg:          float
     rise_az_deg:          float
+    rise_alt_deg:         float      # altitude at rise_time (≥ floor; higher when emerging from shadow)
     set_az_deg:           float      # azimuth at set_time (not necessarily at 10°)
     set_alt_deg:          float      # altitude at set_time (> floor when ends_in_shadow)
     duration_min:         float      # visible duration: set_time − rise_time
@@ -376,8 +377,8 @@ def satellite_passes(
 
             # Entirely in shadow — include as invisible pass
             if t_vis_rise is None:
-                rise_az, _  = _az_alt(satellite, observer, t_geom_rise)
-                set_az,  set_alt = _az_alt(satellite, observer, t_geom_set)
+                rise_az, rise_alt = _az_alt(satellite, observer, t_geom_rise)
+                set_az,  set_alt  = _az_alt(satellite, observer, t_geom_set)
                 dur_min     = (t_geom_set.tt - t_geom_rise.tt) * 86400.0 / 60.0
                 moon_data   = _moon_proximity(
                     satellite, observer, planets, ts,
@@ -391,6 +392,7 @@ def satellite_passes(
                     peak_alt_deg         = round(peak_alt, 1),
                     peak_az_deg          = round(peak_az,  1),
                     rise_az_deg          = round(rise_az,  1),
+                    rise_alt_deg         = round(rise_alt, 1),
                     set_az_deg           = round(set_az,   1),
                     set_alt_deg          = round(set_alt,  1),
                     duration_min         = round(dur_min,  1),
@@ -406,8 +408,8 @@ def satellite_passes(
                 continue
 
             # Visible pass — use shadow-corrected rise/set
-            rise_az,  _       = _az_alt(satellite, observer, t_vis_rise)
-            set_az,   set_alt = _az_alt(satellite, observer, t_vis_set)
+            rise_az, rise_alt = _az_alt(satellite, observer, t_vis_rise)
+            set_az,  set_alt  = _az_alt(satellite, observer, t_vis_set)
             dur_min           = (t_vis_set.tt - t_vis_rise.tt) * 86400.0 / 60.0
 
             moon_data = _moon_proximity(
@@ -423,6 +425,7 @@ def satellite_passes(
                 peak_alt_deg         = round(peak_alt, 1),
                 peak_az_deg          = round(peak_az,  1),
                 rise_az_deg          = round(rise_az,  1),
+                rise_alt_deg         = round(rise_alt, 1),
                 set_az_deg           = round(set_az,   1),
                 set_alt_deg          = round(set_alt,  1),
                 duration_min         = round(dur_min,  1),
