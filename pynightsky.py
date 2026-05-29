@@ -59,6 +59,12 @@ def main():
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="[%(name)s] %(message)s",
     )
+    # Silence third-party library startup noise that leaks through at DEBUG level.
+    # All raster files are local; rasterio's optional S3/boto3 support is unused.
+    # If you ever move VIIRS/Falchi data to S3, remove rasterio.session from this list
+    # so S3 auth errors surface instead of being swallowed.
+    for _noisy in ("rasterio", "rasterio.session", "rasterio.env", "botocore", "boto3"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
     units = args.units if args.units else detect_units()
     log.debug("Unit system: %s", units)

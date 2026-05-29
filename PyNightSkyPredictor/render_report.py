@@ -530,7 +530,11 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     for p in visible:
         rise_str = ctx.fmt(p.rise_time)           # date + time
         peak_str = ctx.fmt_time(p.peak_time)      # time only
-        set_str  = ctx.fmt_time(p.set_time)       # time only
+        # Annotate disappear time when ISS enters shadow while still high
+        if p.ends_in_shadow:
+            set_str = f"{ctx.fmt_time(p.set_time)} ({p.set_alt_deg:.0f}°↓shadow)"
+        else:
+            set_str = ctx.fmt_time(p.set_time)
         alt_str  = f"{p.peak_alt_deg:.0f}°"
         dir_str  = (f"{cardinal(p.rise_az_deg)}"
                     f"→{cardinal(p.peak_az_deg)}"
