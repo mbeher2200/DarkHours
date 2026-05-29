@@ -277,31 +277,31 @@ Three layers — engine, formatting, and rendering — with two CLI shells on to
 
 | Module | Role |
 |--------|------|
-| `predictor.py` | Assembles `NightReport` from all data sources |
-| `scoring.py` | Night and weather score calculations |
-| `sky_events.py` | Sun/moon events, dark intervals, moon phase |
-| `moonlight.py` | Krisciunas & Schaefer (1991) moonlight model |
-| `moon_events.py` | Lunar distance, eclipse detection, supermoon/micromoon |
-| `milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
-| `targets.py` | Visible targets engine — K&S interference, photo window clipping |
-| `targets.json` | Curated target catalog |
-| `config.py` | Configuration loader (`config.json`) |
-| `darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search |
-| `weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
-| `location.py` | Geocoding and timezone resolution |
-| `trip.py` | Trip planning engine |
-| `cache.py` | Disk-backed JSON cache with per-entry TTL |
+| `PyNightSkyPredictor/predictor.py` | Assembles `NightReport` from all data sources |
+| `PyNightSkyPredictor/scoring.py` | Night and weather score calculations |
+| `PyNightSkyPredictor/sky_events.py` | Sun/moon events, dark intervals, moon phase |
+| `PyNightSkyPredictor/moonlight.py` | Krisciunas & Schaefer (1991) moonlight model |
+| `PyNightSkyPredictor/moon_events.py` | Lunar distance, eclipse detection, supermoon/micromoon |
+| `PyNightSkyPredictor/milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
+| `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
+| `PyNightSkyPredictor/targets.json` | Curated target catalog |
+| `PyNightSkyPredictor/config.py` | Configuration loader (`config.json`) |
+| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search |
+| `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
+| `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution |
+| `PyNightSkyPredictor/trip.py` | Trip planning engine |
+| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL |
 
-**Formatting** — `format_ctx.py`: timezone/unit conversion, locale detection.
+**Formatting** — `PyNightSkyPredictor/format_ctx.py`: timezone/unit conversion, locale detection.
 
-**Rendering** — `render_report.py`, `render_calendar.py`, `render_trip.py`: terminal output only, each receives a dataclass and prints to stdout.
+**Rendering** — `PyNightSkyPredictor/render_report.py`, `PyNightSkyPredictor/render_calendar.py`, `PyNightSkyPredictor/render_trip.py`: terminal output only, each receives a dataclass and prints to stdout.
 
 **CLI shells** — `pynightsky.py`, `tripbuilder.py`.
 
 Direct engine usage:
 
 ```python
-from predictor import assemble_night
+from PyNightSkyPredictor.predictor import assemble_night
 from datetime import date
 from zoneinfo import ZoneInfo
 
@@ -328,9 +328,9 @@ External datasets are downloaded on first use and stored in `~/.pynightsky-predi
 | Overpass API (area names for `--show-nearby`) | OpenStreetMap | 90 days |
 | Weather forecasts | NOAA / Open-Meteo / 7Timer | Hours–days |
 
-The file `de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
+The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
 
-All data remains under its original open license. See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for full attribution.
+All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) for full attribution.
 
 ---
 
