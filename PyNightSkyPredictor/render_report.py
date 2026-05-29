@@ -613,8 +613,8 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     _print_row(tuple("-" * widths[i] for i in range(len(HDRS))))
 
     for row, (dur_str, moon_str) in zip(rows, meta):
-        _print_row(row)
         print(f"    Duration: {dur_str},  Moon Separation: {moon_str}")
+        _print_row(row)
 
     # Footnotes
     footnotes = []
