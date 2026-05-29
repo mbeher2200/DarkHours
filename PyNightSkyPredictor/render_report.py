@@ -516,8 +516,8 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
 
     if not report.sat_passes:
         if report.sat_stale:
-            print("  ISS pass data unavailable for historical dates"
-                  " — TLE accuracy degrades after ~3 days.\n")
+            print("  ISS pass predictions require a current TLE —"
+                  " historical dates are not supported.\n")
         else:
             print("  No visible ISS passes this night.\n")
         return

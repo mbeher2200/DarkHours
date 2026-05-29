@@ -259,7 +259,7 @@ def assemble_night(
     if fetch_satellites:
         from . import satellites as _sat
         days_offset     = (target - date.today()).days   # negative = past, positive = future
-        sat_stale       = days_offset < -3
+        sat_stale       = days_offset < 0   # any past date — no historical TLE available
         sat_future_warn = days_offset > 3
         sat_pass_list   = _sat.satellite_passes(lat, lon, sunset, sunrise)
 
