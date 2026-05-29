@@ -515,19 +515,29 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
         print("  No visible ISS passes this night.\n")
         return
 
-    visible = [p for p in report.sat_passes if p.in_sunlight]
-    shadow  = [p for p in report.sat_passes if not p.in_sunlight]
+    visible   = [p for p in report.sat_passes if p.in_sunlight and p.sky_dark]
+    twilight  = [p for p in report.sat_passes if p.in_sunlight and not p.sky_dark]
+    shadow    = [p for p in report.sat_passes if not p.in_sunlight]
+
+    if not visible and not twilight:
+        noun = "pass" if len(shadow) == 1 else "passes"
+        if shadow:
+            print(f"  {len(shadow)} {noun} tonight but ISS is in Earth's shadow — not visible.\n")
+        else:
+            print("  No visible ISS passes this night.\n")
+        return
 
     if not visible:
-        noun = "pass" if len(shadow) == 1 else "passes"
-        print(f"  {len(shadow)} {noun} tonight but ISS is in Earth's shadow — not visible.\n")
-        return
+        # Only twilight passes — tell the user before showing anything
+        noun = "pass" if len(twilight) == 1 else "passes"
+        print(f"  No passes after dark — {len(twilight)} {noun} during civil twilight"
+              f" (sky too bright):\n")
 
     # Build display rows
     rows     = []
     transits = []
 
-    for p in visible:
+    for p in visible + twilight:
         rise_str = ctx.fmt(p.rise_time)           # date + time
         peak_str = ctx.fmt_time(p.peak_time)      # time only
         # Annotate disappear time when ISS enters shadow while still high
@@ -573,10 +583,20 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
     for row in rows:
         _row(row)
 
+    footnotes = []
+    if twilight and visible:
+        # There were dark passes above; twilight ones are secondary
+        n    = len(twilight)
+        noun = "pass" if n == 1 else "passes"
+        footnotes.append(f"+{n} {noun} during civil twilight (sky too bright to observe)")
     if shadow:
         n    = len(shadow)
         noun = "pass" if n == 1 else "passes"
-        print(f"\n  +{n} {noun} in Earth's shadow (not visible)")
+        footnotes.append(f"+{n} {noun} in Earth's shadow (not visible)")
+    if footnotes:
+        print()
+        for fn in footnotes:
+            print(f"  {fn}")
 
     if transits:
         print()

@@ -45,9 +45,10 @@ _MIN_PASS_ALT = 10.0               # degrees — floor passed to find_events()
 _COARSE_STEP  = 10                 # seconds — coarse scan step across each pass
 _FINE_HALFWIN = 5.0                # seconds — ± window around coarse minimum for fine scan
 _FINE_STEP    = 0.1                # seconds — fine scan step
-_MOON_RADIUS  = 0.26               # degrees — half of Moon's ~0.52° angular disc
-_FINE_TRIGGER = _MOON_RADIUS * 4   # degrees — coarse min below this triggers fine scan
-_USER_AGENT   = "PyNightSkyPredictor/1.0 (open-source astronomical observation planner)"
+_MOON_RADIUS        = 0.26               # degrees — half of Moon's ~0.52° angular disc
+_FINE_TRIGGER       = _MOON_RADIUS * 4   # degrees — coarse min below this triggers fine scan
+_CIVIL_TWILIGHT_ALT = -6.0               # degrees — sun must be below this for sky to be dark
+_USER_AGENT         = "PyNightSkyPredictor/1.0 (open-source astronomical observation planner)"
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,8 @@ class SatPass:
     duration_min:         float      # visible duration: set_time − rise_time
     in_sunlight:          bool       # False → pass is entirely in Earth's shadow (not visible)
     ends_in_shadow:       bool       # True → ISS disappears into shadow while still high
+    sun_alt_deg:          float      # sun altitude at pass peak; < -6 → sky is dark enough to observe
+    sky_dark:             bool       # True → sun < _CIVIL_TWILIGHT_ALT at peak (pass is worth watching)
     # Moon proximity — all None when Moon is below the horizon at pass time
     moon_sep_deg:         Optional[float]  # angular sep from Moon at pass peak
     moon_transit:         bool             # True → min sep < Moon's angular radius
@@ -159,6 +162,13 @@ def _az_alt(satellite, observer, t) -> tuple[float, float]:
     topo       = (satellite - observer).at(t)
     alt, az, _ = topo.altaz()
     return float(az.degrees), float(alt.degrees)
+
+
+def _sun_alt_deg(planets, observer_pos, t) -> float:
+    """Return the Sun's apparent altitude in degrees from *observer_pos* at time *t*."""
+    sun = planets["sun"]
+    alt, _, _ = observer_pos.at(t).observe(sun).apparent().altaz()
+    return float(alt.degrees)
 
 
 # ---------------------------------------------------------------------------
@@ -309,9 +319,10 @@ def satellite_passes(
         planets  = _load("de421.bsp")
         observer = wgs84.latlon(lat, lon)
 
-        satellite = EarthSatellite(line1, line2, name, ts)
-        t0        = ts.from_datetime(t_start)
-        t1        = ts.from_datetime(t_end)
+        satellite    = EarthSatellite(line1, line2, name, ts)
+        observer_pos = planets["earth"] + observer   # GCRS observer; used for sun altitude
+        t0           = ts.from_datetime(t_start)
+        t1           = ts.from_datetime(t_end)
 
         times, events = satellite.find_events(
             observer, t0, t1, altitude_degrees=_MIN_PASS_ALT
@@ -331,6 +342,10 @@ def satellite_passes(
             t_vis_rise, t_vis_set, ends_in_shadow = _visible_window(
                 satellite, planets, ts, t_geom_rise, t_geom_set
             )
+
+            # Sun altitude at pass peak — determines whether sky is dark enough to observe
+            sun_alt  = _sun_alt_deg(planets, observer_pos, t_peak)
+            sky_dark = sun_alt < _CIVIL_TWILIGHT_ALT
 
             # Entirely in shadow — include as invisible pass
             if t_vis_rise is None:
@@ -354,6 +369,8 @@ def satellite_passes(
                     duration_min         = round(dur_min,  1),
                     in_sunlight          = False,
                     ends_in_shadow       = False,
+                    sun_alt_deg          = round(sun_alt,  1),
+                    sky_dark             = sky_dark,
                     moon_sep_deg         = moon_data["moon_sep_deg"],
                     moon_transit         = moon_data["moon_transit"],
                     moon_transit_time    = moon_data["moon_transit_time"],
@@ -384,6 +401,8 @@ def satellite_passes(
                 duration_min         = round(dur_min,  1),
                 in_sunlight          = True,
                 ends_in_shadow       = ends_in_shadow,
+                sun_alt_deg          = round(sun_alt,  1),
+                sky_dark             = sky_dark,
                 moon_sep_deg         = moon_data["moon_sep_deg"],
                 moon_transit         = moon_data["moon_transit"],
                 moon_transit_time    = moon_data["moon_transit_time"],
