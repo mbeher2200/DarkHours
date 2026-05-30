@@ -19,7 +19,7 @@ Beyond the score:
 * Multi-location trip comparison across a date range
 * Historical weather analysis back to 1940 via ERA5 reanalysis
 
-Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, and OpenStreetMap.
+Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, and Celestrak.
 
 The two primary CLI scripts are:
 
@@ -41,7 +41,9 @@ Full documentation: [PYNIGHTSKY.md](docs/PYNIGHTSKY.md)
 | `--date DATE` | `-d` | Date (YYYY-MM-DD, default: today); YYYY-MM format accepted with `--calendar` |
 | `--weather` | `-w` | Include hourly weather forecast |
 | `--targets` | `-t` | Show prime targets (peak ≥ 40°, window ≥ 1h, no moon wash) |
+| `--satellites` | `-s` | Show ISS, Hubble Telescope, Tiangong, and Starlink train pass times with moon separation |
 | `--show-nearby [MILES]` | | Darker sky areas and light domes within radius (default 60 mi, max 150 mi) |
+| `--all` | `-a` | Enable `--weather`, `--targets`, `--satellites`, and `--show-nearby 60` in one flag |
 | `--calendar` | | Month-view night score grid |
 | `--save-location NAME` | | Save `--coords` under a name for future use |
 | `--list-locations` | | Show all saved/cached locations and exit |
@@ -65,7 +67,11 @@ Every run produces a single-night report:
 
 `--targets` adds prime targets by type (Milky Way, clusters, planets, nebulae, galaxies, meteor showers) with visibility windows and moon-interference clipping.
 
+`--satellites` adds a unified pass table for ISS, Hubble Telescope, Tiangong, and any currently raising Starlink trains. Each row shows rise, peak, and set times with altitude, azimuth, pass duration, and moon separation. Twilight passes are flagged `†`; passes ending in Earth's shadow are flagged `*`.
+
 `--show-nearby` adds a table of named darker sky areas and light domes within the search radius.
+
+`--all` is shorthand for `--weather --targets --satellites --show-nearby` in one flag.
 
 `--calendar` replaces the single-night report with a full-month score grid.
 
@@ -289,6 +295,8 @@ Three layers — engine, formatting, and rendering — with two CLI shells on to
 | `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
 | `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution |
+| `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
+| `PyNightSkyPredictor/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
 | `PyNightSkyPredictor/trip.py` | Trip planning engine |
 | `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL |
 
@@ -327,6 +335,7 @@ External datasets are downloaded on first use and stored in `~/.pynightsky-predi
 | Nominatim geocoding | OpenStreetMap | 90 days |
 | Overpass API (area names for `--show-nearby`) | OpenStreetMap | 90 days |
 | Weather forecasts | NOAA / Open-Meteo / 7Timer | Hours–days |
+| Satellite TLEs (ISS, Hubble, Tiangong, Starlink) | Celestrak | 6 hours |
 
 The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
 

@@ -30,6 +30,9 @@ This project was developed with substantial assistance from:
 
 ### Astronomical Data
 - **JPL Ephemeris (DE421)**: NASA Jet Propulsion Laboratory
+- **Celestrak**: Two-Line Element sets (TLEs) for ISS, Hubble Space Telescope, Tiangong, and Starlink satellites, used for satellite pass prediction
+  - https://celestrak.org/
+  - Data is freely available for non-commercial use; see https://celestrak.org/data/update-policy.php
 
 ## Python Dependencies
 
