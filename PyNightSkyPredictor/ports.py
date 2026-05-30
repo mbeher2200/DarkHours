@@ -80,9 +80,9 @@ def reset_backend() -> None:
 
 
 def _build_backend(name: str) -> Backend:
+    # Lazy imports: these modules import this one, so importing them at module
+    # load would be circular. By call time they are fully initialised.
     if name == "local":
-        # Lazy imports: these modules import this one, so importing them at module
-        # load would be circular. By call time they are fully initialised.
         from .cache import LocalFileCache
         from .location import LocalGeocodeStore
         from .darksky import LocalRasterSource
@@ -91,7 +91,17 @@ def _build_backend(name: str) -> Backend:
             geocode_store=LocalGeocodeStore(),
             raster_source=LocalRasterSource(),
         )
+    if name == "aws":
+        # M2: rasters move to S3. Cache and geocode store remain local for now;
+        # M3 swaps them for DynamoDB-backed adapters.
+        from .cache import LocalFileCache
+        from .location import LocalGeocodeStore
+        from .darksky import S3RasterSource
+        return Backend(
+            cache=LocalFileCache(),
+            geocode_store=LocalGeocodeStore(),
+            raster_source=S3RasterSource(),
+        )
     raise ValueError(
-        f"Unknown PYNIGHTSKY_BACKEND={name!r} "
-        f"(expected 'local'; cloud backends arrive in M2/M3)."
+        f"Unknown PYNIGHTSKY_BACKEND={name!r} (expected 'local' or 'aws')."
     )
