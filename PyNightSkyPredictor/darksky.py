@@ -36,6 +36,7 @@ import zipfile
 from pathlib import Path
 
 from . import cache
+from . import ports
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +168,28 @@ def _download_falchi(show_progress: bool = True) -> None:
               _FALCHI_ZIP_URL, _FALCHI_TIF, show_progress)
 
 
+class LocalRasterSource:
+    """Resolve a dataset name to a local GeoTIFF path, downloading on first use.
+
+    The default (local) RasterSource adapter. ``path_for`` returns a ``Path`` that
+    ``rasterio.open`` accepts directly; the S3 adapter in M2 will return a
+    ``/vsis3/...`` URI instead, leaving the sampling code untouched.
+    """
+
+    _DATASETS = {
+        "viirs":  (_download_viirs,  _VIIRS_TIF),
+        "falchi": (_download_falchi, _FALCHI_TIF),
+    }
+
+    def path_for(self, dataset: str, *, show_progress: bool = True):
+        try:
+            downloader, path = self._DATASETS[dataset]
+        except KeyError:
+            raise ValueError(f"Unknown raster dataset: {dataset!r}")
+        downloader(show_progress=show_progress)
+        return path
+
+
 # ---------------------------------------------------------------------------
 # Raster sampling
 # ---------------------------------------------------------------------------
@@ -205,8 +228,8 @@ def _sample_tif(tif_path: Path, lat: float, lon: float) -> float | None:
 
 def _viirs_radiance(lat: float, lon: float) -> float | None:
     """Return VIIRS 2025 radiance (nW/cm²/sr), downloading the TIF if needed."""
-    _download_viirs()
-    value = _sample_tif(_VIIRS_TIF, lat, lon)
+    path  = ports.get_backend().raster_source.path_for("viirs")
+    value = _sample_tif(path, lat, lon)
     if value is not None:
         log.debug("VIIRS radiance at (%.4f, %.4f): %.3f nW/cm²/sr", lat, lon, value)
     return value
@@ -214,8 +237,8 @@ def _viirs_radiance(lat: float, lon: float) -> float | None:
 
 def _falchi_luminance(lat: float, lon: float) -> float | None:
     """Return Falchi 2016 artificial luminance (mcd/m²), downloading if needed."""
-    _download_falchi()
-    value = _sample_tif(_FALCHI_TIF, lat, lon)
+    path  = ports.get_backend().raster_source.path_for("falchi")
+    value = _sample_tif(path, lat, lon)
     if value is not None:
         log.debug("Falchi luminance at (%.4f, %.4f): %.4f mcd/m²", lat, lon, value)
     return value
@@ -435,15 +458,16 @@ def _bulk_bortle_lookup(coords: list) -> list:
         log.warning("rasterio not installed; cannot sample dark-sky grid")
         return [None] * len(coords)
 
-    _download_viirs(show_progress=False)
-    _download_falchi(show_progress=False)
+    src         = ports.get_backend().raster_source
+    viirs_path  = src.path_for("viirs",  show_progress=False)
+    falchi_path = src.path_for("falchi", show_progress=False)
 
     results       = [None] * len(coords)
     falchi_needed = []
 
     # VIIRS pass — covers all measurably-lit points
     try:
-        with rasterio.open(_VIIRS_TIF) as ds:
+        with rasterio.open(viirs_path) as ds:
             lons = [c[1] for c in coords]
             lats = [c[0] for c in coords]
             if ds.crs and ds.crs.to_epsg() != 4326:
@@ -471,7 +495,7 @@ def _bulk_bortle_lookup(coords: list) -> list:
     if falchi_needed:
         try:
             fc = [coords[i] for i in falchi_needed]
-            with rasterio.open(_FALCHI_TIF) as ds:
+            with rasterio.open(falchi_path) as ds:
                 lons = [c[1] for c in fc]
                 lats = [c[0] for c in fc]
                 if ds.crs and ds.crs.to_epsg() != 4326:
