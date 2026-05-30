@@ -156,6 +156,45 @@ Nearby Skies  (60 mi radius):
   Sycamore Canyon Wilderness                1  22.0     20 mi        WNW
 ```
 
+### Example — satellite passes
+
+```bash
+python pynightsky.py --location "Sedona, AZ" --satellites
+```
+
+```
+Date:               2026-05-30
+Location:           Sedona, Coconino County, Arizona, United States  (34.8689°, -111.7614°)
+Light Pollution:    SQM 18.7  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]
+Moon:               Waxing Gibbous  |  99.9% illuminated  |  405,972 km  ·  *** Micromoon ***
+Clear Dark Sky Hours:  None (moon up all night)  ·  avg 2.8h  ±2.1h over lunar cycle
+Night Quality Score:  0.0/10  (Lunar 0.0 · Dark Hours 0.0 · Weather 9.0 · Bortle 3.3)
+
+Night Timeline:
+
+  Time (MST)        Event
+  ----------------  -------------------------
+  May 30,  7:31 PM  Moonrise
+  May 30,  7:34 PM  Sunset
+  May 30,  9:18 PM  Astronomical night begins
+  May 31,  3:31 AM  Astronomical night ends
+  May 31,  5:02 AM  Moonset
+  May 31,  5:14 AM  Sunrise
+
+Satellite Passes  ( 7:34 PM –  5:14 AM MST):
+
+                    Rise                     |  Peak                     |  Set
+  Satellite         Time      Alt  Az        |      Time  Alt  Az        |      Time   Alt  Az        Dur  Moon Sep
+  ----------------  --------  ---  --------  |  --------  ---  --------  |  --------  ----  --------  ---  --------
+  ISS †              7:53 PM  10°  292°(W)   |   7:56 PM  30°  229°(SW)  |   7:59 PM   10°  165°(S)    6m  98.5°
+  Tiangong           8:56 PM  10°  292°(W)   |   8:59 PM  73°  207°(SW)  |   9:00 PM  41°*  134°(SE)   4m  72.1°
+  Hubble Telescope   4:17 AM  16°  232°(SW)  |   4:19 AM  23°  191°(S)   |   4:22 AM   10°  137°(SE)   5m  40.8°
+
+  * Set alt > 10° — satellite entered Earth's shadow before geometric set
+  † Pass during civil twilight — sky too bright to observe
+  +3 passes in Earth's shadow (not visible)
+```
+
 ### Example — monthly calendar
 
 ```bash
