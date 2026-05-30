@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from . import ports
+
 log = logging.getLogger(__name__)
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -16,15 +18,30 @@ CACHE_FILE = Path.home() / ".pynightsky-predictor" / "locations.json"
 USER_AGENT = "pynightsky-predictor/1.0"
 
 
+class LocalGeocodeStore:
+    """Saved/cached named locations persisted as one JSON file on local disk."""
+
+    def __init__(self, path: Path = CACHE_FILE):
+        self.path = path
+
+    def load(self) -> dict:
+        if self.path.exists():
+            return json.loads(self.path.read_text())
+        return {}
+
+    def save(self, data: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, indent=2))
+
+
+# Module-level helpers delegate to the active backend's geocode store so the
+# Nominatim resolution logic below is unchanged when storage moves to the cloud.
 def _load() -> dict:
-    if CACHE_FILE.exists():
-        return json.loads(CACHE_FILE.read_text())
-    return {}
+    return ports.get_backend().geocode_store.load()
 
 
 def _save(cache: dict):
-    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps(cache, indent=2))
+    ports.get_backend().geocode_store.save(cache)
 
 
 _US_ZIP_RE = re.compile(r"^\d{5}(-\d{4})?$")
