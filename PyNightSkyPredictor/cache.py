@@ -38,14 +38,19 @@ class LocalFileCache:
         return self.cache_dir / f"{h}.json"
 
     def get(self, key: str):
-        """Return cached value or None if missing or expired."""
+        """Return cached value or None if missing or expired.
+
+        Expired entries are NOT deleted here, so a subsequent get_stale() can still
+        serve them for stale-while-revalidate (see tle_provider's fallback). Cleanup
+        happens via clear_expired() or when the key is next overwritten — matching
+        DynamoCache, which leaves expiry cleanup to DynamoDB TTL.
+        """
         path = self._key_path(key)
         if not path.exists():
             return None
         try:
             entry = json.loads(path.read_text())
             if entry["expires"] is not None and time.time() > entry["expires"]:
-                path.unlink(missing_ok=True)
                 log.debug("Cache expired: %s", key)
                 return None
             log.debug("Cache hit: %s", key)
@@ -78,7 +83,9 @@ class LocalFileCache:
         expires = time.time() + ttl_seconds if ttl_seconds is not None else None
         path = self._key_path(key)
         try:
-            path.write_text(json.dumps({"expires": expires, "value": value}))
+            # The key is stored alongside value/expires so clear_*() can recognise
+            # __-prefixed system records (filenames are hashes and can't reveal it).
+            path.write_text(json.dumps({"key": key, "expires": expires, "value": value}))
             log.debug("Cache set: %s (ttl=%s)", key, ttl_seconds)
         except Exception as e:
             log.debug("Cache write error for %s: %s", key, e)
@@ -88,7 +95,7 @@ class LocalFileCache:
         self._key_path(key).unlink(missing_ok=True)
 
     def clear_expired(self) -> int:
-        """Remove all expired entries. Returns count removed."""
+        """Remove all expired entries (preserving __-prefixed system records)."""
         if not self.cache_dir.exists():
             return 0
         now = time.time()
@@ -96,6 +103,8 @@ class LocalFileCache:
         for path in self.cache_dir.glob("*.json"):
             try:
                 entry = json.loads(path.read_text())
+                if str(entry.get("key", "")).startswith(_SYSTEM_KEY_PREFIX):
+                    continue
                 if entry["expires"] is not None and now > entry["expires"]:
                     path.unlink(missing_ok=True)
                     count += 1
@@ -104,11 +113,16 @@ class LocalFileCache:
         return count
 
     def clear_all(self) -> int:
-        """Remove all cache entries. Returns count removed."""
+        """Remove all cache entries, preserving __-prefixed system records."""
         if not self.cache_dir.exists():
             return 0
         count = 0
         for path in self.cache_dir.glob("*.json"):
+            try:
+                if str(json.loads(path.read_text()).get("key", "")).startswith(_SYSTEM_KEY_PREFIX):
+                    continue
+            except Exception:
+                pass
             path.unlink(missing_ok=True)
             count += 1
         return count

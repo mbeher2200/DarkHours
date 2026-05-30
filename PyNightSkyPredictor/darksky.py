@@ -207,17 +207,24 @@ class S3RasterSource:
     }
 
     def __init__(self, bucket: str | None = None):
-        self.bucket = bucket or os.environ.get("PYNIGHTSKY_RASTER_BUCKET")
-        if not self.bucket:
-            raise RuntimeError(
-                "PYNIGHTSKY_RASTER_BUCKET is not set — required for the 'aws' "
-                "raster backend (the S3 bucket holding the COGs)."
-            )
+        self._bucket = bucket
         # GDAL /vsis3 tuning for COG-over-S3: don't list the bucket on open
         # (one fewer round-trip), restrict to .tif, and cache fetched ranges.
         os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
         os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
         os.environ.setdefault("VSI_CACHE", "TRUE")
+
+    @property
+    def bucket(self) -> str:
+        # Resolved lazily (like DynamoCache's table) so constructing the backend
+        # for a cache-only operation doesn't require the raster bucket env var.
+        b = self._bucket or os.environ.get("PYNIGHTSKY_RASTER_BUCKET")
+        if not b:
+            raise RuntimeError(
+                "PYNIGHTSKY_RASTER_BUCKET is not set — required for the 'aws' "
+                "raster backend (the S3 bucket holding the COGs)."
+            )
+        return b
 
     def path_for(self, dataset: str, *, show_progress: bool = True):
         try:
