@@ -34,6 +34,39 @@ class LocalGeocodeStore:
         self.path.write_text(json.dumps(data, indent=2))
 
 
+class DynamoGeocodeStore:
+    """Saved locations persisted as a single JSON blob in the shared DynamoDB table.
+
+    Stored under the reserved system key ``__geocode__`` (no TTL → permanent),
+    so a cache flush never touches it. Mirrors the whole-dict load/save contract
+    of LocalGeocodeStore.
+    """
+
+    _KEY = "__geocode__"
+
+    def __init__(self, table_name: str | None = None):
+        self._table_name = table_name
+        self._table = None
+
+    @property
+    def table(self):
+        if self._table is None:
+            from .cache import _dynamo_table  # lazy: only the aws backend needs boto3
+            self._table = _dynamo_table(self._table_name)
+        return self._table
+
+    def load(self) -> dict:
+        try:
+            item = self.table.get_item(Key={"cache_key": self._KEY}).get("Item")
+            return json.loads(item["value"]) if item else {}
+        except Exception as e:
+            log.debug("Geocode store load error: %s", e)
+            return {}
+
+    def save(self, data: dict) -> None:
+        self.table.put_item(Item={"cache_key": self._KEY, "value": json.dumps(data)})
+
+
 # Module-level helpers delegate to the active backend's geocode store so the
 # Nominatim resolution logic below is unchanged when storage moves to the cloud.
 def _load() -> dict:
