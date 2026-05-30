@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import math
+import os
 import threading
 import time
 import urllib.parse
@@ -190,6 +191,42 @@ class LocalRasterSource:
         return path
 
 
+class S3RasterSource:
+    """Read the light-pollution COGs from S3 in place via GDAL ``/vsis3``.
+
+    Nothing is downloaded — ``rasterio.open`` range-reads only the COG tiles it
+    needs over HTTPS. The bucket comes from the ``PYNIGHTSKY_RASTER_BUCKET``
+    environment variable (kept out of source so the public repo carries no bucket
+    name). Credentials and region resolve from the standard AWS environment: an
+    instance/task role in the cloud, or ``AWS_PROFILE`` locally.
+    """
+
+    _KEYS = {
+        "viirs":  "viirs_2025_cog.tif",
+        "falchi": "world_atlas_2016_cog.tif",
+    }
+
+    def __init__(self, bucket: str | None = None):
+        self.bucket = bucket or os.environ.get("PYNIGHTSKY_RASTER_BUCKET")
+        if not self.bucket:
+            raise RuntimeError(
+                "PYNIGHTSKY_RASTER_BUCKET is not set — required for the 'aws' "
+                "raster backend (the S3 bucket holding the COGs)."
+            )
+        # GDAL /vsis3 tuning for COG-over-S3: don't list the bucket on open
+        # (one fewer round-trip), restrict to .tif, and cache fetched ranges.
+        os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+        os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
+        os.environ.setdefault("VSI_CACHE", "TRUE")
+
+    def path_for(self, dataset: str, *, show_progress: bool = True):
+        try:
+            key = self._KEYS[dataset]
+        except KeyError:
+            raise ValueError(f"Unknown raster dataset: {dataset!r}")
+        return f"/vsis3/{self.bucket}/{key}"
+
+
 # ---------------------------------------------------------------------------
 # Raster sampling
 # ---------------------------------------------------------------------------
@@ -217,12 +254,13 @@ def _sample_tif(tif_path: Path, lat: float, lon: float) -> float | None:
             value = float(list(ds.sample([(xs[0], ys[0])]))[0][0])
 
             if ds.nodata is not None and abs(value - ds.nodata) < 1.0:
-                log.debug("Nodata pixel at (%.4f, %.4f) in %s", lat, lon, tif_path.name)
+                log.debug("Nodata pixel at (%.4f, %.4f) in %s",
+                          lat, lon, os.path.basename(str(tif_path)))
                 return 0.0
 
             return max(value, 0.0)
     except Exception as e:
-        log.warning("Raster lookup failed (%s): %s", tif_path.name, e)
+        log.warning("Raster lookup failed (%s): %s", os.path.basename(str(tif_path)), e)
         return None
 
 
