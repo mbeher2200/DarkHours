@@ -41,6 +41,8 @@ def main():
                         help="Save --coords under a name for future use")
     parser.add_argument("--list-locations", action="store_true",
                         help="Show all saved/cached locations and exit")
+    parser.add_argument("--all", "-a", action="store_true",
+                        help="Enable --weather, --targets, --satellites, and --show-nearby (60 mi) in one flag")
     parser.add_argument("--weather", "-w", action="store_true",
                         help="Include weather forecast for the night (requires internet)")
     parser.add_argument("--targets", "-t", action="store_true",
@@ -48,12 +50,20 @@ def main():
     parser.add_argument("--show-nearby", metavar="MILES", nargs="?", const=60, type=int,
                         help=f"Show darker sky areas and light domes within MILES radius (default 60, max {_MAX_SEARCH_RADIUS})")
     parser.add_argument("--satellites", "-s", action="store_true",
-                        help="Show ISS pass times and Moon proximity for the night")
+                        help="Show ISS, Hubble Telescope, Tiangong, and Starlink train pass times and Moon proximity for the night")
     parser.add_argument("--units", choices=["imperial", "si"], default=None,
                         help="Unit system for temperature and wind speed (default: auto-detect from locale)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Print debug information to stderr")
     args = parser.parse_args()
+
+    # --all expands to its constituent flags; individual flags still work on their own
+    if args.all:
+        args.weather    = True
+        args.targets    = True
+        args.satellites = True
+        if args.show_nearby is None:
+            args.show_nearby = 60
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING,

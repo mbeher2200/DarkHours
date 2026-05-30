@@ -35,6 +35,25 @@ def get(key: str):
         return None
 
 
+def get_stale(key: str):
+    """Return cached value even if expired; None only if missing or unreadable.
+
+    Used for stale-while-revalidate: if a fresh fetch fails, callers can fall
+    back to the most recently cached value rather than returning nothing.
+    Unlike get(), this does NOT delete the entry when it is expired.
+    """
+    path = _key_path(key)
+    if not path.exists():
+        return None
+    try:
+        entry = json.loads(path.read_text())
+        log.debug("Cache stale-read: %s", key)
+        return entry["value"]
+    except Exception as e:
+        log.debug("Cache stale-read error for %s: %s", key, e)
+        return None
+
+
 def set(key: str, value, ttl_seconds: int | None = None) -> None:
     """Store value under key with optional TTL in seconds. None = no expiry."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)

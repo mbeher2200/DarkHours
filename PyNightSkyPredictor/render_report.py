@@ -506,59 +506,89 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
 
 
 def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
-    """Print ISS visible-pass table to stdout."""
+    """Print satellite visible-pass table and Starlink train summary to stdout."""
+
+    def _az(deg: float) -> str:
+        return f"{deg:.0f}°({cardinal(deg)})"
+
     tz_label  = ctx.local(report.sunset).strftime("%Z")
     hdr_range = f"{ctx.fmt_time(report.sunset)} – {ctx.fmt_time(report.sunrise)} {tz_label}"
-    print(f"ISS Passes  ({hdr_range}):\n")
+    print(f"Satellite Passes  ({hdr_range}):\n")
 
     # Unavailability messages take priority over the table
     if report.sat_stale:
-        print("  ISS pass predictions require a current TLE —"
+        print("  Satellite pass predictions require a current TLE —"
               " historical dates are not supported.\n")
         return
     if report.sat_future_stale:
-        print("  ISS pass predictions unavailable — TLE expires after ~7 days"
-              " and cannot cover this date.\n")
+        print("  ISS pass predictions longer than 7 days are highly inaccurate"
+              " and TLE data cannot accurately predict this date.\n")
+        return
+    if report.sat_network_error:
+        print("  ISS data unavailable — could not reach Celestrak and no cached TLE exists.\n")
         return
 
+    if report.sat_tle_stale:
+        print("  Note: Using cached TLE data (Celestrak unreachable) —"
+              " pass times may be slightly off.\n")
     if report.sat_future_warn:
         print("  Note: Pass times are approximate — TLE accuracy is limited beyond ~3 days.\n")
-
-    if not report.sat_passes:
-        print("  No visible ISS passes this night.\n")
-        return
 
     visible  = [p for p in report.sat_passes if p.in_sunlight and p.sky_dark]
     twilight = [p for p in report.sat_passes if p.in_sunlight and not p.sky_dark]
     shadow   = [p for p in report.sat_passes if not p.in_sunlight]
+    trains   = report.starlink_trains
 
-    if not visible and not twilight:
+    has_indiv  = bool(visible or twilight)
+    has_trains = bool(trains)
+
+    if not has_indiv and not has_trains:
         if shadow:
             noun = "pass" if len(shadow) == 1 else "passes"
-            print(f"  {len(shadow)} {noun} tonight but ISS is in Earth's shadow — not visible.\n")
+            print(f"  {len(shadow)} {noun} tonight but in Earth's shadow — not visible.\n")
         else:
-            print("  No visible ISS passes this night.\n")
+            print("  No visible satellite passes this night.\n")
+        if report.sat_starlink_unavailable:
+            print("  (Starlink train data unavailable — network error)\n")
         return
 
-    if not visible:
-        noun = "pass" if len(twilight) == 1 else "passes"
-        print(f"  No passes after dark — {len(twilight)} {noun} during civil twilight"
-              f" (sky too bright):\n")
+    # ── Starlink trains ──────────────────────────────────────────────────────
+    if has_trains:
+        noun = "Train" if len(trains) == 1 else "Trains"
+        print(f"  Starlink {noun}:\n")
+        for train in trains:
+            first_str    = ctx.fmt_time(train.first_rise)
+            last_str     = ctx.fmt_time(train.last_rise)
+            az_str       = _az(train.lead_az_deg)
+            moon_str     = (f"  ·  Moon Sep: {train.moon_sep_deg:.1f}°"
+                            if train.moon_sep_deg is not None else "")
+            sky_tag      = "  [civil twilight]" if not train.sky_dark else ""
+            if train.launch_date is not None:
+                days_ago     = (report.date - train.launch_date).days
+                launched_str = f"  ·  launched {days_ago}d ago"
+            else:
+                launched_str = ""
+            print(f"  {train.satellite_count} satellites{launched_str}{sky_tag}"
+                  f"  ·  {first_str} – {last_str}"
+                  f"  ·  Peak {train.peak_alt_deg:.0f}°"
+                  f"  ·  from {az_str}"
+                  f"{moon_str}")
+        print()
 
-    # ── 3-phase table: Rise (Time Alt Az) | Peak (Time Alt Az) | Set (Time Alt Az) ──
-    # Duration and Moon Separation shown as a labelled sub-line below each pass row.
-    # Az format: "179°(S)"
-    def _az(deg):
-        return f"{deg:.0f}°({cardinal(deg)})"
+    if report.sat_starlink_unavailable and not report.sat_network_error:
+        print("  (Starlink train data unavailable — network error)\n")
 
-    rows     = []   # 9-tuple: rise(time alt az) peak(time alt az) set(time alt az)
-    meta     = []   # per-pass (dur_str, moon_str) for the sub-line
+    if not has_indiv:
+        return
+
+    # ── Unified satellite pass table ─────────────────────────────────────────
+    rows     = []
     transits = []
 
-    for p in visible + twilight:
-        set_alt_str = f"{p.set_alt_deg:.0f}°"
-        if p.ends_in_shadow:
-            set_alt_str += "*"          # footnote — shadow entry above floor
+    display_passes = sorted(visible + twilight, key=lambda p: p.rise_time)
+    for p in display_passes:
+        sat_label   = p.satellite_name + (" †" if not p.sky_dark else "")
+        set_alt_str = f"{p.set_alt_deg:.0f}°" + ("*" if p.ends_in_shadow else "")
 
         if p.moon_transit:
             moon_str = f"TRANSIT {p.moon_transit_sep_deg:.3f}°"
@@ -571,24 +601,26 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
             moon_str = "—"
 
         rows.append((
-            ctx.fmt(p.rise_time),       # 0 rise time  (date + time)
-            f"{p.rise_alt_deg:.0f}°",   # 1 rise alt
-            _az(p.rise_az_deg),         # 2 rise az
-            ctx.fmt_time(p.peak_time),  # 3 peak time
-            f"{p.peak_alt_deg:.0f}°",   # 4 peak alt
-            _az(p.peak_az_deg),         # 5 peak az
-            ctx.fmt_time(p.set_time),   # 6 set time
-            set_alt_str,                # 7 set alt (possibly with *)
-            _az(p.set_az_deg),          # 8 set az
+            sat_label,
+            ctx.fmt_time(p.rise_time),
+            f"{p.rise_alt_deg:.0f}°",
+            _az(p.rise_az_deg),
+            ctx.fmt_time(p.peak_time),
+            f"{p.peak_alt_deg:.0f}°",
+            _az(p.peak_az_deg),
+            ctx.fmt_time(p.set_time),
+            set_alt_str,
+            _az(p.set_az_deg),
+            f"{p.duration_min:.0f}m",
+            moon_str,
         ))
-        meta.append((f"{p.duration_min:.0f}m", moon_str))
 
-    HDRS   = ("Time",  "Alt",  "Az",  "Time",  "Alt",  "Az",  "Time",  "Alt",  "Az")
-    ALIGNS = ("l",     "r",    "l",   "r",     "r",    "l",   "r",     "r",    "l")
+    COL_NAMES = ("Satellite",  "Time", "Alt", "Az", "Time", "Alt", "Az", "Time", "Alt", "Az", "Dur", "Moon Sep")
+    ALIGNS    = ("l",          "l",    "r",   "l",  "r",    "r",   "l",  "r",    "r",   "l",  "r",  "l")
 
     widths = [
-        max(len(HDRS[i]), max(len(r[i]) for r in rows))
-        for i in range(len(HDRS))
+        max(len(COL_NAMES[i]), max(len(r[i]) for r in rows))
+        for i in range(len(COL_NAMES))
     ]
 
     SEP = "  |  "
@@ -597,40 +629,36 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
         return f"{val:>{width}}" if align == "r" else f"{val:<{width}}"
 
     def _print_row(vals):
-        cells = [_fmt(vals[i], ALIGNS[i], widths[i]) for i in range(len(HDRS))]
+        cells = [_fmt(vals[i], ALIGNS[i], widths[i]) for i in range(len(COL_NAMES))]
         print("  "
-              + "  ".join(cells[0:3])
+              + cells[0] + "  "
+              + "  ".join(cells[1:4])
               + SEP
-              + "  ".join(cells[3:6])
+              + "  ".join(cells[4:7])
               + SEP
-              + "  ".join(cells[6:]))
+              + "  ".join(cells[7:10])
+              + "  "
+              + cells[10] + "  "
+              + cells[11])
 
-    # Column widths are computed across all passes so alignment is consistent.
-    # Each pass is printed as its own block: Duration/Moon Sep → phase header
-    # → column names → separator → data row.
-    g0_w = widths[0] + 2 + widths[1] + 2 + widths[2]
-    g1_w = widths[3] + 2 + widths[4] + 2 + widths[5]
+    # Group header row — blank Satellite column, then Rise | Peak | Set span labels
+    g_sat_w  = widths[0]
+    g_rise_w = widths[1] + 2 + widths[2] + 2 + widths[3]
+    g_peak_w = widths[4] + 2 + widths[5] + 2 + widths[6]
 
-    def _print_pass_block(row, dur_str, moon_str):
-        print(f"  Duration: {dur_str},  Moon Separation: {moon_str}")
-        print(f"  {'Rise':<{g0_w}}{SEP}{'Peak':<{g1_w}}{SEP}Set")
-        _print_row(HDRS)
-        _print_row(tuple("-" * widths[i] for i in range(len(HDRS))))
+    print(f"  {'':<{g_sat_w}}  {'Rise':<{g_rise_w}}{SEP}{'Peak':<{g_peak_w}}{SEP}Set")
+    _print_row(COL_NAMES)
+    _print_row(tuple("-" * widths[i] for i in range(len(COL_NAMES))))
+
+    for row in rows:
         _print_row(row)
-
-    for i, (row, (dur_str, moon_str)) in enumerate(zip(rows, meta)):
-        if i > 0:
-            print()
-        _print_pass_block(row, dur_str, moon_str)
 
     # Footnotes
     footnotes = []
-    if any(p.ends_in_shadow for p in visible + twilight):
-        footnotes.append("* Set alt > 10° — ISS entered Earth's shadow before geometric set")
-    if twilight and visible:
-        n    = len(twilight)
-        noun = "pass" if n == 1 else "passes"
-        footnotes.append(f"+{n} {noun} during civil twilight (sky too bright to observe)")
+    if any(p.ends_in_shadow for p in display_passes):
+        footnotes.append("* Set alt > 10° — satellite entered Earth's shadow before geometric set")
+    if twilight:
+        footnotes.append("† Pass during civil twilight — sky too bright to observe")
     if shadow:
         n    = len(shadow)
         noun = "pass" if n == 1 else "passes"
@@ -644,7 +672,7 @@ def print_sat_passes(report: NightReport, ctx: FormatCtx) -> None:
         print()
         for tp in transits:
             print(f"  *** Moon transit at {ctx.fmt(tp.moon_transit_time)}"
-                  f" — ISS crosses Moon's disc"
+                  f" — {tp.satellite_name} crosses Moon's disc"
                   f" ({tp.moon_transit_sep_deg:.3f}° separation) ***")
     print()
 

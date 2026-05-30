@@ -76,10 +76,15 @@ class NightReport:
     active_showers: list  = field(default_factory=list)
 
     # ISS (and other satellite) passes (populated when fetch_satellites=True)
-    sat_passes:       list = field(default_factory=list)
-    sat_stale:        bool = False  # True → past date, no historical TLE
-    sat_future_stale: bool = False  # True → too far ahead, TLE has expired
-    sat_future_warn:  bool = False  # True → 3-7 days out, accuracy warning only
+    sat_passes:               list = field(default_factory=list)
+    sat_stale:                bool = False  # True → past date, no historical TLE
+    sat_future_stale:         bool = False  # True → too far ahead, TLE has expired
+    sat_future_warn:          bool = False  # True → 3-7 days out, accuracy warning only
+    sat_tle_stale:            bool = False  # True → Celestrak unreachable; using expired cache
+    sat_network_error:        bool = False  # True → Celestrak unreachable AND no cached TLE
+    # Starlink trains (populated when fetch_satellites=True)
+    starlink_trains:          list = field(default_factory=list)  # list[StarlinkTrain]
+    sat_starlink_unavailable: bool = False  # True → Starlink group TLE fetch failed
 
 
 def assemble_night(
@@ -254,23 +259,49 @@ def assemble_night(
     active_showers = _tgt.active_meteor_showers(target)
 
     # --- Satellite passes (optional — requires Celestrak TLE fetch) ---
-    sat_pass_list = []
-    sat_stale        = False
-    sat_future_stale = False
-    sat_future_warn  = False
+    sat_pass_list             = []
+    starlink_train_list       = []
+    sat_stale                 = False
+    sat_future_stale          = False
+    sat_future_warn           = False
+    sat_tle_stale             = False
+    sat_network_error         = False
+    sat_starlink_unavailable  = False
     if fetch_satellites:
         from . import satellites as _sat
+        from . import tle_provider as _tle
         days_offset = (target - date.today()).days   # negative = past, positive = future
         sat_stale   = days_offset < 0               # fast-path: past dates, don't even try
         if not sat_stale:
             sat_future_warn = days_offset > 3
-            result = _sat.satellite_passes(lat, lon, sunset, sunrise)
-            if result is None:
-                # satellite_passes() refused due to TLE staleness (too far in future)
-                sat_future_stale = True
-                sat_future_warn  = False   # stale supersedes the softer warning
-            else:
-                sat_pass_list = result
+            for norad_id, sat_name in _tle.TRACKED_SATELLITES:
+                tle_result = _tle.get_tle(norad_id)
+                if tle_result.lines is None:
+                    # Complete failure — Celestrak unreachable and no cached TLE
+                    sat_network_error = True
+                    continue
+                if tle_result.stale:
+                    sat_tle_stale = True
+                result = _sat.satellite_passes(tle_result.lines, lat, lon, sunset, sunrise)
+                if result is None:
+                    # TLE too stale for this window (too far in future)
+                    sat_future_stale = True
+                    sat_future_warn  = False   # stale supersedes the softer warning
+                    continue
+                for sp in result:
+                    sp.satellite_name = sat_name
+                sat_pass_list.extend(result)
+            # Sort all passes from all satellites into chronological order
+            sat_pass_list.sort(key=lambda p: p.rise_time)
+
+            # --- Starlink trains ---
+            sl_tles, _sl_stale, sl_error = _tle.get_starlink_train_tles()
+            if sl_error and not sl_tles:
+                sat_starlink_unavailable = True
+            elif sl_tles:
+                starlink_train_list = _sat.starlink_train_passes(
+                    sl_tles, lat, lon, sunset, sunrise
+                )
 
     # --- Visible targets ---
     target_list = []
@@ -323,4 +354,8 @@ def assemble_night(
         sat_stale=sat_stale,
         sat_future_stale=sat_future_stale,
         sat_future_warn=sat_future_warn,
+        sat_tle_stale=sat_tle_stale,
+        sat_network_error=sat_network_error,
+        starlink_trains=starlink_train_list,
+        sat_starlink_unavailable=sat_starlink_unavailable,
     )

@@ -2,8 +2,10 @@
 """
 Satellite pass prediction — ISS and other bright satellites.
 
-TLE data from Celestrak; cached with a strict 6-hour TTL to stay within
-Celestrak's acceptable-use policy.  Do NOT reduce the TTL.
+Pure orbit computation: this module accepts a TLE supplied by the caller and
+computes passes.  TLE acquisition (fetch, cache, stale fallback) is handled
+by tle_provider.py so the CLI and a future webapp can each manage TLE
+lifecycle independently.
 
 Passes are computed with a coarse→fine approach:
   1. Coarse scan (10 s steps) across the full pass to locate the minimum
@@ -13,22 +15,17 @@ Passes are computed with a coarse→fine approach:
      Both scans are fully vectorised — total cost ≈ 2 ms per pass.
 
 Public API:
-    satellite_passes(lat, lon, t_start, t_end) → list[SatPass]
-    ISS_NORAD_ID                               → 25544
+    satellite_passes(tle_lines, lat, lon, t_start, t_end) → list[SatPass] | None
 """
 
 import logging
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 from skyfield.api import EarthSatellite, Loader, load, wgs84
-
-from . import cache as _cache
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +36,6 @@ _load = Loader(str(Path(__file__).resolve().parent))
 # Constants
 # ---------------------------------------------------------------------------
 
-ISS_NORAD_ID  = 25544
-_TLE_TTL      = 6 * 3600           # exactly 6 h — Celestrak rate-limit compliance
 _MIN_PASS_ALT = 10.0               # degrees — floor passed to find_events()
 _COARSE_STEP  = 10                 # seconds — coarse scan step across each pass
 _FINE_HALFWIN = 5.0                # seconds — ± window around coarse minimum for fine scan
@@ -48,7 +43,13 @@ _FINE_STEP    = 0.1                # seconds — fine scan step
 _MOON_RADIUS        = 0.26               # degrees — half of Moon's ~0.52° angular disc
 _FINE_TRIGGER       = _MOON_RADIUS * 4   # degrees — coarse min below this triggers fine scan
 _CIVIL_TWILIGHT_ALT = -6.0               # degrees — sun must be below this for sky to be dark
-_USER_AGENT         = "PyNightSkyPredictor/1.0 (open-source astronomical observation planner)"
+
+# Starlink train detection
+_TRAIN_GAP_S        = 120   # seconds — max rise-time gap between consecutive train members
+_TRAIN_MIN_COUNT    = 4     # minimum satellites to qualify as a train
+_TRAIN_AZ_TOLERANCE = 20    # degrees — max azimuth spread within a train
+                            # (same orbital plane → nearly identical rise azimuth; different
+                            # planes diverge by 45–180°, cleanly rejected by this threshold)
 
 
 # ---------------------------------------------------------------------------
@@ -86,53 +87,24 @@ class SatPass:
     moon_transit_sep_deg: Optional[float]      # minimum sep in degrees (fine scan only)
 
 
-# ---------------------------------------------------------------------------
-# TLE fetch and cache
-# ---------------------------------------------------------------------------
+@dataclass
+class StarlinkTrain:
+    """A group of Starlink satellites passing in close succession (train effect).
 
-def _fetch_tle_raw(norad_id: int) -> str:
+    Starlink trains form during the weeks after launch while satellites are
+    raising from their ~300 km parking orbit to ~550 km operational altitude.
+    Rise times of consecutive members are within _TRAIN_GAP_S seconds and
+    within _TRAIN_AZ_TOLERANCE degrees of each other.
     """
-    Fetch the raw 3-line TLE text from Celestrak for the given NORAD ID.
-    Raises RuntimeError on any network or format failure.
-    """
-    url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=TLE"
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            text = resp.read().decode("utf-8").strip()
-        lines = [l for l in text.splitlines() if l.strip()]
-        if len(lines) < 3:
-            raise RuntimeError(
-                f"Celestrak returned fewer than 3 TLE lines for NORAD {norad_id}"
-            )
-        log.debug("Fetched fresh TLE for NORAD %d (%d bytes)", norad_id, len(text))
-        return text
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Celestrak HTTP {e.code} for NORAD {norad_id}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Celestrak unreachable: {e.reason}") from e
-
-
-def _get_tle(norad_id: int) -> tuple[str, str, str]:
-    """
-    Return (name, line1, line2) for *norad_id*.
-    Uses a 6-hour disk cache to comply with Celestrak rate limits.
-    Raises RuntimeError if the TLE cannot be obtained.
-    """
-    key    = f"tle|{norad_id}"
-    cached = _cache.get(key)
-    if cached is not None:
-        lines = [l.strip() for l in cached.splitlines() if l.strip()]
-        if len(lines) >= 3:
-            log.debug("TLE cache hit for NORAD %d", norad_id)
-            return lines[0], lines[1], lines[2]
-
-    raw = _fetch_tle_raw(norad_id)
-    _cache.set(key, raw, ttl_seconds=_TLE_TTL)
-    lines = [l.strip() for l in raw.splitlines() if l.strip()]
-    if len(lines) < 3:
-        raise RuntimeError(f"Malformed TLE for NORAD {norad_id}: {raw!r}")
-    return lines[0], lines[1], lines[2]
+    satellite_count: int              # number of satellites in the train
+    first_rise:      datetime         # UTC rise time of the lead satellite
+    last_rise:       datetime         # UTC rise time of the trailing satellite
+    peak_alt_deg:    float            # highest peak altitude across the group
+    lead_az_deg:     float            # azimuth of the lead satellite at geometric rise
+    duration_min:    float            # mean pass duration across all members
+    moon_sep_deg:    Optional[float]  # moon sep of lead sat at peak; None if Moon below horizon
+    sky_dark:        bool             # True → sun < _CIVIL_TWILIGHT_ALT at lead pass peak
+    launch_date:     Optional[date]   # date of the batch launch; None if COSPAR ID unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -294,14 +266,18 @@ def _moon_proximity(satellite, observer, planets, ts, pass_group: tuple) -> dict
 # ---------------------------------------------------------------------------
 
 def satellite_passes(
-    lat:      float,
-    lon:      float,
-    t_start:  datetime,
-    t_end:    datetime,
-    norad_id: int = ISS_NORAD_ID,
+    tle_lines: tuple[str, str, str],
+    lat:       float,
+    lon:       float,
+    t_start:   datetime,
+    t_end:     datetime,
 ) -> list[SatPass] | None:
     """
-    Return all passes of *norad_id* over (*lat*, *lon*) between *t_start* and *t_end*.
+    Return all passes of the satellite described by *tle_lines* over (*lat*, *lon*)
+    between *t_start* and *t_end*.
+
+    *tle_lines* is a (name, line1, line2) tuple as returned by tle_provider.get_tle().
+    TLE acquisition (fetch, cache, stale fallback) is the caller's responsibility.
 
     Passes are included regardless of sunlight status; see SatPass.in_sunlight.
     Moon proximity is computed for every pass.
@@ -309,13 +285,8 @@ def satellite_passes(
     Returns None  if the TLE is too stale for the requested window (caller
                   should inform the user that predictions are unavailable).
     Returns []    if the TLE is usable but no passes occur during the window.
-    Returns []    if TLE data is unavailable or Celestrak is unreachable.
     """
-    try:
-        name, line1, line2 = _get_tle(norad_id)
-    except RuntimeError as e:
-        log.warning("TLE unavailable for NORAD %d: %s", norad_id, e)
-        return []
+    name, line1, line2 = tle_lines
 
     try:
         ts       = load.timescale()
@@ -335,7 +306,7 @@ def satellite_passes(
         tle_epoch   = satellite.epoch.utc_datetime()
         window_end_aware = t_end.replace(tzinfo=_tz.utc)
         if window_end_aware < tle_epoch:
-            log.warning(
+            log.debug(
                 "Target window ends %s before TLE epoch %s — "
                 "backward propagation unreliable; skipping satellite passes",
                 t_end.strftime("%Y-%m-%d %H:%M UTC"),
@@ -345,7 +316,7 @@ def satellite_passes(
         window_mid = t_start + (t_end - t_start) / 2
         future_days = (window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds() / 86400
         if future_days > 7:
-            log.warning(
+            log.debug(
                 "TLE epoch %s is %.1f days before target window — "
                 "predictions unreliable; skipping satellite passes",
                 tle_epoch.strftime("%Y-%m-%d %H:%M UTC"), future_days,
@@ -443,4 +414,160 @@ def satellite_passes(
 
     except Exception as e:
         log.warning("Satellite pass computation failed: %s", e, exc_info=True)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Starlink train detection
+# ---------------------------------------------------------------------------
+
+def _az_diff(az1: float, az2: float) -> float:
+    """Shortest angular difference between two azimuths, 0–180°."""
+    diff = abs(az1 - az2) % 360
+    return min(diff, 360 - diff)
+
+
+def _parse_cospar_launch_date(line1: str) -> Optional[date]:
+    """
+    Extract the launch date from the TLE line 1 International Designator (cols 9-16).
+
+    Format: YYLAUNCH_DOY + PIECE, e.g. "24191G" = 2024, day-of-year 191, piece G.
+    Returns None if the field is absent, a placeholder ("TBA"), or malformed.
+    """
+    try:
+        intl = line1[9:17].strip()
+        if len(intl) < 5 or not intl[:2].isdigit() or not intl[2:5].isdigit():
+            return None
+        year_2d = int(intl[:2])
+        year    = 2000 + year_2d if year_2d < 57 else 1900 + year_2d
+        doy     = int(intl[2:5])
+        return date(year, 1, 1) + timedelta(days=doy - 1)
+    except (ValueError, IndexError):
+        return None
+
+
+def starlink_train_passes(
+    train_tles: list[tuple[str, str, str]],
+    lat:        float,
+    lon:        float,
+    t_start:    datetime,
+    t_end:      datetime,
+) -> list[StarlinkTrain]:
+    """
+    Detect Starlink train passes over (*lat*, *lon*) between *t_start* and *t_end*.
+
+    Accepts a pre-filtered list of raising-phase Starlink TLEs from
+    tle_provider.get_starlink_train_tles().  Uses a lightweight single-point
+    sunlit check at pass peak (no shadow-window scan) since trains are
+    displayed as group summaries rather than precise rise/set events.
+
+    Groups passes into trains when:
+      - Rise times of consecutive members are ≤ _TRAIN_GAP_S seconds apart
+      - All members rise within _TRAIN_AZ_TOLERANCE degrees of the lead azimuth
+
+    Only groups with ≥ _TRAIN_MIN_COUNT satellites are returned.
+    Returns [] on any computation error (non-fatal).
+    """
+    if not train_tles:
+        return []
+
+    try:
+        from datetime import timezone as _tz
+
+        ts           = load.timescale()
+        planets      = _load("de421.bsp")
+        observer     = wgs84.latlon(lat, lon)
+        observer_pos = planets["earth"] + observer
+        earth        = planets["earth"]
+        moon_obj     = planets["moon"]
+        t0           = ts.from_datetime(t_start)
+        t1           = ts.from_datetime(t_end)
+
+        all_passes: list[dict] = []
+
+        for name, line1, line2 in train_tles:
+            try:
+                satellite = EarthSatellite(line1, line2, name, ts)
+
+                # Same epoch staleness guard as satellite_passes()
+                tle_epoch        = satellite.epoch.utc_datetime()
+                window_end_aware = t_end.replace(tzinfo=_tz.utc)
+                if window_end_aware < tle_epoch:
+                    continue
+                window_mid  = t_start + (t_end - t_start) / 2
+                future_days = (window_mid.replace(tzinfo=_tz.utc) - tle_epoch).total_seconds() / 86400
+                if future_days > 7:
+                    continue
+
+                times, events = satellite.find_events(
+                    observer, t0, t1, altitude_degrees=_MIN_PASS_ALT
+                )
+                for t_rise, t_peak, t_set in _group_passes(times, events):
+                    # Quick sunlit check — single point at peak
+                    if not bool(satellite.at(t_peak).is_sunlit(planets)):
+                        continue
+
+                    sun_alt          = _sun_alt_deg(planets, observer_pos, t_peak)
+                    peak_az, peak_alt = _az_alt(satellite, observer, t_peak)
+                    rise_az, _        = _az_alt(satellite, observer, t_rise)
+                    dur_min           = (t_set.tt - t_rise.tt) * 86400.0 / 60.0
+
+                    # Moon separation at peak (cheap single-point calc)
+                    sat_topo     = (satellite - observer).at(t_peak)
+                    moon_app     = observer_pos.at(t_peak).observe(moon_obj).apparent()
+                    moon_alt_deg = float(moon_app.altaz()[0].degrees)
+                    moon_sep     = (round(float(sat_topo.separation_from(moon_app).degrees), 1)
+                                    if moon_alt_deg > 0 else None)
+
+                    all_passes.append({
+                        "rise_time":   t_rise.utc_datetime(),
+                        "peak_alt":    float(peak_alt),
+                        "rise_az":     float(rise_az),
+                        "dur_min":     float(dur_min),
+                        "sky_dark":    sun_alt < _CIVIL_TWILIGHT_ALT,
+                        "moon_sep":    moon_sep,
+                        "launch_date": _parse_cospar_launch_date(line1),
+                    })
+            except Exception:
+                continue
+
+        if not all_passes:
+            return []
+
+        all_passes.sort(key=lambda p: p["rise_time"])
+
+        # ── Group into trains ────────────────────────────────────────────────
+        trains: list[StarlinkTrain] = []
+        i = 0
+        while i < len(all_passes):
+            lead  = all_passes[i]
+            group = [lead]
+            j     = i + 1
+            while j < len(all_passes):
+                cand = all_passes[j]
+                gap  = (cand["rise_time"] - group[-1]["rise_time"]).total_seconds()
+                if gap > _TRAIN_GAP_S:
+                    break
+                if _az_diff(cand["rise_az"], lead["rise_az"]) <= _TRAIN_AZ_TOLERANCE:
+                    group.append(cand)
+                j += 1
+
+            if len(group) >= _TRAIN_MIN_COUNT:
+                trains.append(StarlinkTrain(
+                    satellite_count = len(group),
+                    first_rise      = lead["rise_time"],
+                    last_rise       = group[-1]["rise_time"],
+                    peak_alt_deg    = round(max(p["peak_alt"] for p in group), 1),
+                    lead_az_deg     = round(lead["rise_az"], 1),
+                    duration_min    = round(sum(p["dur_min"] for p in group) / len(group), 1),
+                    moon_sep_deg    = lead["moon_sep"],
+                    sky_dark        = lead["sky_dark"],
+                    launch_date     = lead["launch_date"],
+                ))
+            i = j if j > i else i + 1
+
+        return trains
+
+    except Exception as e:
+        log.warning("Starlink train computation failed: %s", e, exc_info=True)
         return []
