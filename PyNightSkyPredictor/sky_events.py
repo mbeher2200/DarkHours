@@ -11,6 +11,8 @@ from pathlib import Path
 from skyfield.api import Loader, load, wgs84
 from skyfield import almanac
 
+from . import cache as _cache
+
 log = logging.getLogger(__name__)
 
 PHASE_NAMES = [
@@ -107,19 +109,20 @@ def dark_moon_intervals(events: list, night_start, night_end) -> list:
     return intervals
 
 
-_DARK_CYCLE_CACHE = Path.home() / ".pynightsky-predictor" / "dark_cycle_cache.json"
+# Dark-cycle windows are cached through the Cache port (local files or DynamoDB,
+# per backend) under a reserved system key. The whole dict is loaded/saved as one
+# blob, keeping the existing in-memory overlap-scan logic while becoming
+# cloud-shared and stateless. The __-prefix marks it as a non-cache system record
+# (clear_all/clear_expired skip it).
+_DARK_CYCLE_KEY = "__dark_cycle__"
 
 
 def _load_dark_cycle_cache() -> dict:
-    try:
-        return json.loads(_DARK_CYCLE_CACHE.read_text()) if _DARK_CYCLE_CACHE.exists() else {}
-    except Exception:
-        return {}
+    return _cache.get(_DARK_CYCLE_KEY) or {}
 
 
 def _save_dark_cycle_cache(cache: dict):
-    _DARK_CYCLE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    _DARK_CYCLE_CACHE.write_text(json.dumps(cache, indent=2))
+    _cache.set(_DARK_CYCLE_KEY, cache)
 
 
 def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> list:

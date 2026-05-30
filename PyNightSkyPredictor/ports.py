@@ -92,14 +92,13 @@ def _build_backend(name: str) -> Backend:
             raster_source=LocalRasterSource(),
         )
     if name == "aws":
-        # M2: rasters move to S3. Cache and geocode store remain local for now;
-        # M3 swaps them for DynamoDB-backed adapters.
-        from .cache import LocalFileCache
-        from .location import LocalGeocodeStore
+        # M2: rasters in S3. M3: cache + geocode store in DynamoDB → fully stateless.
+        from .cache import DynamoCache
+        from .location import DynamoGeocodeStore
         from .darksky import S3RasterSource
         return Backend(
-            cache=LocalFileCache(),
-            geocode_store=LocalGeocodeStore(),
+            cache=DynamoCache(),
+            geocode_store=DynamoGeocodeStore(),
             raster_source=S3RasterSource(),
         )
     raise ValueError(

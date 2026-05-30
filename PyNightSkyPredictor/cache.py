@@ -11,6 +11,7 @@ swaps to a cloud store (DynamoDB in M3). See ``ports.py``.
 import hashlib
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from . import ports
 log = logging.getLogger(__name__)
 
 _CACHE_DIR = Path.home() / ".pynightsky-predictor" / "cache"
+
+# Items whose key starts with this prefix are non-cache "system" records that
+# share the table (the geocode store, the dark-cycle blob). clear_all() and
+# clear_expired() skip them so a cache flush never wipes saved data.
+_SYSTEM_KEY_PREFIX = "__"
 
 
 class LocalFileCache:
@@ -104,6 +110,128 @@ class LocalFileCache:
         count = 0
         for path in self.cache_dir.glob("*.json"):
             path.unlink(missing_ok=True)
+            count += 1
+        return count
+
+
+# ── DynamoDB-backed cache (the 'aws' backend) ───────────────────────────────
+
+def _dynamo_table(table_name: str | None = None):
+    """Return a boto3 DynamoDB Table for the shared cache table.
+
+    Lazy-imports boto3 so the local backend never requires it. The table name
+    comes from PYNIGHTSKY_CACHE_TABLE; credentials/region resolve from the
+    standard AWS environment (task role in the cloud, AWS_PROFILE locally).
+    """
+    import boto3  # lazy: only needed for the aws backend
+    name = table_name or os.environ.get("PYNIGHTSKY_CACHE_TABLE")
+    if not name:
+        raise RuntimeError(
+            "PYNIGHTSKY_CACHE_TABLE is not set — required for the 'aws' cache backend."
+        )
+    return boto3.resource("dynamodb").Table(name)
+
+
+class DynamoCache:
+    """Cache backed by a DynamoDB table with native TTL.
+
+    Each item is ``{cache_key, value (JSON string), expires (epoch secs, optional)}``.
+    Values are stored as JSON text — like LocalFileCache — so dicts containing
+    floats round-trip exactly without DynamoDB's Decimal coercion.
+
+    DynamoDB TTL deletes expired items lazily (up to ~48h later), so ``get()``
+    still checks ``expires`` itself and treats an expired item as a miss —
+    matching the file cache's observable behavior. TTL only does the eventual
+    physical cleanup (and storage reclaim).
+    """
+
+    def __init__(self, table_name: str | None = None):
+        self._table_name = table_name
+        self._table = None  # built lazily on first use
+
+    @property
+    def table(self):
+        if self._table is None:
+            self._table = _dynamo_table(self._table_name)
+        return self._table
+
+    def get(self, key: str):
+        try:
+            item = self.table.get_item(Key={"cache_key": key}).get("Item")
+            if not item:
+                return None
+            expires = item.get("expires")
+            if expires is not None and time.time() > float(expires):
+                log.debug("Cache expired: %s", key)
+                return None
+            log.debug("Cache hit: %s", key)
+            return json.loads(item["value"])
+        except Exception as e:
+            log.debug("Cache read error for %s: %s", key, e)
+            return None
+
+    def get_stale(self, key: str):
+        try:
+            item = self.table.get_item(Key={"cache_key": key}).get("Item")
+            if not item:
+                return None
+            log.debug("Cache stale-read: %s", key)
+            return json.loads(item["value"])
+        except Exception as e:
+            log.debug("Cache stale-read error for %s: %s", key, e)
+            return None
+
+    def set(self, key: str, value, ttl_seconds: int | None = None) -> None:
+        item = {"cache_key": key, "value": json.dumps(value)}
+        if ttl_seconds is not None:
+            item["expires"] = int(time.time()) + ttl_seconds
+        try:
+            self.table.put_item(Item=item)
+            log.debug("Cache set: %s (ttl=%s)", key, ttl_seconds)
+        except Exception as e:
+            log.debug("Cache write error for %s: %s", key, e)
+
+    def invalidate(self, key: str) -> None:
+        try:
+            self.table.delete_item(Key={"cache_key": key})
+        except Exception as e:
+            log.debug("Cache invalidate error for %s: %s", key, e)
+
+    def _scan_keys(self):
+        """Yield (cache_key, expires) for every item, paginating the scan.
+        (`expires` is aliased to dodge any reserved-word collision.)"""
+        kwargs = {
+            "ProjectionExpression": "cache_key, #e",
+            "ExpressionAttributeNames": {"#e": "expires"},
+        }
+        while True:
+            resp = self.table.scan(**kwargs)
+            for it in resp.get("Items", []):
+                yield it["cache_key"], it.get("expires")
+            lek = resp.get("LastEvaluatedKey")
+            if not lek:
+                break
+            kwargs["ExclusiveStartKey"] = lek
+
+    def clear_expired(self) -> int:
+        """Delete expired non-system items. (DynamoDB TTL also does this lazily.)"""
+        now = time.time()
+        count = 0
+        for key, expires in list(self._scan_keys()):
+            if key.startswith(_SYSTEM_KEY_PREFIX):
+                continue
+            if expires is not None and now > float(expires):
+                self.table.delete_item(Key={"cache_key": key})
+                count += 1
+        return count
+
+    def clear_all(self) -> int:
+        """Delete all cache items, preserving __-prefixed system records."""
+        count = 0
+        for key, _ in list(self._scan_keys()):
+            if key.startswith(_SYSTEM_KEY_PREFIX):
+                continue
+            self.table.delete_item(Key={"cache_key": key})
             count += 1
         return count
 
