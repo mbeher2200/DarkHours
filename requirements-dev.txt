@@ -1,2 +1,3 @@
 -r requirements.txt
 pytest==9.0.3
+moto[dynamodb]==5.2.1   # in-process AWS mock for hermetic adapter contract tests
