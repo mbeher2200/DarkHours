@@ -7,6 +7,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# The rasterio wheel bundles GDAL but still links libexpat, which python:3.13-slim
+# omits — without it `import rasterio` fails at runtime. ca-certificates is already
+# present in slim (needed for GDAL /vsis3 HTTPS to S3).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Dependencies first for layer caching. requirements-api.txt pulls in
