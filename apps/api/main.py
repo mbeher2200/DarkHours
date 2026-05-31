@@ -36,15 +36,28 @@ app.add_middleware(
 )
 
 
+# ── input bounds (data sanity + abuse/DoS guards) ────────────────────────────
+_MIN_DATE = date(1900, 1, 1)        # de421.bsp ephemeris coverage (~1900–2050)
+_MAX_DATE = date(2050, 12, 31)
+_MAX_TRIP_DAYS = 30                  # /trip date-range span cap
+_MAX_TRIP_LOCATIONS = 10            # /trip location-count cap
+_MAX_NAME_LEN = 200                 # geocode query length cap
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _parse_date(s: str | None) -> date:
+def _parse_date(s: str | None, field: str = "date") -> date:
     if not s:
         return date.today()
     try:
-        return date.fromisoformat(s)
+        d = date.fromisoformat(s)
     except ValueError:
-        raise HTTPException(400, f"Invalid date {s!r} (expected YYYY-MM-DD).")
+        raise HTTPException(400, f"Invalid {field} {s!r} (expected YYYY-MM-DD).")
+    if not (_MIN_DATE <= d <= _MAX_DATE):
+        raise HTTPException(
+            400, f"{field} {s} is outside the supported ephemeris range "
+                 f"{_MIN_DATE.isoformat()}..{_MAX_DATE.isoformat()}.")
+    return d
 
 
 def _resolve(location: str | None, lat: float | None, lon: float | None):
@@ -58,7 +71,11 @@ def _resolve(location: str | None, lat: float | None, lon: float | None):
             raise HTTPException(502, str(e))      # geocoder unreachable
         return la, lo, disp, ZoneInfo(tz_name)
     if lat is not None and lon is not None:
-        return lat, lon, f"{lat:.4f}°, {lon:.4f}°", _loc.timezone_for(lat, lon)
+        try:
+            tz = _loc.timezone_for(lat, lon)
+        except ValueError as e:
+            raise HTTPException(400, str(e))   # e.g. no timezone for the point
+        return lat, lon, f"{lat:.4f}°, {lon:.4f}°", tz
     raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
 
 
@@ -71,7 +88,12 @@ def _month_bounds(month: str | None) -> tuple[date, date]:
         except ValueError:
             raise HTTPException(400, f"Invalid month {month!r} (expected YYYY-MM).")
     last = _cal.monthrange(start.year, start.month)[1]
-    return start, start.replace(day=last)
+    end = start.replace(day=last)
+    if start < _MIN_DATE or end > _MAX_DATE:
+        raise HTTPException(
+            400, f"month {start.strftime('%Y-%m')} is outside the supported range "
+                 f"{_MIN_DATE.year}..{_MAX_DATE.year}.")
+    return start, end
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
@@ -84,9 +106,9 @@ def healthz():
 
 @app.get("/night")
 def night(
-    location: str | None = None,
-    lat: float | None = None,
-    lon: float | None = None,
+    location: str | None = Query(None, max_length=_MAX_NAME_LEN),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
     date: str | None = Query(None, description="YYYY-MM-DD; default today"),
     weather: bool = True,
     targets: bool = False,
@@ -107,9 +129,9 @@ def night(
 
 @app.get("/calendar")
 def calendar(
-    location: str | None = None,
-    lat: float | None = None,
-    lon: float | None = None,
+    location: str | None = Query(None, max_length=_MAX_NAME_LEN),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
     month: str | None = Query(None, description="YYYY-MM; default current month"),
     weather: bool = False,
 ):
@@ -129,14 +151,25 @@ def trip(
     weather: bool = False,
 ):
     """Multi-location score matrix across a date range (synchronous; see M6 for async)."""
+    if len(locations) > _MAX_TRIP_LOCATIONS:
+        raise HTTPException(400, f"Too many locations: {len(locations)} (max {_MAX_TRIP_LOCATIONS}).")
+    s, e = _parse_date(start, "start"), _parse_date(end, "end")
+    if e < s:
+        raise HTTPException(400, "'end' must be on or after 'start'.")
+    if (e - s).days > _MAX_TRIP_DAYS:
+        raise HTTPException(
+            400, f"Date range too large: {(e - s).days} days (max {_MAX_TRIP_DAYS}). "
+                 f"Narrow the range — async support for longer trips is planned (M6).")
     locs = []
     for name in locations:
+        if len(name) > _MAX_NAME_LEN:
+            raise HTTPException(400, f"Location name too long (max {_MAX_NAME_LEN}).")
         try:
             la, lo, disp, tz_name = _loc.resolve(name)
-        except ValueError as e:
-            raise HTTPException(404, f"{name!r}: {e}")
-        except RuntimeError as e:
-            raise HTTPException(502, f"{name!r}: {e}")
+        except ValueError as ex:
+            raise HTTPException(404, f"{name!r}: {ex}")
+        except RuntimeError as ex:
+            raise HTTPException(502, f"{name!r}: {ex}")
         locs.append({"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name})
-    report = _trip.plan_trip(locs, _parse_date(start), _parse_date(end), fetch_weather=weather)
+    report = _trip.plan_trip(locs, s, e, fetch_weather=weather)
     return trip_report_to_dict(report)
