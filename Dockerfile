@@ -1,23 +1,24 @@
-# PyNightSky API container.
-# The rasterio wheel bundles GDAL (incl. /vsis3 + curl for S3 reads), so no
-# system GDAL package is needed — slim base is enough.
-FROM python:3.13-slim
+# PyNightSky API container — Amazon Linux 2023 base.
+# AWS-native (App Runner's own runtimes are AL2023), glibc (so the rasterio
+# manylinux wheel + bundled GDAL work, incl. /vsis3), and currently 0 CVEs.
+FROM amazonlinux:2023
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# The rasterio wheel bundles GDAL but still links libexpat, which python:3.13-slim
-# omits — without it `import rasterio` fails at runtime. ca-certificates is already
-# present in slim (needed for GDAL /vsis3 HTTPS to S3).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libexpat1 \
-    && rm -rf /var/lib/apt/lists/*
+# Python 3.13 from the AL2023 repos, then an isolated venv. (libexpat etc. that
+# the rasterio/GDAL wheel links are already present in the AL2023 userland.)
+RUN dnf install -y python3.13 python3.13-pip \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+RUN python3.13 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /app
 
 # Dependencies first for layer caching. requirements-api.txt pulls in
-# requirements.txt (the engine runtime) plus FastAPI/uvicorn.
+# requirements.txt (engine runtime) plus FastAPI/uvicorn.
 COPY requirements.txt requirements-api.txt ./
 RUN pip install -r requirements-api.txt
 
@@ -25,13 +26,15 @@ RUN pip install -r requirements-api.txt
 COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
 
-# Drop root: run the service as an unprivileged user. The aws backend reads rasters
-# from S3 and caches in DynamoDB, so no local filesystem writes are needed.
-RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
-USER appuser
+# Drop root: run as an unprivileged numeric UID. AL2023's base has no shadow-utils
+# (no useradd), and we don't need one — the aws backend reads rasters from S3 and
+# caches in DynamoDB, so nothing is written to the local filesystem. A writable
+# HOME is provided in case a library looks for one.
+ENV HOME=/home/appuser
+RUN mkdir -p /home/appuser && chown 10001:10001 /home/appuser
+USER 10001:10001
 
 EXPOSE 8080
 # Backend + cache table + raster bucket are injected as env at runtime (App Runner).
-# Default to the local backend so a bare `docker run` still starts.
 ENV PYNIGHTSKY_BACKEND=local
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
