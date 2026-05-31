@@ -28,7 +28,11 @@ run "Semgrep (SAST)" semgrep --error -q --metrics off \
   --config p/python --config p/security-audit --config p/secrets \
   PyNightSkyPredictor apps pynightsky.py tripbuilder.py
 
-# 4. Trivy (from its Docker image) — IaC misconfig + repo secrets + image CVEs
+# 4. gitleaks — secrets across the full git history (needs full clone / fetch-depth 0)
+run "gitleaks (secret history)" docker run --rm -v "$PWD:/repo" \
+  ghcr.io/gitleaks/gitleaks:latest git /repo --redact
+
+# 5. Trivy (from its Docker image) — IaC misconfig + repo secrets + image CVEs
 TRIVY=(docker run --rm -v "$PWD:/repo" -w /repo aquasec/trivy:latest)
 SKIP="--skip-dirs .venv,Sky,cdk.out,**/cdk.out,tools,.git"
 run "Trivy (IaC/Dockerfile misconfig)" "${TRIVY[@]}" config --severity HIGH,CRITICAL --exit-code 1 -q $SKIP .
