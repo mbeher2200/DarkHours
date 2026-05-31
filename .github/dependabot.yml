@@ -1,0 +1,31 @@
+version: 2
+updates:
+  # Python runtime + dev + security deps (root requirements*.txt). Grouped into one
+  # PR to keep the noise down.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # CDK Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/cdk"
+    schedule:
+      interval: "weekly"
+
+  # Container base image (Dockerfile FROM digest) — this is how base-OS security
+  # patches reach the image: a new amazonlinux:2023 publish -> a digest-bump PR.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions pinned versions in our workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

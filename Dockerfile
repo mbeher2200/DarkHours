@@ -1,7 +1,9 @@
 # PyNightSky API container — Amazon Linux 2023 base.
 # AWS-native (App Runner's own runtimes are AL2023), glibc (so the rasterio
 # manylinux wheel + bundled GDAL work, incl. /vsis3), and currently 0 CVEs.
-FROM amazonlinux:2023
+# Pinned by digest for reproducible builds; Dependabot (docker ecosystem) bumps it
+# when AWS republishes the tag, which is how we pick up base-OS security patches.
+FROM amazonlinux:2023@sha256:ad882807c6c88f478186fa2632637380e06071a303e2b3bd96ab71846a77c6a3
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
