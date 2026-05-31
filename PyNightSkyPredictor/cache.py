@@ -143,7 +143,11 @@ def _dynamo_table(table_name: str | None = None):
         raise RuntimeError(
             "PYNIGHTSKY_CACHE_TABLE is not set — required for the 'aws' cache backend."
         )
-    return boto3.resource("dynamodb").Table(name)
+    # Pass region explicitly: in a container/App Runner there's no ~/.aws/config to
+    # fall back on, so boto3 must get the region from the environment. Falls back to
+    # boto3's own resolution (profile/config) when neither env var is set (host/CLI).
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    return boto3.resource("dynamodb", region_name=region).Table(name)
 
 
 class DynamoCache:

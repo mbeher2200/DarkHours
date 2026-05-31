@@ -64,7 +64,12 @@ class DynamoGeocodeStore:
             return {}
 
     def save(self, data: dict) -> None:
-        self.table.put_item(Item={"cache_key": self._KEY, "value": json.dumps(data)})
+        try:
+            self.table.put_item(Item={"cache_key": self._KEY, "value": json.dumps(data)})
+        except Exception as e:
+            # A geocode-cache write failure must not fail the request — the lookup
+            # still succeeds, it just won't be cached for next time.
+            log.warning("Geocode store save failed (continuing uncached): %s", e)
 
 
 # Module-level helpers delegate to the active backend's geocode store so the
