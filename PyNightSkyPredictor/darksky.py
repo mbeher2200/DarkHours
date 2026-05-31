@@ -38,6 +38,7 @@ from pathlib import Path
 
 from . import cache
 from . import ports
+from . import _http
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ def _download(label: str, zip_url: str, tif_path: Path,
         print(f"  Source: {zip_url}")
 
     try:
-        with urllib.request.urlopen(zip_url, timeout=60) as resp:
+        with _http.urlopen(zip_url, timeout=60) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             buf   = io.BytesIO()
             downloaded = 0
@@ -653,7 +654,7 @@ def _overpass_natural_areas_in_radius(
             url,
             headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
         )
-        with urllib.request.urlopen(req, timeout=35) as resp:
+        with _http.urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read())
     except Exception as e:
         log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
@@ -766,7 +767,7 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
             url,
             headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _http.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
     except Exception as e:
         log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
