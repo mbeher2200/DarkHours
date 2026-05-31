@@ -1,3 +1,4 @@
--r requirements.txt
+-r requirements-api.txt   # engine + API (FastAPI) so test_api.py can import the app
 pytest==9.0.3
 moto[dynamodb]==5.2.1   # in-process AWS mock for hermetic adapter contract tests
+httpx==0.28.1           # FastAPI TestClient transport
