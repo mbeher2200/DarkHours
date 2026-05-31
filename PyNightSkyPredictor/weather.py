@@ -27,6 +27,8 @@ import re
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
+
+from . import _http
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -128,7 +130,7 @@ class OpenMeteoProvider(WeatherProvider):
         log.debug("Open-Meteo request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo request failed: {e}")
@@ -175,7 +177,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         log.debug("Open-Meteo Recent request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo Recent request failed: {e}")
@@ -230,7 +232,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         log.debug("Open-Meteo Historical request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo Historical request failed: {e}")
@@ -370,7 +372,7 @@ class NOAAProvider(WeatherProvider):
 
     def _get(self, url: str) -> dict:
         req = urllib.request.Request(url, headers=self._HEADERS)
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with _http.urlopen(req, timeout=12) as resp:
             return json.loads(resp.read())
 
     def forecast(self, lat: float, lon: float) -> list:
@@ -427,7 +429,7 @@ class SevenTimerProvider(WeatherProvider):
         log.debug("7Timer request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"7Timer request failed: {e}")

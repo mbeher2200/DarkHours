@@ -8,6 +8,7 @@ Run locally:   uvicorn apps.api.main:app --reload --port 8080
 Backend:       PYNIGHTSKY_BACKEND=local (default) or =aws (+ table/bucket env).
 """
 import calendar as _cal
+import os
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -23,10 +24,13 @@ from .serializers import night_report_to_dict, trip_report_to_dict
 app = FastAPI(title="PyNightSky API", version="0.1.0",
               description="Night-sky quality scoring for astrophotography planning.")
 
-# Permissive CORS for now; tighten to the SPA origin in M7.
+# CORS origins come from env (comma-separated); default is none, so no site can
+# read the API cross-origin in a browser. Non-browser clients (curl, server-to-
+# server) are unaffected. The SPA origin is added via PYNIGHTSKY_CORS_ORIGINS in M7.
+_cors_origins = [o.strip() for o in os.environ.get("PYNIGHTSKY_CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
