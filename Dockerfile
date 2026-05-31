@@ -25,6 +25,11 @@ RUN pip install -r requirements-api.txt
 COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
 
+# Drop root: run the service as an unprivileged user. The aws backend reads rasters
+# from S3 and caches in DynamoDB, so no local filesystem writes are needed.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
+USER appuser
+
 EXPOSE 8080
 # Backend + cache table + raster bucket are injected as env at runtime (App Runner).
 # Default to the local backend so a bare `docker run` still starts.
