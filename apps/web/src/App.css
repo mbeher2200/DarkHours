@@ -1,0 +1,358 @@
+.app {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── masthead ─────────────────────────────────────────────── */
+.masthead {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.masthead h1 {
+  font-size: 40px;
+  letter-spacing: -0.5px;
+  background: linear-gradient(120deg, #aab8ff, #7aa2ff 60%, #5ad19a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.masthead p {
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+/* ── cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 20px;
+}
+.card.error {
+  border-color: var(--poor);
+  color: #ffd6cc;
+  background: rgba(232, 118, 91, 0.08);
+}
+
+/* ── query form ───────────────────────────────────────────── */
+.query {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #0e1120;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+.mode-toggle button {
+  flex: 1;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.mode-toggle button.active {
+  background: var(--card);
+  color: var(--text-h);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.field input {
+  padding: 11px 12px;
+  background: #0e1120;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  color: var(--text-h);
+  font: inherit;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.submit {
+  padding: 13px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(120deg, #5b7fff, #7aa2ff);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ── report ───────────────────────────────────────────────── */
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.report-head .place {
+  font-size: 18px;
+}
+.report-head .when {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.overall {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+}
+.overall-num {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-h);
+}
+.overall-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.overall-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.band-excellent {
+  border-color: var(--excellent);
+}
+.band-excellent .overall-num {
+  color: var(--excellent);
+}
+.band-good {
+  border-color: var(--good);
+}
+.band-good .overall-num {
+  color: var(--good);
+}
+.band-fair {
+  border-color: var(--fair);
+}
+.band-fair .overall-num {
+  color: var(--fair);
+}
+.band-poor {
+  border-color: var(--poor);
+}
+.band-poor .overall-num {
+  color: var(--poor);
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 36px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.bar-label {
+  color: var(--text-dim);
+}
+.bar-track {
+  height: 8px;
+  background: #0e1120;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+.bar-fill.band-excellent {
+  background: var(--excellent);
+}
+.bar-fill.band-good {
+  background: var(--good);
+}
+.bar-fill.band-fair {
+  background: var(--fair);
+}
+.bar-fill.band-poor {
+  background: var(--poor);
+}
+.bar-value {
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.stat {
+  background: #0e1120;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.stat-value {
+  font-size: 17px;
+  color: var(--text-h);
+  margin-top: 3px;
+}
+.stat-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+details ul {
+  list-style: none;
+  padding: 10px 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.events li,
+.targets li {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  align-items: baseline;
+}
+.ev-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 92px;
+}
+.tg-type {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.tg-peak {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.colophon {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+/* ── weather table ────────────────────────────────────────── */
+.wx-details summary {
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.wx-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.wx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wx-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid var(--card-border);
+  white-space: nowrap;
+}
+.wx-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(35, 40, 67, 0.6);
+  color: var(--text);
+  white-space: nowrap;
+}
+.wx-table tr:last-child td {
+  border-bottom: none;
+}
+.wx-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.wx-num {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .bar-row {
+    grid-template-columns: 100px 1fr 32px;
+  }
+}
