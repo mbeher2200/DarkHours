@@ -1,0 +1,15 @@
+# Trivy ignore file (auto-loaded). Accepted findings, each scoped + justified —
+# this is the gate's documented-exception policy (mirrors how Bandit B310 etc. are
+# handled at source). Keep the scope as narrow as possible (id + path).
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - "Dockerfile.lambda"
+    statement: >-
+      Image runs as root only in the Lambda variant. AWS Lambda executes each
+      container in a per-invocation, isolated Firecracker microVM with a
+      read-only filesystem (only /tmp is writable, for any user), so the
+      container-escape risk DS-0002 targets does not apply as it would on a
+      long-lived shared host; root also avoids Lambda Web Adapter extension
+      friction. The App Runner image (Dockerfile) stays non-root and is NOT
+      covered by this exception.

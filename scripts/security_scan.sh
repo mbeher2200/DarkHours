@@ -35,8 +35,11 @@ run "gitleaks (secret history)" docker run --rm -v "$PWD:/repo" \
 # 5. Trivy (from its Docker image) — IaC misconfig + repo secrets + image CVEs
 TRIVY=(docker run --rm -v "$PWD:/repo" -w /repo aquasec/trivy:latest)
 SKIP="--skip-dirs .venv,Sky,cdk.out,**/cdk.out,tools,.git"
-run "Trivy (IaC/Dockerfile misconfig)" "${TRIVY[@]}" config --severity HIGH,CRITICAL --exit-code 1 -q $SKIP .
-run "Trivy (repo secrets)"             "${TRIVY[@]}" fs --scanners secret --exit-code 1 -q $SKIP .
+# Accepted findings live in .trivyignore.yaml (id+path scoped, with a reason). Trivy
+# only auto-loads plain .trivyignore, so point it at the YAML explicitly.
+IGNORE="--ignorefile .trivyignore.yaml"
+run "Trivy (IaC/Dockerfile misconfig)" "${TRIVY[@]}" config --severity HIGH,CRITICAL --exit-code 1 -q $IGNORE $SKIP .
+run "Trivy (repo secrets)"             "${TRIVY[@]}" fs --scanners secret --exit-code 1 -q $IGNORE $SKIP .
 
 if docker image inspect pynightsky-api:latest >/dev/null 2>&1; then
   docker save pynightsky-api:latest -o /tmp/_pns_scan.tar
