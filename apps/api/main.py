@@ -35,9 +35,9 @@ from .serializers import night_report_to_dict
 _xray_enabled = False
 if "LAMBDA_TASK_ROOT" in os.environ:
     try:
-        from aws_xray_sdk.core import xray_recorder, patch_all as _xray_patch_all
+        from aws_xray_sdk.core import xray_recorder, patch as _xray_patch
         xray_recorder.configure(context_missing="LOG_ERROR")
-        _xray_patch_all()          # instruments boto3 + urllib → X-Ray subsegments
+        _xray_patch(["boto3", "urllib"])    # boto3 for DynamoDB/S3, urllib for weather/TLE/geocode
         _xray_enabled = True
     except ImportError:
         pass
