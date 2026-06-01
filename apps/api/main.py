@@ -14,12 +14,13 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from PyNightSkyPredictor import location as _loc
-from PyNightSkyPredictor import trip as _trip
 from PyNightSkyPredictor.predictor import assemble_night
 
-from .serializers import night_report_to_dict, trip_report_to_dict
+from apps import jobs
+from .serializers import night_report_to_dict
 
 app = FastAPI(title="PyNightSky API", version="0.1.0",
               description="Night-sky quality scoring for astrophotography planning.")
@@ -127,6 +128,14 @@ def night(
     return night_report_to_dict(report)
 
 
+def _accepted(job_id: str) -> JSONResponse:
+    """202 with the job id + where to poll for the result."""
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job_id, "status": "pending", "poll": f"/jobs/{job_id}"},
+    )
+
+
 @app.get("/calendar")
 def calendar(
     location: str | None = Query(None, max_length=_MAX_NAME_LEN),
@@ -135,12 +144,13 @@ def calendar(
     month: str | None = Query(None, description="YYYY-MM; default current month"),
     weather: bool = False,
 ):
-    """Month-view night scores for one location (synchronous; see M6 for async)."""
-    la, lo, disp, tz = _resolve(location, lat, lon)
+    """Submit a month-view job for one location → 202 + job_id (poll /jobs/{id})."""
+    la, lo, disp, tz = _resolve(location, lat, lon)        # sync: validates + geocodes
     start, end = _month_bounds(month)
     loc_dict = {"lat": la, "lon": lo, "display_name": disp, "tz_name": str(tz)}
-    report = _trip.plan_trip([loc_dict], start, end, fetch_weather=weather)
-    return trip_report_to_dict(report)
+    job_id = jobs.submit({"locs": [loc_dict], "start": start.isoformat(),
+                          "end": end.isoformat(), "weather": weather})
+    return _accepted(job_id)
 
 
 @app.get("/trip")
@@ -150,7 +160,7 @@ def trip(
     end: str = Query(..., description="YYYY-MM-DD"),
     weather: bool = False,
 ):
-    """Multi-location score matrix across a date range (synchronous; see M6 for async)."""
+    """Submit a multi-location score-matrix job → 202 + job_id (poll /jobs/{id})."""
     if len(locations) > _MAX_TRIP_LOCATIONS:
         raise HTTPException(400, f"Too many locations: {len(locations)} (max {_MAX_TRIP_LOCATIONS}).")
     s, e = _parse_date(start, "start"), _parse_date(end, "end")
@@ -159,17 +169,29 @@ def trip(
     if (e - s).days > _MAX_TRIP_DAYS:
         raise HTTPException(
             400, f"Date range too large: {(e - s).days} days (max {_MAX_TRIP_DAYS}). "
-                 f"Narrow the range — async support for longer trips is planned (M6).")
+                 f"Narrow the range.")
     locs = []
     for name in locations:
         if len(name) > _MAX_NAME_LEN:
             raise HTTPException(400, f"Location name too long (max {_MAX_NAME_LEN}).")
         try:
-            la, lo, disp, tz_name = _loc.resolve(name)
+            la, lo, disp, tz_name = _loc.resolve(name)     # sync: validates + geocodes
         except ValueError as ex:
             raise HTTPException(404, f"{name!r}: {ex}")
         except RuntimeError as ex:
             raise HTTPException(502, f"{name!r}: {ex}")
         locs.append({"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name})
-    report = _trip.plan_trip(locs, s, e, fetch_weather=weather)
-    return trip_report_to_dict(report)
+    job_id = jobs.submit({"locs": locs, "start": s.isoformat(),
+                          "end": e.isoformat(), "weather": weather})
+    return _accepted(job_id)
+
+
+@app.get("/jobs/{job_id}")
+def job_status(job_id: str):
+    """Poll a submitted job. 404 until/unless it exists; otherwise the record:
+    {status: pending|done|error, result?/error?}. `result` is the TripReport dict
+    the synchronous endpoints used to return."""
+    rec = jobs.get(job_id)
+    if rec is None:
+        raise HTTPException(404, f"Unknown or expired job {job_id!r}.")
+    return rec
