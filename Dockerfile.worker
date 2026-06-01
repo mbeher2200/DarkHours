@@ -1,0 +1,35 @@
+# Async job worker image (M6.3). Same hardened Amazon Linux 2023 base + non-root
+# user as the API image, but instead of the Lambda Web Adapter (HTTP) it uses the
+# Lambda Runtime Interface Client (awslambdaric) so it runs as a normal handler for
+# SQS events. It needs rasterio/GDAL + the de421.bsp ephemeris to run plan_trip, so
+# it's a container (not the tiny warmer zip). Staying on AL2023 + non-root keeps it
+# 0-CVE and clear of Trivy DS-0002 (the AWS Lambda base image would run as root).
+FROM amazonlinux:2023@sha256:ad882807c6c88f478186fa2632637380e06071a303e2b3bd96ab71846a77c6a3
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN dnf install -y python3.13 python3.13-pip \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+RUN python3.13 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+WORKDIR /app
+# Engine runtime only (no FastAPI/uvicorn — the worker is SQS-triggered, not HTTP)
+# plus the Lambda Runtime Interface Client.
+COPY requirements.txt requirements-worker.txt ./
+RUN pip install -r requirements-worker.txt
+
+# App code — includes PyNightSkyPredictor/de421.bsp (ephemeris) which plan_trip needs.
+COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
+COPY apps/ ./apps/
+
+# Drop root (Lambda fs is read-only except /tmp, for any user).
+ENV HOME=/tmp
+USER 10001:10001
+
+# The RIC loads the handler and talks to the Lambda runtime API; CMD names the handler.
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["apps.worker.handler.handler"]

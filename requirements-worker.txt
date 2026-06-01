@@ -1,0 +1,5 @@
+# Async job worker (M6.3) dependencies: the engine runtime (rasterio/GDAL, skyfield,
+# boto3, …) — NO FastAPI/uvicorn, the worker is SQS-triggered, not HTTP — plus the
+# AWS Lambda Runtime Interface Client so an AL2023 image runs as a Lambda handler.
+-r requirements.txt
+awslambdaric==3.1.1
