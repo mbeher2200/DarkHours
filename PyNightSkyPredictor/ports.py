@@ -52,13 +52,54 @@ class RasterSource(Protocol):
 
 
 class Backend:
-    """Bundle of the three adapters chosen for the active environment."""
+    """Bundle of the three adapters chosen for the active environment.
 
-    def __init__(self, cache: Cache, geocode_store: GeocodeStore,
-                 raster_source: RasterSource):
-        self.cache = cache
-        self.geocode_store = geocode_store
-        self.raster_source = raster_source
+    Each adapter is built lazily on first access, so a consumer that only needs
+    one of them never imports the others. This matters in the cloud: the TLE
+    warmer (cache-only) must NOT pull in the raster adapter, which imports
+    ``darksky`` → ``rasterio`` (the 335 MB GDAL stack). ``name`` is validated
+    eagerly in ``_build_backend``; the adapter modules are imported on demand
+    (they ``import ports`` themselves, so importing them at module load would be
+    circular — by access time they are fully initialised)."""
+
+    def __init__(self, name: str):
+        self._name = name
+        self._cache: Cache | None = None
+        self._geocode_store: GeocodeStore | None = None
+        self._raster_source: RasterSource | None = None
+
+    @property
+    def cache(self) -> Cache:
+        if self._cache is None:
+            if self._name == "aws":
+                from .cache import DynamoCache
+                self._cache = DynamoCache()
+            else:
+                from .cache import LocalFileCache
+                self._cache = LocalFileCache()
+        return self._cache
+
+    @property
+    def geocode_store(self) -> GeocodeStore:
+        if self._geocode_store is None:
+            if self._name == "aws":
+                from .location import DynamoGeocodeStore
+                self._geocode_store = DynamoGeocodeStore()
+            else:
+                from .location import LocalGeocodeStore
+                self._geocode_store = LocalGeocodeStore()
+        return self._geocode_store
+
+    @property
+    def raster_source(self) -> RasterSource:
+        if self._raster_source is None:
+            if self._name == "aws":
+                from .darksky import S3RasterSource
+                self._raster_source = S3RasterSource()
+            else:
+                from .darksky import LocalRasterSource
+                self._raster_source = LocalRasterSource()
+        return self._raster_source
 
 
 _backend: Backend | None = None
@@ -80,27 +121,11 @@ def reset_backend() -> None:
 
 
 def _build_backend(name: str) -> Backend:
-    # Lazy imports: these modules import this one, so importing them at module
-    # load would be circular. By call time they are fully initialised.
-    if name == "local":
-        from .cache import LocalFileCache
-        from .location import LocalGeocodeStore
-        from .darksky import LocalRasterSource
-        return Backend(
-            cache=LocalFileCache(),
-            geocode_store=LocalGeocodeStore(),
-            raster_source=LocalRasterSource(),
+    # Validate eagerly (so a bad env var fails fast); adapters are constructed
+    # lazily per-attribute on the returned Backend.
+    # local → M1 file/disk adapters; aws → M2 S3 rasters + M3 DynamoDB cache/geocode.
+    if name not in ("local", "aws"):
+        raise ValueError(
+            f"Unknown PYNIGHTSKY_BACKEND={name!r} (expected 'local' or 'aws')."
         )
-    if name == "aws":
-        # M2: rasters in S3. M3: cache + geocode store in DynamoDB → fully stateless.
-        from .cache import DynamoCache
-        from .location import DynamoGeocodeStore
-        from .darksky import S3RasterSource
-        return Backend(
-            cache=DynamoCache(),
-            geocode_store=DynamoGeocodeStore(),
-            raster_source=S3RasterSource(),
-        )
-    raise ValueError(
-        f"Unknown PYNIGHTSKY_BACKEND={name!r} (expected 'local' or 'aws')."
-    )
+    return Backend(name)
