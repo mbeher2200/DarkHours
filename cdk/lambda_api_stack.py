@@ -28,6 +28,7 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_s3_deployment as s3deploy,
     aws_sqs as sqs,
+    aws_wafv2 as wafv2,
 )
 from constructs import Construct
 
@@ -161,10 +162,71 @@ class LambdaApiStack(Stack):
         )
         spa_origin = origins.S3BucketOrigin.with_origin_access_control(spa_bucket)
 
+        # --- M7.2: WAF in front of the distribution ---
+        # The CloudFront URL is public + unauthenticated, so before advertising it we put
+        # an AWS WAFv2 WebACL on the distribution. A CLOUDFRONT-scoped WebACL MUST live in
+        # us-east-1 (this stack is) and is attached via the distribution's web_acl_id (it
+        # wants the ARN, not the id). Default action ALLOW — the rules below subtract.
+        # Rules run in priority order (lowest first); first terminating match wins.
+        #   0  AmazonIpReputationList  — drop traffic from AWS-tracked malicious IPs first
+        #                                (cheapest reject; ~25 WCU).
+        #   1  KnownBadInputs          — block request patterns tied to known exploits/probes
+        #                                (~200 WCU). Low false-positive risk on a JSON API.
+        #   2  RateLimitPerIp          — block any single IP exceeding 200 requests / 5 min.
+        #                                Most legit /night hits are CloudFront cache hits and
+        #                                never reach this count; this throttles scripted abuse.
+        # Total ~227 WCU, well under the 1500-WCU default WebACL capacity. Managed groups use
+        # override_action=none so each group's own block/count actions apply unchanged.
+        managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
+            managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
+                vendor_name=vendor, name=name,
+            ),
+        )
+        vis = lambda metric: wafv2.CfnWebACL.VisibilityConfigProperty(
+            cloud_watch_metrics_enabled=True,
+            metric_name=metric,
+            sampled_requests_enabled=True,
+        )
+        web_acl = wafv2.CfnWebACL(
+            self, "ApiWaf",
+            scope="CLOUDFRONT",
+            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
+            visibility_config=vis("PyNightSkyWaf"),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="AmazonIpReputation",
+                    priority=0,
+                    override_action=wafv2.CfnWebACL.OverrideActionProperty(none={}),
+                    statement=managed("AWSManagedRulesAmazonIpReputationList"),
+                    visibility_config=vis("AmazonIpReputation"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="KnownBadInputs",
+                    priority=1,
+                    override_action=wafv2.CfnWebACL.OverrideActionProperty(none={}),
+                    statement=managed("AWSManagedRulesKnownBadInputsRuleSet"),
+                    visibility_config=vis("KnownBadInputs"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitPerIp",
+                    priority=2,
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=200,                 # requests per IP per 5-min window
+                            aggregate_key_type="IP",
+                        ),
+                    ),
+                    visibility_config=vis("RateLimitPerIp"),
+                ),
+            ],
+        )
+
         dist = cloudfront.Distribution(
             self, "Cdn",
             comment="PyNightSky SPA + API (S3 default, Lambda for API paths)",
             default_root_object="index.html",
+            web_acl_id=web_acl.attr_arn,
             default_behavior=cloudfront.BehaviorOptions(
                 origin=spa_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -210,3 +272,4 @@ class LambdaApiStack(Stack):
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
+        CfnOutput(self, "WebAclArn", value=web_acl.attr_arn)
