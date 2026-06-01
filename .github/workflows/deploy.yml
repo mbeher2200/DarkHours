@@ -70,6 +70,13 @@ jobs:
         run: |
           npm install -g aws-cdk@2
           pip install -r cdk/requirements.txt
+      # Build the SPA: the stack stages apps/web/dist as a CloudFront/S3 asset, so it
+      # must exist before `cdk deploy` synthesizes.
+      - name: Build SPA
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
       - name: cdk deploy PyNightSkyLambda
         working-directory: cdk
         env:

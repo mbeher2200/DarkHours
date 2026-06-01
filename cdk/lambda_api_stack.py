@@ -16,6 +16,7 @@ from aws_cdk import (
     Stack,
     CfnOutput,
     Duration,
+    RemovalPolicy,
     Tags,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
@@ -25,6 +26,7 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_lambda_event_sources as lambda_events,
     aws_s3 as s3,
+    aws_s3_deployment as s3deploy,
     aws_sqs as sqs,
 )
 from constructs import Construct
@@ -135,28 +137,67 @@ class LambdaApiStack(Stack):
             cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
             origin_request_policy=fwd_qs,
         )
+        # Cached Lambda GETs (single-night /night, /healthz) keyed on the query string.
+        api_cached = cloudfront.BehaviorOptions(
+            origin=origin,
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+            cache_policy=api_cache,
+        )
+
+        # --- M7.1: the SPA's static assets behind the SAME distribution ---
+        # A private bucket (OAC, no public access) holds the built React app. Serving it
+        # as the default behavior of this distribution means the SPA and API share one
+        # origin — the SPA calls the API with relative paths (/night?...), so it is
+        # same-origin: no CORS, no API URL baked into the bundle. apps/web/dist must be
+        # built (npm run build) before synth; CI does this in deploy.yml.
+        spa_bucket = s3.Bucket(
+            self, "SpaBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,    # assets are rebuilt from source
+            auto_delete_objects=True,
+        )
+        spa_origin = origins.S3BucketOrigin.with_origin_access_control(spa_bucket)
 
         dist = cloudfront.Distribution(
             self, "Cdn",
-            comment="PyNightSky API (Lambda origin via OAC)",
+            comment="PyNightSky SPA + API (S3 default, Lambda for API paths)",
+            default_root_object="index.html",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origin,
+                origin=spa_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-                cache_policy=api_cache,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
             additional_behaviors={
-                "/trip": no_cache,
+                "/night": api_cached,
+                "/healthz": api_cached,
                 "/calendar": no_cache,
+                "/trip": no_cache,
                 "/jobs/*": no_cache,
             },
+        )
+
+        # Upload the built SPA and invalidate the edge cache on every deploy. The asset
+        # path is resolved relative to this file so it works regardless of cwd.
+        spa_dist_path = os.path.join(os.path.dirname(__file__), "..", "apps", "web", "dist")
+        s3deploy.BucketDeployment(
+            self, "SpaDeploy",
+            sources=[s3deploy.Source.asset(spa_dist_path)],
+            destination_bucket=spa_bucket,
+            distribution=dist,
+            distribution_paths=["/*"],
         )
 
         # CloudFront→Function-URL needs BOTH invoke actions. The OAC helper above only
         # grants lambda:InvokeFunctionUrl; since an AWS change (Oct 2025) Function URL
         # invocation *also* requires lambda:InvokeFunction. Add it explicitly, scoped by
         # SourceArn to this one distribution. (Without it CloudFront gets 403.)
-        # NOTE: tracked for revisit once the SPA/front end is live — see plan loose-threads.
+        # M7.1 revisit (SPA now live on this same distribution): the grant is REQUIRED for
+        # API ingress and is already minimal — single action, single principal, SourceArn-
+        # locked to this distribution. Kept as-is; do not remove.
         fn.add_permission(
             "CdnInvokeFunction",
             principal=iam.ServicePrincipal("cloudfront.amazonaws.com"),
@@ -168,3 +209,4 @@ class LambdaApiStack(Stack):
 
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
+        CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
