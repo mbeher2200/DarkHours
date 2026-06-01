@@ -39,11 +39,15 @@ class LambdaApiStack(Stack):
         Tags.of(self).add("Env", "prod")
         Tags.of(self).add("Component", "api")
 
-        # --- the API as a container Lambda (from the ECR :lambda image) ---
+        # --- the API as a container Lambda (from the ECR image) ---
+        # CI passes the immutable git SHA via `-c imageTag=<sha>` so each deploy
+        # references a NEW tag — otherwise the mutable ":lambda" tag leaves the CFN
+        # template unchanged and CloudFormation won't pick up a rebuilt image.
+        image_tag = self.node.try_get_context("imageTag") or "lambda"
         repo = ecr.Repository.from_repository_name(self, "Repo", "pynightsky-api")
         fn = lambda_.DockerImageFunction(
             self, "Api",
-            code=lambda_.DockerImageCode.from_ecr(repo, tag_or_digest="lambda"),
+            code=lambda_.DockerImageCode.from_ecr(repo, tag_or_digest=image_tag),
             memory_size=2048,          # 2 GB ~= the App Runner sizing; ~1.2 vCPU
             timeout=Duration.seconds(120),
             environment={

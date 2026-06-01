@@ -5,6 +5,7 @@ import os
 import aws_cdk as cdk
 
 from lambda_api_stack import LambdaApiStack
+from cicd_stack import CicdStack
 
 app = cdk.App()
 _env = cdk.Environment(
@@ -14,6 +15,9 @@ _env = cdk.Environment(
 
 # Lambda + CloudFront is the live compute platform.
 LambdaApiStack(app, "PyNightSkyLambda", env=_env)
+
+# Keyless GitHub Actions deploys (OIDC provider + scoped deploy role).
+CicdStack(app, "PyNightSkyCicd", env=_env)
 
 # NOTE: the App Runner deployment (PyNightSkyStack in pynightsky_stack.py) was retired
 # and destroyed once the Lambda+CloudFront path was verified (M4.7). The class is kept

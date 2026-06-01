@@ -1,0 +1,80 @@
+name: deploy (Lambda + CloudFront)
+
+# Keyless deploy via GitHub OIDC (no stored AWS keys). Fires only on push to main;
+# the overhaul lives on aws-cloud-native and reaches main via the final merge PR.
+# Flow: test gate -> assume the OIDC deploy role -> build & push the :lambda image
+# (tagged with the git SHA) -> cdk deploy PyNightSkyLambda -c imageTag=<sha>.
+
+on:
+  push:
+    branches: ["main"]
+
+# OIDC needs id-token: write; checkout needs contents: read.
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false      # never interrupt an in-flight deploy
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: pynightsky-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # --- test gate: never deploy a red build (aws + raster tests auto-skip in CI) ---
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Tests (pytest)
+        run: python -m pytest -q
+
+      # --- assume the deploy role via OIDC (short-lived creds, no stored keys) ---
+      - name: Configure AWS credentials (OIDC)
+        id: aws
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # --- build the Lambda image (single amd64 manifest) and push :lambda + :<sha> ---
+      - name: Build & push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPO"
+          docker build --platform linux/amd64 --provenance=false \
+            -f Dockerfile.lambda \
+            -t "$IMAGE:lambda" -t "$IMAGE:${{ github.sha }}" .
+          docker push "$IMAGE:lambda"
+          docker push "$IMAGE:${{ github.sha }}"
+
+      # --- deploy the stack, pinning the function to this exact image tag ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install CDK + stack deps
+        run: |
+          npm install -g aws-cdk@2
+          pip install -r cdk/requirements.txt
+      - name: cdk deploy PyNightSkyLambda
+        working-directory: cdk
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ steps.aws.outputs.aws-account-id }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          PYNIGHTSKY_RASTER_BUCKET: ${{ secrets.PYNIGHTSKY_RASTER_BUCKET }}
+          PYNIGHTSKY_CACHE_TABLE: ${{ secrets.PYNIGHTSKY_CACHE_TABLE }}
+        run: cdk deploy PyNightSkyLambda --require-approval never -c imageTag=${{ github.sha }}
