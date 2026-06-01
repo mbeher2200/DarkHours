@@ -47,3 +47,6 @@ cdk.out/
 # The collection (PyNightSky.postman_collection.json) is always committed.
 postman/*.postman_environment.json
 !postman/PyNightSky.local.postman_environment.json
+
+# CDK warmer Lambda staging dir (built at synth)
+cdk/.warmer_build/
