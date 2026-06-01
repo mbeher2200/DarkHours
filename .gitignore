@@ -41,3 +41,9 @@ tools/lp_db/
 # AWS CDK infrastructure build artefacts (added ahead of M4)
 cdk.out/
 .cdk.staging/
+
+# Postman: environment files can carry the live CloudFront URL — keep them out of the
+# public repo. Ignore ALL env files, then re-include only the Local (localhost) one.
+# The collection (PyNightSky.postman_collection.json) is always committed.
+postman/*.postman_environment.json
+!postman/PyNightSky.local.postman_environment.json
