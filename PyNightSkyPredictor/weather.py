@@ -365,8 +365,10 @@ class NOAAProvider(WeatherProvider):
     """
     name    = "NOAA/NWS"
     _POINTS = "https://api.weather.gov/points/{lat},{lon}"
+    # NWS asks for a User-Agent identifying the app + a contact (so they can reach
+    # the operator on abuse/problems). The repo URL is the public contact point.
     _HEADERS = {
-        "User-Agent": "PyNightSkyPredictor/1.0",
+        "User-Agent": "PyNightSkyPredictor/1.0 (+https://github.com/mbeher2200/PyNightSkyPredictor)",
         "Accept":     "application/geo+json",
     }
 
@@ -614,7 +616,10 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         primary_name = _provider.name
         points = _provider.forecast(lat, lon)
     else:
-        # Auto-select: try NOAA, fall back to Open-Meteo for non-US coordinates
+        # Auto-select: try NOAA, then fall back to Open-Meteo for ANY NOAA failure —
+        # not just "outside coverage" but also api.weather.gov outages/timeouts/5xx —
+        # so a US user still gets a forecast during a weather.gov blip. Only if
+        # Open-Meteo ALSO fails does the error propagate (caller surfaces wx_error).
         try:
             points = NOAAProvider().forecast(lat, lon)
             primary_name = "NOAA/NWS"
@@ -622,10 +627,11 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         except RuntimeError as e:
             if "not covered" in str(e).lower():
                 log.debug("Outside NOAA coverage — using Open-Meteo for %.4f, %.4f", lat, lon)
-                points = OpenMeteoProvider().forecast(lat, lon)
-                primary_name = "Open-Meteo"
             else:
-                raise
+                log.warning("NOAA/NWS unavailable (%s) — falling back to Open-Meteo "
+                            "for %.4f, %.4f", e, lat, lon)
+            points = OpenMeteoProvider().forecast(lat, lon)
+            primary_name = "Open-Meteo"
 
     blended    = _blend_7timer(points, lat, lon)
     has_seeing = any(p.seeing_arcsec is not None for p in blended)
