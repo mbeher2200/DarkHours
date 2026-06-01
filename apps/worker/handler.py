@@ -11,11 +11,21 @@ Env: PYNIGHTSKY_BACKEND=aws, PYNIGHTSKY_CACHE_TABLE, PYNIGHTSKY_RASTER_BUCKET, A
 """
 import json
 import logging
+import os
+
+from apps.logging_config import configure as _configure_logging
+_configure_logging()
 
 from apps import jobs
 
 log = logging.getLogger()
-log.setLevel(logging.INFO)
+
+if "LAMBDA_TASK_ROOT" in os.environ:
+    try:
+        from aws_xray_sdk.core import patch_all as _xray_patch_all
+        _xray_patch_all()
+    except ImportError:
+        pass
 
 
 def handler(event, context=None):

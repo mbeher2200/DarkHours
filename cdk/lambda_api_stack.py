@@ -27,6 +27,10 @@ from aws_cdk import (
     aws_lambda_event_sources as lambda_events,
     aws_s3 as s3,
     aws_s3_deployment as s3deploy,
+    aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
+    aws_logs as logs,
+    aws_sns as sns,
     aws_sqs as sqs,
     aws_wafv2 as wafv2,
 )
@@ -44,6 +48,20 @@ class LambdaApiStack(Stack):
         Tags.of(self).add("Env", "prod")
         Tags.of(self).add("Component", "api")
 
+        # --- M7.3: explicit log groups (controlled retention; metric filters reference them) ---
+        api_log_group = logs.LogGroup(
+            self, "ApiLogGroup",
+            log_group_name="/pynightsky/api",
+            retention=logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        worker_log_group = logs.LogGroup(
+            self, "WorkerLogGroup",
+            log_group_name="/pynightsky/worker",
+            retention=logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         # --- the API as a container Lambda (from the ECR image) ---
         # CI passes the immutable git SHA via `-c imageTag=<sha>` so each deploy
         # references a NEW tag — otherwise the mutable ":lambda" tag leaves the CFN
@@ -55,10 +73,13 @@ class LambdaApiStack(Stack):
             code=lambda_.DockerImageCode.from_ecr(repo, tag_or_digest=image_tag),
             memory_size=2048,          # 2 GB ~= the App Runner sizing; ~1.2 vCPU
             timeout=Duration.seconds(120),
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=api_log_group,
             environment={
                 "PYNIGHTSKY_BACKEND": "aws",
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
+                "LOG_LEVEL": "INFO",
             },
         )
 
@@ -88,10 +109,13 @@ class LambdaApiStack(Stack):
             code=lambda_.DockerImageCode.from_ecr(worker_repo, tag_or_digest=worker_tag),
             memory_size=2048,
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
+            tracing=lambda_.Tracing.ACTIVE,
+            log_group=worker_log_group,
             environment={
                 "PYNIGHTSKY_BACKEND": "aws",
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
+                "LOG_LEVEL": "INFO",
             },
         )
         bucket.grant_read(worker)
@@ -269,7 +293,72 @@ class LambdaApiStack(Stack):
             ),
         )
 
+        # --- M7.3: upstream-error alarm + WAF request logging ---
+        # Metric filter on ERROR-level JSON records in the API log group. Any upstream
+        # call that fails hard (Nominatim/Celestrak log at ERROR; 7Timer logs at WARNING
+        # but also shows up in Logs Insights via the `service` field). A single alarm
+        # keeps it simple; drill down with Logs Insights `| filter service = "nominatim"`.
+        api_log_group.add_metric_filter(
+            "UpstreamErrorMetric",
+            metric_name="UpstreamErrors",
+            metric_namespace="PyNightSky",
+            metric_value="1",
+            filter_pattern=logs.FilterPattern.string_value("$.levelname", "=", "ERROR"),
+        )
+
+        # SNS topic for alarm notifications. Subscribe your email after deploy:
+        #   aws sns subscribe --profile <profile> --topic-arn <AlarmTopicArn> \
+        #     --protocol email --notification-endpoint <your@email.com>
+        alarm_topic = sns.Topic(self, "AlarmTopic", display_name="PyNightSky Alarms")
+
+        # Alarm: >= 3 upstream ERRORs in a 5-minute window → SNS.
+        # NOT_BREACHING on missing data so quiet periods don't false-alarm.
+        alarm = cloudwatch.Alarm(
+            self, "UpstreamErrorAlarm",
+            alarm_description="Upstream errors (Nominatim/Celestrak/7Timer) in last 5 min",
+            metric=cloudwatch.Metric(
+                namespace="PyNightSky",
+                metric_name="UpstreamErrors",
+                statistic="Sum",
+                period=Duration.minutes(5),
+            ),
+            threshold=3,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # WAF request logging (deferred from M7.2). Log group name MUST start with
+        # "aws-waf-logs-" for WAF→CloudWatch Logs delivery. A resource policy grants the
+        # delivery.logs service principal write access to the log streams under it.
+        waf_log_group = logs.LogGroup(
+            self, "WafLogs",
+            log_group_name="aws-waf-logs-pynightsky",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        logs.ResourcePolicy(
+            self, "WafLogsPolicy",
+            resource_policy_name="pynightsky-waf-logs-policy",
+            policy_statements=[
+                iam.PolicyStatement(
+                    principals=[iam.ServicePrincipal("delivery.logs.amazonaws.com")],
+                    actions=["logs:CreateLogStream", "logs:PutLogEvents"],
+                    resources=[f"{waf_log_group.log_group_arn}:*"],
+                    conditions={"StringEquals": {"aws:SourceAccount": self.account}},
+                )
+            ],
+        )
+        wafv2.CfnLoggingConfiguration(
+            self, "WafLogging",
+            log_destination_configs=[waf_log_group.log_group_arn],
+            resource_arn=web_acl.attr_arn,
+        )
+
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
         CfnOutput(self, "WebAclArn", value=web_acl.attr_arn)
+        CfnOutput(self, "AlarmTopicArn", value=alarm_topic.topic_arn)
+        CfnOutput(self, "WafLogGroupName", value=waf_log_group.log_group_name)

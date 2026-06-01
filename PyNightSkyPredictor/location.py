@@ -129,8 +129,10 @@ def resolve(name: str) -> tuple:
         geolocator = Nominatim(user_agent=USER_AGENT)
         result = geolocator.geocode(query, timeout=10)
     except GeocoderTimedOut:
+        log.error("Nominatim geocode timed out for %r", name, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding timed out for {name!r}. Check your connection.")
     except GeocoderServiceError as e:
+        log.error("Nominatim geocode service error: %s", e, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding service error: {e}")
 
     if result is None:
