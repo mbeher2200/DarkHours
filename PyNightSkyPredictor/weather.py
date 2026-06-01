@@ -485,7 +485,8 @@ def _blend_7timer(points: list, lat: float, lon: float) -> list:
     try:
         seven = SevenTimerProvider().forecast(lat, lon)
     except Exception as e:
-        log.debug("7Timer unavailable — proceeding without seeing data: %s", e)
+        log.warning("7Timer unavailable — proceeding without seeing data: %s", e,
+                    extra={"service": "7timer"})
         return points
 
     result = []
@@ -629,7 +630,8 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
                 log.debug("Outside NOAA coverage — using Open-Meteo for %.4f, %.4f", lat, lon)
             else:
                 log.warning("NOAA/NWS unavailable (%s) — falling back to Open-Meteo "
-                            "for %.4f, %.4f", e, lat, lon)
+                            "for %.4f, %.4f", e, lat, lon,
+                            extra={"service": "noaa"})
             points = OpenMeteoProvider().forecast(lat, lon)
             primary_name = "Open-Meteo"
 

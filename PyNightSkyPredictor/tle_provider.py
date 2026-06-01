@@ -136,6 +136,8 @@ def get_tle(norad_id: int) -> TLEResult:
             return TLEResult(lines=parsed, stale=True, error=err_msg)
 
     # 4. Complete failure — no cached data at all
+    log.error("Celestrak TLE unavailable with no fallback for NORAD %d: %s",
+              norad_id, err_msg, extra={"service": "celestrak"})
     return TLEResult(lines=None, stale=False, error=err_msg)
 
 

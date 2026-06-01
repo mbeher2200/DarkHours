@@ -7,20 +7,40 @@ lives here; handlers only resolve inputs, call the engine, and serialize.
 Run locally:   uvicorn apps.api.main:app --reload --port 8080
 Backend:       PYNIGHTSKY_BACKEND=local (default) or =aws (+ table/bucket env).
 """
+# Configure JSON logging before any engine import emits records.
+from apps.logging_config import configure as _configure_logging
+_configure_logging()
+
 import calendar as _cal
+import logging
 import os
+import time
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as _Request
 
 from PyNightSkyPredictor import location as _loc
 from PyNightSkyPredictor.predictor import assemble_night
 
 from apps import jobs
 from .serializers import night_report_to_dict
+
+# X-Ray tracing: LAMBDA_TASK_ROOT is always set inside Lambda but never in local dev
+# or tests, so this guard keeps tests clean and avoids patching urllib/boto3 locally.
+_xray_enabled = False
+if "LAMBDA_TASK_ROOT" in os.environ:
+    try:
+        from aws_xray_sdk.core import xray_recorder, patch_all as _xray_patch_all
+        xray_recorder.configure(context_missing="LOG_ERROR")
+        _xray_patch_all()          # instruments boto3 + urllib → X-Ray subsegments
+        _xray_enabled = True
+    except ImportError:
+        pass
 
 app = FastAPI(title="PyNightSky API", version="0.1.0",
               description="Night-sky quality scoring for astrophotography planning.")
@@ -35,6 +55,34 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+# Structured access log: path, status, duration, Lambda request-id.
+_access_log = logging.getLogger("pynightsky.access")
+
+class _AccessLog(BaseHTTPMiddleware):
+    async def dispatch(self, request: _Request, call_next):
+        t0 = time.monotonic()
+        response = await call_next(request)
+        _access_log.info(
+            "request",
+            extra={
+                "path": request.url.path,
+                "query": str(request.url.query),
+                "status": response.status_code,
+                "duration_ms": round((time.monotonic() - t0) * 1000, 1),
+                "request_id": request.headers.get("x-amzn-request-id", ""),
+            },
+        )
+        return response
+
+app.add_middleware(_AccessLog)
+
+if _xray_enabled:
+    try:
+        from aws_xray_sdk.ext.starlette.middleware import XRayMiddleware
+        app.add_middleware(XRayMiddleware, recorder=xray_recorder)
+    except ImportError:
+        pass
 
 
 # ── input bounds (data sanity + abuse/DoS guards) ────────────────────────────
