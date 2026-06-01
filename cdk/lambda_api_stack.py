@@ -23,7 +23,9 @@ from aws_cdk import (
     aws_ecr as ecr,
     aws_iam as iam,
     aws_lambda as lambda_,
+    aws_lambda_event_sources as lambda_events,
     aws_s3 as s3,
+    aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -63,6 +65,41 @@ class LambdaApiStack(Stack):
         bucket.grant_read(fn)               # s3:GetObject on the raster bucket
         table.grant_read_write_data(fn)     # DynamoDB cache get/set/invalidate
 
+        # --- async jobs: SQS queue + container-Lambda worker (M6.3) ---
+        # Long /calendar+/trip computes run off the request path. The API enqueues a
+        # job; this worker (a container Lambda — it needs rasterio) runs plan_trip and
+        # writes the result into the cache, where /jobs/{id} reads it. visibility_timeout
+        # must exceed the worker timeout; a DLQ catches messages that can't be processed.
+        dlq = sqs.Queue(self, "JobsDlq", retention_period=Duration.days(14))
+        jobs_queue = sqs.Queue(
+            self, "JobsQueue",
+            visibility_timeout=Duration.seconds(960),     # > worker timeout (900s)
+            retention_period=Duration.days(1),
+            dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=dlq),
+        )
+
+        worker_tag = self.node.try_get_context("imageTag") or "worker"
+        worker_repo = ecr.Repository.from_repository_name(self, "WorkerRepo", "pynightsky-worker")
+        worker = lambda_.DockerImageFunction(
+            self, "Worker",
+            code=lambda_.DockerImageCode.from_ecr(worker_repo, tag_or_digest=worker_tag),
+            memory_size=2048,
+            timeout=Duration.seconds(900),                # 15 min: large multi-night trips
+            environment={
+                "PYNIGHTSKY_BACKEND": "aws",
+                "PYNIGHTSKY_CACHE_TABLE": cache_table,
+                "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
+            },
+        )
+        bucket.grant_read(worker)
+        table.grant_read_write_data(worker)
+        worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
+
+        # The API can enqueue jobs and knows the queue URL (its presence flips the
+        # endpoints from inline to async).
+        jobs_queue.grant_send_messages(fn)
+        fn.add_environment("PYNIGHTSKY_JOBS_QUEUE_URL", jobs_queue.queue_url)
+
         # Function URL — AWS_IAM auth (public NONE is SCP-blocked); CloudFront signs it.
         furl = fn.add_function_url(auth_type=lambda_.FunctionUrlAuthType.AWS_IAM)
 
@@ -81,6 +118,24 @@ class LambdaApiStack(Stack):
             enable_accept_encoding_gzip=True,
         )
 
+        # The async endpoints must NOT be cached: /trip + /calendar return a fresh
+        # job_id each call, and /jobs/{id} status changes as the job runs. Disable
+        # caching but still forward the query string to the origin.
+        fwd_qs = cloudfront.OriginRequestPolicy(
+            self, "FwdQueryString",
+            comment="Forward query string to the Lambda origin (no caching)",
+            query_string_behavior=cloudfront.OriginRequestQueryStringBehavior.all(),
+            header_behavior=cloudfront.OriginRequestHeaderBehavior.none(),
+            cookie_behavior=cloudfront.OriginRequestCookieBehavior.none(),
+        )
+        no_cache = cloudfront.BehaviorOptions(
+            origin=origin,
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+            cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+            origin_request_policy=fwd_qs,
+        )
+
         dist = cloudfront.Distribution(
             self, "Cdn",
             comment="PyNightSky API (Lambda origin via OAC)",
@@ -90,6 +145,11 @@ class LambdaApiStack(Stack):
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                 cache_policy=api_cache,
             ),
+            additional_behaviors={
+                "/trip": no_cache,
+                "/calendar": no_cache,
+                "/jobs/*": no_cache,
+            },
         )
 
         # CloudFront→Function-URL needs BOTH invoke actions. The OAC helper above only
