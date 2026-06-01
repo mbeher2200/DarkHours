@@ -25,11 +25,13 @@ RUN pip install -r requirements-api.txt
 COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
 
-# Run as root here (the App Runner image stays non-root). Lambda runs this image
-# inside a per-invocation, isolated Firecracker microVM with a read-only filesystem
-# (only /tmp is writable, for any user), so the container-escape threat behind Trivy
-# DS-0002 doesn't apply the way it does on a long-lived shared host; root also avoids
-# Lambda Web Adapter extension-permission friction. This is an accepted finding,
-# scoped to THIS file in .trivyignore.yaml (the gate's documented-exception policy).
+# Drop root, same as the App Runner image — run as an unprivileged numeric UID.
+# The aws backend reads rasters from S3 and caches in DynamoDB (nothing is written to
+# the local filesystem), and Lambda's runtime filesystem is read-only except /tmp, so
+# point HOME at /tmp in case a library wants a writable home. The Lambda Web Adapter
+# runs as a Lambda *extension* managed by the runtime, independent of this app USER.
+ENV HOME=/tmp
+USER 10001:10001
+
 EXPOSE 8080
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
