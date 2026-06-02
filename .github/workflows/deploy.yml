@@ -63,7 +63,7 @@ jobs:
           docker push "$IMAGE:${{ github.sha }}"
 
       # --- deploy the stack, pinning the function to this exact image tag ---
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
       - name: Install CDK + stack deps
