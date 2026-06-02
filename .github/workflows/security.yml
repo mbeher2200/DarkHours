@@ -1,0 +1,54 @@
+name: CI — tests & security gate
+
+# Scan-only: runs the test suite + the full security gate on every push/PR.
+# Deploy is intentionally NOT here — it lands in M5 once the compute target
+# (App Runner successor) is chosen.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so the gitleaks scan sees all commits
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dev + security dependencies
+        run: pip install -r requirements-dev.txt -r requirements-security.txt
+
+      - name: Tests (pytest)
+        run: python -m pytest -q     # aws-marked + raster tests auto-skip in CI
+
+      - name: Build image (for Trivy scan)
+        run: docker build --provenance=false -t pynightsky-api:latest .
+
+      - name: Security gate (Bandit · pip-audit · Semgrep · gitleaks · Trivy)
+        run: scripts/security_scan.sh
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          docker save pynightsky-api:latest -o /tmp/img.tar
+          docker run --rm -v /tmp:/scan aquasec/trivy:latest image \
+            --input /scan/img.tar --format cyclonedx --output /scan/sbom.cdx.json -q
+          cp /tmp/sbom.cdx.json sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json

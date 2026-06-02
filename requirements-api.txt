@@ -1,0 +1,7 @@
+# Runtime dependencies for the HTTP API container = engine runtime + web layer.
+# The Dockerfile installs THIS file (not requirements.txt) so the image gets FastAPI.
+-r requirements.txt
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+python-json-logger==3.2.1
+aws-xray-sdk==2.14.0

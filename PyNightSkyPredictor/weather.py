@@ -27,6 +27,8 @@ import re
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
+
+from . import _http
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -128,7 +130,7 @@ class OpenMeteoProvider(WeatherProvider):
         log.debug("Open-Meteo request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo request failed: {e}")
@@ -175,7 +177,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         log.debug("Open-Meteo Recent request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo Recent request failed: {e}")
@@ -230,7 +232,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         log.debug("Open-Meteo Historical request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"Open-Meteo Historical request failed: {e}")
@@ -363,14 +365,16 @@ class NOAAProvider(WeatherProvider):
     """
     name    = "NOAA/NWS"
     _POINTS = "https://api.weather.gov/points/{lat},{lon}"
+    # NWS asks for a User-Agent identifying the app + a contact (so they can reach
+    # the operator on abuse/problems). The repo URL is the public contact point.
     _HEADERS = {
-        "User-Agent": "PyNightSkyPredictor/1.0",
+        "User-Agent": "PyNightSkyPredictor/1.0 (+https://github.com/mbeher2200/PyNightSkyPredictor)",
         "Accept":     "application/geo+json",
     }
 
     def _get(self, url: str) -> dict:
         req = urllib.request.Request(url, headers=self._HEADERS)
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with _http.urlopen(req, timeout=12) as resp:
             return json.loads(resp.read())
 
     def forecast(self, lat: float, lon: float) -> list:
@@ -427,7 +431,7 @@ class SevenTimerProvider(WeatherProvider):
         log.debug("7Timer request: %s", url)
 
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             raise RuntimeError(f"7Timer request failed: {e}")
@@ -481,7 +485,8 @@ def _blend_7timer(points: list, lat: float, lon: float) -> list:
     try:
         seven = SevenTimerProvider().forecast(lat, lon)
     except Exception as e:
-        log.debug("7Timer unavailable — proceeding without seeing data: %s", e)
+        log.warning("7Timer unavailable — proceeding without seeing data: %s", e,
+                    extra={"service": "7timer"})
         return points
 
     result = []
@@ -612,7 +617,10 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         primary_name = _provider.name
         points = _provider.forecast(lat, lon)
     else:
-        # Auto-select: try NOAA, fall back to Open-Meteo for non-US coordinates
+        # Auto-select: try NOAA, then fall back to Open-Meteo for ANY NOAA failure —
+        # not just "outside coverage" but also api.weather.gov outages/timeouts/5xx —
+        # so a US user still gets a forecast during a weather.gov blip. Only if
+        # Open-Meteo ALSO fails does the error propagate (caller surfaces wx_error).
         try:
             points = NOAAProvider().forecast(lat, lon)
             primary_name = "NOAA/NWS"
@@ -620,10 +628,12 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         except RuntimeError as e:
             if "not covered" in str(e).lower():
                 log.debug("Outside NOAA coverage — using Open-Meteo for %.4f, %.4f", lat, lon)
-                points = OpenMeteoProvider().forecast(lat, lon)
-                primary_name = "Open-Meteo"
             else:
-                raise
+                log.warning("NOAA/NWS unavailable (%s) — falling back to Open-Meteo "
+                            "for %.4f, %.4f", e, lat, lon,
+                            extra={"service": "noaa"})
+            points = OpenMeteoProvider().forecast(lat, lon)
+            primary_name = "Open-Meteo"
 
     blended    = _blend_7timer(points, lat, lon)
     has_seeing = any(p.seeing_arcsec is not None for p in blended)

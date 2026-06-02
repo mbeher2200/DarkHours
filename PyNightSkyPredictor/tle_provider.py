@@ -22,6 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from . import cache as _cache
+from . import _http
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def _fetch_tle_raw(norad_id: int) -> str:
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=TLE"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with _http.urlopen(req, timeout=15) as resp:
             text = resp.read().decode("utf-8").strip()
         lines = [l for l in text.splitlines() if l.strip()]
         if len(lines) < 3:
@@ -135,6 +136,8 @@ def get_tle(norad_id: int) -> TLEResult:
             return TLEResult(lines=parsed, stale=True, error=err_msg)
 
     # 4. Complete failure — no cached data at all
+    log.error("Celestrak TLE unavailable with no fallback for NORAD %d: %s",
+              norad_id, err_msg, extra={"service": "celestrak"})
     return TLEResult(lines=None, stale=False, error=err_msg)
 
 
@@ -233,7 +236,7 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
         # 2. Fetch fresh
         req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with _http.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8").strip()
             _cache.set(key, raw, ttl_seconds=TLE_TTL)
             log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))

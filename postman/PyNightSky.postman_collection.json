@@ -1,0 +1,213 @@
+{
+  "info": {
+    "name": "PyNightSky API",
+    "_postman_id": "a1b2c3d4-0000-4000-8000-pynightsky01",
+    "description": "Night-sky quality scoring API (FastAPI). All endpoints are GET, no auth (CloudFront→Lambda is signed by OAC, transparent to the client).\n\n## Setup\nSet the `baseUrl` variable via an Environment:\n- Local:  http://localhost:8080  (run: `uvicorn apps.api.main:app --reload --port 8080`)\n- AWS:    the CloudFront URL (kept out of the repo — paste it into a Postman environment)\n\n## Notes\n- **Weather/forecast horizon:** `weather=true` only fills in once the date is within ~7 days of today; further out you'll see `wx_pending: true` (not an error). Past dates use the ERA5 archive (no seeing).\n- **CloudFront caching:** responses are cached ~5 min keyed on the full query string. To force a fresh Lambda hit, enable the disabled `_` (cache-bust) param on a request.\n- **Validation:** bad/missing inputs return 4xx with a JSON `detail` message — see the 'Validation (expect 4xx)' folder.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /healthz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": ["{{baseUrl}}"],
+              "path": ["healthz"]
+            },
+            "description": "Liveness probe. Always `{\"status\":\"ok\"}`, no AWS calls."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Night",
+      "item": [
+        {
+          "name": "GET /night — by coordinates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/night?lat=40.0&lon=-105.0&weather=true&targets=false&satellites=false&_={{$timestamp}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["night"],
+              "query": [
+                { "key": "lat", "value": "40.0", "description": "-90..90 (out of range → 422)" },
+                { "key": "lon", "value": "-105.0", "description": "-180..180 (out of range → 422)" },
+                { "key": "date", "value": "", "description": "YYYY-MM-DD; default today. 1900..2050.", "disabled": true },
+                { "key": "weather", "value": "true", "description": "NOAA/NWS+7Timer (US) / Open-Meteo; fills within ~7 days" },
+                { "key": "targets", "value": "false", "description": "DSO target visibility windows" },
+                { "key": "satellites", "value": "false", "description": "ISS/Starlink passes (Celestrak TLE)" },
+                { "key": "_", "value": "{{$timestamp}}", "description": "cache-buster: enable to bypass CloudFront cache", "disabled": true }
+              ]
+            },
+            "description": "Single-night report from raw lat/lon (no geocoding). Uses the offline timezone lookup."
+          }
+        },
+        {
+          "name": "GET /night — by location name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/night?location=Boulder&weather=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["night"],
+              "query": [
+                { "key": "location", "value": "Boulder", "description": "Geocoded via Nominatim; ≤200 chars. Not found → 404." },
+                { "key": "date", "value": "", "description": "YYYY-MM-DD; default today", "disabled": true },
+                { "key": "weather", "value": "true" },
+                { "key": "targets", "value": "false", "disabled": true },
+                { "key": "satellites", "value": "false", "disabled": true },
+                { "key": "_", "value": "{{$timestamp}}", "description": "cache-buster", "disabled": true }
+              ]
+            },
+            "description": "Resolves a place name → lat/lon/timezone, then scores the night. Look at `wx_source`, `weather_points`, `score`, `light_pollution.bortle_class`."
+          }
+        },
+        {
+          "name": "GET /night — full (targets + satellites)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/night?location=Death Valley&weather=true&targets=true&satellites=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["night"],
+              "query": [
+                { "key": "location", "value": "Death Valley" },
+                { "key": "date", "value": "", "description": "YYYY-MM-DD; default today", "disabled": true },
+                { "key": "weather", "value": "true" },
+                { "key": "targets", "value": "true", "description": "adds visible_targets" },
+                { "key": "satellites", "value": "true", "description": "adds sat_passes / starlink_trains (slower — Celestrak fetch)" }
+              ]
+            },
+            "description": "Everything on. Slower the first time (TLE + weather fetch); subsequent calls hit the DynamoDB cache."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calendar",
+      "item": [
+        {
+          "name": "GET /calendar — month view (one location)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar?location=Boulder&month=2026-06&weather=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar"],
+              "query": [
+                { "key": "location", "value": "Boulder", "description": "or use lat & lon instead" },
+                { "key": "lat", "value": "40.0", "disabled": true },
+                { "key": "lon", "value": "-105.0", "disabled": true },
+                { "key": "month", "value": "2026-06", "description": "YYYY-MM; default current month" },
+                { "key": "weather", "value": "false", "description": "true is much slower (per-night fetch)" }
+              ]
+            },
+            "description": "Per-night scores across a whole month for one place. Synchronous — a cold month can take tens of seconds (async planned in M6). Keep weather=false for snappy results."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trip",
+      "item": [
+        {
+          "name": "GET /trip — compare locations over a range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trip?locations=Boulder&locations=Death Valley&start=2026-06-01&end=2026-06-03&weather=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["trip"],
+              "query": [
+                { "key": "locations", "value": "Boulder", "description": "repeatable — add this key multiple times (≤10)" },
+                { "key": "locations", "value": "Death Valley" },
+                { "key": "start", "value": "2026-06-01", "description": "YYYY-MM-DD" },
+                { "key": "end", "value": "2026-06-03", "description": "YYYY-MM-DD; span ≤30 days, ≥start" },
+                { "key": "weather", "value": "false" }
+              ]
+            },
+            "description": "Score matrix across several locations and dates → 'best' night/place. `locations` is a repeatable query param. Range capped at 30 days, 10 locations."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Validation (expect 4xx)",
+      "item": [
+        {
+          "name": "422 — lat out of range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/night?lat=999&lon=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["night"],
+              "query": [
+                { "key": "lat", "value": "999" },
+                { "key": "lon", "value": "0" }
+              ]
+            },
+            "description": "FastAPI query-bounds rejection (lat must be -90..90)."
+          }
+        },
+        {
+          "name": "400 — missing location and coords",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/night", "host": ["{{baseUrl}}"], "path": ["night"] },
+            "description": "Must provide 'location' or both 'lat' and 'lon'."
+          }
+        },
+        {
+          "name": "400 — date outside ephemeris range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/night?location=Boulder&date=1850-01-01",
+              "host": ["{{baseUrl}}"],
+              "path": ["night"],
+              "query": [
+                { "key": "location", "value": "Boulder" },
+                { "key": "date", "value": "1850-01-01", "description": "before 1900 → 400" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — trip range too large",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/trip?locations=Boulder&start=2026-01-01&end=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["trip"],
+              "query": [
+                { "key": "locations", "value": "Boulder" },
+                { "key": "start", "value": "2026-01-01" },
+                { "key": "end", "value": "2026-12-31", "description": ">30-day span → 400" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
