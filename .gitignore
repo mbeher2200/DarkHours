@@ -26,3 +26,27 @@ Predictor/
 
 # Light-pollution DB experiment (generated artefacts — not for version control)
 tools/lp_db/
+
+# Environment / secrets — local config and AWS credentials (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+
+# Geospatial rasters — large source/generated COGs live outside the repo
+# (the bundled de421.bsp ephemeris is .bsp, intentionally NOT matched here)
+*.tif
+*.tiff
+
+# AWS CDK infrastructure build artefacts (added ahead of M4)
+cdk.out/
+.cdk.staging/
+
+# Postman: environment files can carry the live CloudFront URL — keep them out of the
+# public repo. Ignore ALL env files, then re-include only the Local (localhost) one.
+# The collection (PyNightSky.postman_collection.json) is always committed.
+postman/*.postman_environment.json
+!postman/PyNightSky.local.postman_environment.json
+
+# CDK warmer Lambda staging dir (built at synth)
+cdk/.warmer_build/

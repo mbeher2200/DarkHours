@@ -1,0 +1,37 @@
+# Lambda variant of the API image: same Amazon Linux 2023 runtime as the App Runner
+# image, plus the AWS Lambda Web Adapter so the *unchanged* FastAPI/uvicorn app runs
+# as a Lambda container behind a Function URL (no code changes, no Mangum).
+FROM amazonlinux:2023@sha256:ad882807c6c88f478186fa2632637380e06071a303e2b3bd96ab71846a77c6a3
+
+# Lambda Web Adapter (external extension): bridges Lambda invokes <-> local uvicorn.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    AWS_LWA_PORT=8080 \
+    AWS_LWA_READINESS_CHECK_PATH=/healthz \
+    PYNIGHTSKY_BACKEND=local
+
+RUN dnf install -y python3.13 python3.13-pip \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+RUN python3.13 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+WORKDIR /app
+COPY requirements.txt requirements-api.txt ./
+RUN pip install -r requirements-api.txt
+COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
+COPY apps/ ./apps/
+
+# Drop root, same as the App Runner image — run as an unprivileged numeric UID.
+# The aws backend reads rasters from S3 and caches in DynamoDB (nothing is written to
+# the local filesystem), and Lambda's runtime filesystem is read-only except /tmp, so
+# point HOME at /tmp in case a library wants a writable home. The Lambda Web Adapter
+# runs as a Lambda *extension* managed by the runtime, independent of this app USER.
+ENV HOME=/tmp
+USER 10001:10001
+
+EXPOSE 8080
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8080"]

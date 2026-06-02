@@ -1,0 +1,30 @@
+# Keep the build context small and the image clean.
+.git/
+.github/
+.venv/
+Sky/
+Predictor/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+.DS_Store
+
+# Not needed in the runtime image
+tests/
+docs/
+cdk/
+tools/            # includes the 446 MB lp_db experiment
+*.md
+LICENSE
+requirements-dev.txt
+Dockerfile
+.dockerignore
+.gitignore
+
+# Large geodata never belongs in the image (rasters are read from S3)
+*.tif
+*.tiff
+*.cog
+*.zip

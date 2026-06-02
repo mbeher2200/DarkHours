@@ -306,17 +306,25 @@ Top Nights:
 
 ## Installation
 
+Requires **Python 3.13**.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # runtime dependencies
+pip install -r requirements-dev.txt      # + pytest, for running the test suite
 ```
+
+`requirements.txt` holds only the runtime libraries (the lean set destined for the future
+container image); `requirements-dev.txt` layers the test toolchain on top.
 
 ---
 
 ## Architecture
 
 Three layers — engine, formatting, and rendering — with two CLI shells on top. The engine has no print statements and returns only dataclasses, so it can be called directly from a web backend.
+
+External I/O — caching, the saved-location store, and the light-pollution rasters — is reached through three narrow interfaces in `ports.py`, with the concrete implementation selected once from the `PYNIGHTSKY_BACKEND` environment variable (default `local`). The same engine can therefore run against local files (the CLI) or, in the future, cloud services without changing any call sites.
 
 **Engine** (pure functions, no I/O):
 
@@ -331,13 +339,14 @@ Three layers — engine, formatting, and rendering — with two CLI shells on to
 | `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
 | `PyNightSkyPredictor/targets.json` | Curated target catalog |
 | `PyNightSkyPredictor/config.py` | Configuration loader (`config.json`) |
-| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search |
+| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search; `LocalRasterSource` adapter |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
-| `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution |
+| `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
 | `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
 | `PyNightSkyPredictor/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
 | `PyNightSkyPredictor/trip.py` | Trip planning engine |
-| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL |
+| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache` adapter |
+| `PyNightSkyPredictor/ports.py` | I/O backend interfaces (`Cache`, `GeocodeStore`, `RasterSource`) + `PYNIGHTSKY_BACKEND` selector |
 
 **Formatting** — `PyNightSkyPredictor/format_ctx.py`: timezone/unit conversion, locale detection.
 
@@ -383,6 +392,8 @@ All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/
 ---
 
 ## Testing
+
+Requires the dev dependencies (`pip install -r requirements-dev.txt`).
 
 ```bash
 python -m pytest                  # Full suite — 105 tests

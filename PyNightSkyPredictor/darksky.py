@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import math
+import os
 import threading
 import time
 import urllib.parse
@@ -36,6 +37,8 @@ import zipfile
 from pathlib import Path
 
 from . import cache
+from . import ports
+from . import _http
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +126,7 @@ def _download(label: str, zip_url: str, tif_path: Path,
         print(f"  Source: {zip_url}")
 
     try:
-        with urllib.request.urlopen(zip_url, timeout=60) as resp:
+        with _http.urlopen(zip_url, timeout=60) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             buf   = io.BytesIO()
             downloaded = 0
@@ -167,6 +170,71 @@ def _download_falchi(show_progress: bool = True) -> None:
               _FALCHI_ZIP_URL, _FALCHI_TIF, show_progress)
 
 
+class LocalRasterSource:
+    """Resolve a dataset name to a local GeoTIFF path, downloading on first use.
+
+    The default (local) RasterSource adapter. ``path_for`` returns a ``Path`` that
+    ``rasterio.open`` accepts directly; the S3 adapter in M2 will return a
+    ``/vsis3/...`` URI instead, leaving the sampling code untouched.
+    """
+
+    _DATASETS = {
+        "viirs":  (_download_viirs,  _VIIRS_TIF),
+        "falchi": (_download_falchi, _FALCHI_TIF),
+    }
+
+    def path_for(self, dataset: str, *, show_progress: bool = True):
+        try:
+            downloader, path = self._DATASETS[dataset]
+        except KeyError:
+            raise ValueError(f"Unknown raster dataset: {dataset!r}")
+        downloader(show_progress=show_progress)
+        return path
+
+
+class S3RasterSource:
+    """Read the light-pollution COGs from S3 in place via GDAL ``/vsis3``.
+
+    Nothing is downloaded — ``rasterio.open`` range-reads only the COG tiles it
+    needs over HTTPS. The bucket comes from the ``PYNIGHTSKY_RASTER_BUCKET``
+    environment variable (kept out of source so the public repo carries no bucket
+    name). Credentials and region resolve from the standard AWS environment: an
+    instance/task role in the cloud, or ``AWS_PROFILE`` locally.
+    """
+
+    _KEYS = {
+        "viirs":  "viirs_2025_cog.tif",
+        "falchi": "world_atlas_2016_cog.tif",
+    }
+
+    def __init__(self, bucket: str | None = None):
+        self._bucket = bucket
+        # GDAL /vsis3 tuning for COG-over-S3: don't list the bucket on open
+        # (one fewer round-trip), restrict to .tif, and cache fetched ranges.
+        os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+        os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
+        os.environ.setdefault("VSI_CACHE", "TRUE")
+
+    @property
+    def bucket(self) -> str:
+        # Resolved lazily (like DynamoCache's table) so constructing the backend
+        # for a cache-only operation doesn't require the raster bucket env var.
+        b = self._bucket or os.environ.get("PYNIGHTSKY_RASTER_BUCKET")
+        if not b:
+            raise RuntimeError(
+                "PYNIGHTSKY_RASTER_BUCKET is not set — required for the 'aws' "
+                "raster backend (the S3 bucket holding the COGs)."
+            )
+        return b
+
+    def path_for(self, dataset: str, *, show_progress: bool = True):
+        try:
+            key = self._KEYS[dataset]
+        except KeyError:
+            raise ValueError(f"Unknown raster dataset: {dataset!r}")
+        return f"/vsis3/{self.bucket}/{key}"
+
+
 # ---------------------------------------------------------------------------
 # Raster sampling
 # ---------------------------------------------------------------------------
@@ -194,19 +262,20 @@ def _sample_tif(tif_path: Path, lat: float, lon: float) -> float | None:
             value = float(list(ds.sample([(xs[0], ys[0])]))[0][0])
 
             if ds.nodata is not None and abs(value - ds.nodata) < 1.0:
-                log.debug("Nodata pixel at (%.4f, %.4f) in %s", lat, lon, tif_path.name)
+                log.debug("Nodata pixel at (%.4f, %.4f) in %s",
+                          lat, lon, os.path.basename(str(tif_path)))
                 return 0.0
 
             return max(value, 0.0)
     except Exception as e:
-        log.warning("Raster lookup failed (%s): %s", tif_path.name, e)
+        log.warning("Raster lookup failed (%s): %s", os.path.basename(str(tif_path)), e)
         return None
 
 
 def _viirs_radiance(lat: float, lon: float) -> float | None:
     """Return VIIRS 2025 radiance (nW/cm²/sr), downloading the TIF if needed."""
-    _download_viirs()
-    value = _sample_tif(_VIIRS_TIF, lat, lon)
+    path  = ports.get_backend().raster_source.path_for("viirs")
+    value = _sample_tif(path, lat, lon)
     if value is not None:
         log.debug("VIIRS radiance at (%.4f, %.4f): %.3f nW/cm²/sr", lat, lon, value)
     return value
@@ -214,8 +283,8 @@ def _viirs_radiance(lat: float, lon: float) -> float | None:
 
 def _falchi_luminance(lat: float, lon: float) -> float | None:
     """Return Falchi 2016 artificial luminance (mcd/m²), downloading if needed."""
-    _download_falchi()
-    value = _sample_tif(_FALCHI_TIF, lat, lon)
+    path  = ports.get_backend().raster_source.path_for("falchi")
+    value = _sample_tif(path, lat, lon)
     if value is not None:
         log.debug("Falchi luminance at (%.4f, %.4f): %.4f mcd/m²", lat, lon, value)
     return value
@@ -435,15 +504,16 @@ def _bulk_bortle_lookup(coords: list) -> list:
         log.warning("rasterio not installed; cannot sample dark-sky grid")
         return [None] * len(coords)
 
-    _download_viirs(show_progress=False)
-    _download_falchi(show_progress=False)
+    src         = ports.get_backend().raster_source
+    viirs_path  = src.path_for("viirs",  show_progress=False)
+    falchi_path = src.path_for("falchi", show_progress=False)
 
     results       = [None] * len(coords)
     falchi_needed = []
 
     # VIIRS pass — covers all measurably-lit points
     try:
-        with rasterio.open(_VIIRS_TIF) as ds:
+        with rasterio.open(viirs_path) as ds:
             lons = [c[1] for c in coords]
             lats = [c[0] for c in coords]
             if ds.crs and ds.crs.to_epsg() != 4326:
@@ -471,7 +541,7 @@ def _bulk_bortle_lookup(coords: list) -> list:
     if falchi_needed:
         try:
             fc = [coords[i] for i in falchi_needed]
-            with rasterio.open(_FALCHI_TIF) as ds:
+            with rasterio.open(falchi_path) as ds:
                 lons = [c[1] for c in fc]
                 lats = [c[0] for c in fc]
                 if ds.crs and ds.crs.to_epsg() != 4326:
@@ -584,7 +654,7 @@ def _overpass_natural_areas_in_radius(
             url,
             headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
         )
-        with urllib.request.urlopen(req, timeout=35) as resp:
+        with _http.urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read())
     except Exception as e:
         log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
@@ -697,7 +767,7 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
             url,
             headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _http.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
     except Exception as e:
         log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
@@ -730,6 +800,74 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
 
     cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
     return result
+
+
+def _aws_location_settlement(lat: float, lon: float) -> str | None:
+    """
+    Reverse-geocode (lat, lon) via AWS Location Service (aws backend only).
+
+    Same contract as _nominatim_settlement: returns "City, ST" / "City" /
+    _OVER_WATER sentinel / None.  Results are cached identically so the
+    two implementations are interchangeable.
+    """
+    import boto3
+
+    cache_key = f"nominatim_rev|{lat:.3f}|{lon:.3f}"   # reuse same cache namespace
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
+    try:
+        client = boto3.client("location")
+        resp = client.search_place_index_for_position(
+            IndexName=index_name,
+            Position=[lon, lat],        # AWS expects [lon, lat]
+            MaxResults=1,
+        )
+    except Exception as e:
+        log.debug("AWS Location reverse geocode failed for (%.4f, %.4f): %s", lat, lon, e)
+        return None
+
+    results = resp.get("Results", [])
+    if not results:
+        cache.set(cache_key, _OVER_WATER, ttl_seconds=_GEO_CACHE_TTL)
+        return _OVER_WATER
+
+    place = results[0]["Place"]
+    label = place.get("Label", "")
+    municipality = place.get("Municipality", "")
+    sub_region = place.get("SubRegion", "")
+    region = place.get("Region", "")
+
+    # AWS Location returns full country names, not ISO codes; extract state abbreviation
+    # from the label for US addresses which follow "City, ST, USA" format.
+    name = municipality or sub_region
+    state_abbr = ""
+    if name and label:
+        parts = [p.strip() for p in label.split(",")]
+        # label: "City, ST, USA" or "City, Region, Country"
+        if len(parts) >= 3 and len(parts[-2]) == 2:
+            state_abbr = parts[-2]
+
+    result = f"{name}, {state_abbr}" if (name and state_abbr) else name or ""
+
+    if not result:
+        if not region:
+            cache.set(cache_key, _OVER_WATER, ttl_seconds=_GEO_CACHE_TTL)
+            return _OVER_WATER
+        cache.set(cache_key, "", ttl_seconds=86400)
+        return None
+
+    cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
+    return result
+
+
+def _settlement(lat: float, lon: float) -> str | None:
+    """Dispatch to AWS Location or Nominatim based on the active backend."""
+    if ports.get_backend()._name == "aws":
+        return _aws_location_settlement(lat, lon)
+    return _nominatim_settlement(lat, lon)
 
 
 def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
@@ -864,7 +1002,7 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
 
     # Concurrently: name light domes via Nominatim (main thread, rate-limited)
     for dome in dome_clusters:
-        dome_name = _nominatim_settlement(dome["lat"], dome["lon"])
+        dome_name = _settlement(dome["lat"], dome["lon"])
         dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
 
     # Wait for Overpass result (usually already done by the time domes are named)
@@ -875,7 +1013,7 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     for c in all_to_name:
         name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
         if not name:
-            name = _nominatim_settlement(c["lat"], c["lon"])
+            name = _settlement(c["lat"], c["lon"])
         if name == _OVER_WATER:
             c["name"] = None          # flagged for removal below
         else:

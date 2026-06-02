@@ -1,0 +1,19 @@
+# Pre-commit hooks. Install once:  pip install pre-commit && pre-commit install
+# Run on all files:                pre-commit run --all-files
+repos:
+  # Block secrets before they're ever committed (defense in depth with GitHub
+  # push protection + the CI gitleaks scan).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=17000"]   # allows the 16 MB de421.bsp, blocks stray rasters
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
