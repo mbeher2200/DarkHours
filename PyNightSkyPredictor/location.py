@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Location resolution: named presets, geocoding cache, and Nominatim lookup."""
+"""Location resolution: named presets, geocoding cache, and Nominatim lookup.
+
+Forward geocoding backend selection:
+  local backend → public Nominatim (OpenStreetMap), rate-limited, cached locally.
+  aws backend   → AWS Location Service (Esri place index), no rate-limit concerns.
+"""
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -99,6 +105,59 @@ def _tz_name_for(lat: float, lon: float) -> str:
     return tz_name
 
 
+def _geocode_via_nominatim(name: str, query: str) -> dict | None:
+    """Forward-geocode using the public Nominatim API (local backend only)."""
+    log.debug("Cache miss for '%s', geocoding via Nominatim (query: '%s')...", name, query)
+    try:
+        geolocator = Nominatim(user_agent=USER_AGENT)
+        result = geolocator.geocode(query, timeout=10)
+    except GeocoderTimedOut:
+        log.error("Nominatim geocode timed out for %r", name, extra={"service": "nominatim"})
+        raise RuntimeError(f"Geocoding timed out for {name!r}. Check your connection.")
+    except GeocoderServiceError as e:
+        log.error("Nominatim geocode service error: %s", e, extra={"service": "nominatim"})
+        raise RuntimeError(f"Geocoding service error: {e}")
+
+    if result is None:
+        return None
+    return {
+        "lat": result.latitude,
+        "lon": result.longitude,
+        "display_name": result.address,
+        "tz_name": _tz_name_for(result.latitude, result.longitude),
+    }
+
+
+def _geocode_via_aws(name: str, query: str) -> dict | None:
+    """Forward-geocode using AWS Location Service (aws backend only)."""
+    import boto3
+    index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
+    log.debug("Cache miss for '%s', geocoding via AWS Location (query: '%s')...", name, query)
+    try:
+        client = boto3.client("location")
+        resp = client.search_place_index_for_text(
+            IndexName=index_name,
+            Text=query,
+            MaxResults=1,
+        )
+    except Exception as e:
+        log.error("AWS Location geocode error for %r: %s", name, e, extra={"service": "aws-location"})
+        raise RuntimeError(f"Geocoding error: {e}")
+
+    results = resp.get("Results", [])
+    if not results:
+        return None
+    place = results[0]["Place"]
+    lon, lat = place["Geometry"]["Point"]   # AWS returns [lon, lat]
+    display_name = place.get("Label", name)
+    return {
+        "lat": lat,
+        "lon": lon,
+        "display_name": display_name,
+        "tz_name": _tz_name_for(lat, lon),
+    }
+
+
 def resolve(name: str) -> tuple:
     """
     Resolve a location name to (lat, lon, display_name, tz_name).
@@ -122,32 +181,19 @@ def resolve(name: str) -> tuple:
                   key, entry["lat"], entry["lon"], entry["tz_name"])
         return entry["lat"], entry["lon"], entry["display_name"], entry["tz_name"]
 
-    # Cache miss — geocode via Nominatim (OpenStreetMap)
+    # Cache miss — geocode via the appropriate backend
     query = _geocode_query(name)
-    log.debug("Cache miss for '%s', geocoding via Nominatim (query: '%s')...", key, query)
-    try:
-        geolocator = Nominatim(user_agent=USER_AGENT)
-        result = geolocator.geocode(query, timeout=10)
-    except GeocoderTimedOut:
-        log.error("Nominatim geocode timed out for %r", name, extra={"service": "nominatim"})
-        raise RuntimeError(f"Geocoding timed out for {name!r}. Check your connection.")
-    except GeocoderServiceError as e:
-        log.error("Nominatim geocode service error: %s", e, extra={"service": "nominatim"})
-        raise RuntimeError(f"Geocoding service error: {e}")
-
-    if result is None:
+    if ports.get_backend()._name == "aws":
+        entry = _geocode_via_aws(name, query)
+    else:
+        entry = _geocode_via_nominatim(name, query)
+    if entry is None:
         raise ValueError(f"Location not found: {name!r}")
 
-    entry = {
-        "lat": result.latitude,
-        "lon": result.longitude,
-        "display_name": result.address,
-        "tz_name": _tz_name_for(result.latitude, result.longitude),
-    }
     cache[key] = entry
     _save(cache)
-    log.debug("Geocoded '%s': lat=%s, lon=%s, tz=%s, cached to %s",
-              key, entry["lat"], entry["lon"], entry["tz_name"], CACHE_FILE)
+    log.debug("Geocoded '%s': lat=%s, lon=%s, tz=%s",
+              key, entry["lat"], entry["lon"], entry["tz_name"])
 
     return entry["lat"], entry["lon"], entry["display_name"], entry["tz_name"]
 

@@ -802,6 +802,74 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
     return result
 
 
+def _aws_location_settlement(lat: float, lon: float) -> str | None:
+    """
+    Reverse-geocode (lat, lon) via AWS Location Service (aws backend only).
+
+    Same contract as _nominatim_settlement: returns "City, ST" / "City" /
+    _OVER_WATER sentinel / None.  Results are cached identically so the
+    two implementations are interchangeable.
+    """
+    import boto3
+
+    cache_key = f"nominatim_rev|{lat:.3f}|{lon:.3f}"   # reuse same cache namespace
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
+    try:
+        client = boto3.client("location")
+        resp = client.search_place_index_for_position(
+            IndexName=index_name,
+            Position=[lon, lat],        # AWS expects [lon, lat]
+            MaxResults=1,
+        )
+    except Exception as e:
+        log.debug("AWS Location reverse geocode failed for (%.4f, %.4f): %s", lat, lon, e)
+        return None
+
+    results = resp.get("Results", [])
+    if not results:
+        cache.set(cache_key, _OVER_WATER, ttl_seconds=_GEO_CACHE_TTL)
+        return _OVER_WATER
+
+    place = results[0]["Place"]
+    label = place.get("Label", "")
+    municipality = place.get("Municipality", "")
+    sub_region = place.get("SubRegion", "")
+    region = place.get("Region", "")
+
+    # AWS Location returns full country names, not ISO codes; extract state abbreviation
+    # from the label for US addresses which follow "City, ST, USA" format.
+    name = municipality or sub_region
+    state_abbr = ""
+    if name and label:
+        parts = [p.strip() for p in label.split(",")]
+        # label: "City, ST, USA" or "City, Region, Country"
+        if len(parts) >= 3 and len(parts[-2]) == 2:
+            state_abbr = parts[-2]
+
+    result = f"{name}, {state_abbr}" if (name and state_abbr) else name or ""
+
+    if not result:
+        if not region:
+            cache.set(cache_key, _OVER_WATER, ttl_seconds=_GEO_CACHE_TTL)
+            return _OVER_WATER
+        cache.set(cache_key, "", ttl_seconds=86400)
+        return None
+
+    cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
+    return result
+
+
+def _settlement(lat: float, lon: float) -> str | None:
+    """Dispatch to AWS Location or Nominatim based on the active backend."""
+    if ports.get_backend()._name == "aws":
+        return _aws_location_settlement(lat, lon)
+    return _nominatim_settlement(lat, lon)
+
+
 def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     """
     Search for darker sky areas and nearby light domes within radius_miles of (lat, lon).
@@ -934,7 +1002,7 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
 
     # Concurrently: name light domes via Nominatim (main thread, rate-limited)
     for dome in dome_clusters:
-        dome_name = _nominatim_settlement(dome["lat"], dome["lon"])
+        dome_name = _settlement(dome["lat"], dome["lon"])
         dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
 
     # Wait for Overpass result (usually already done by the time domes are named)
@@ -945,7 +1013,7 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     for c in all_to_name:
         name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
         if not name:
-            name = _nominatim_settlement(c["lat"], c["lon"])
+            name = _settlement(c["lat"], c["lon"])
         if name == _OVER_WATER:
             c["name"] = None          # flagged for removal below
         else:
