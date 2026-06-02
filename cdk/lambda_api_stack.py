@@ -32,6 +32,7 @@ from aws_cdk import (
     aws_logs as logs,
     aws_sns as sns,
     aws_sqs as sqs,
+    aws_location as location,
     aws_wafv2 as wafv2,
 )
 from constructs import Construct
@@ -89,6 +90,28 @@ class LambdaApiStack(Stack):
         bucket.grant_read(fn)               # s3:GetObject on the raster bucket
         table.grant_read_write_data(fn)     # DynamoDB cache get/set/invalidate
 
+        # --- AWS Location Service: Esri place index for forward + reverse geocoding ---
+        # Replaces the public Nominatim API in Lambda (no rate-limit shared state across
+        # invocations). Esri data provider: 20k req/mo free for 12 months, then $0.50/1k.
+        # Aggressive DynamoDB caching (permanent for forward, 90-day for reverse) means
+        # steady-state call volume is very low.
+        place_index = location.CfnPlaceIndex(
+            self, "PlaceIndex",
+            index_name="pynightsky-place-index",
+            data_source="Esri",
+            pricing_plan="RequestBasedUsage",
+        )
+        place_index_arn = (
+            f"arn:aws:geo:{self.region}:{self.account}"
+            f":place-index/{place_index.index_name}"
+        )
+        geo_policy = iam.PolicyStatement(
+            actions=["geo:SearchPlaceIndexForText", "geo:SearchPlaceIndexForPosition"],
+            resources=[place_index_arn],
+        )
+        fn.add_to_role_policy(geo_policy)
+        fn.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
+
         # --- async jobs: SQS queue + container-Lambda worker (M6.3) ---
         # Long /calendar+/trip computes run off the request path. The API enqueues a
         # job; this worker (a container Lambda — it needs rasterio) runs plan_trip and
@@ -120,6 +143,8 @@ class LambdaApiStack(Stack):
         )
         bucket.grant_read(worker)
         table.grant_read_write_data(worker)
+        worker.add_to_role_policy(geo_policy)
+        worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
         worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
 
         # The API can enqueue jobs and knows the queue URL (its presence flips the
@@ -295,9 +320,9 @@ class LambdaApiStack(Stack):
 
         # --- M7.3: upstream-error alarm + WAF request logging ---
         # Metric filter on ERROR-level JSON records in the API log group. Any upstream
-        # call that fails hard (Nominatim/Celestrak log at ERROR; 7Timer logs at WARNING
+        # call that fails hard (AWS Location/Celestrak log at ERROR; 7Timer logs at WARNING
         # but also shows up in Logs Insights via the `service` field). A single alarm
-        # keeps it simple; drill down with Logs Insights `| filter service = "nominatim"`.
+        # keeps it simple; drill down with Logs Insights `| filter service = "aws-location"`.
         api_log_group.add_metric_filter(
             "UpstreamErrorMetric",
             metric_name="UpstreamErrors",
@@ -315,7 +340,7 @@ class LambdaApiStack(Stack):
         # NOT_BREACHING on missing data so quiet periods don't false-alarm.
         alarm = cloudwatch.Alarm(
             self, "UpstreamErrorAlarm",
-            alarm_description="Upstream errors (Nominatim/Celestrak/7Timer) in last 5 min",
+            alarm_description="Upstream errors (AWS Location/Celestrak/7Timer) in last 5 min",
             metric=cloudwatch.Metric(
                 namespace="PyNightSky",
                 metric_name="UpstreamErrors",
