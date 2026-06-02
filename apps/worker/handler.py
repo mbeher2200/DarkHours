@@ -22,8 +22,10 @@ log = logging.getLogger()
 
 if "LAMBDA_TASK_ROOT" in os.environ:
     try:
-        from aws_xray_sdk.core import patch as _xray_patch
-        _xray_patch(["boto3", "urllib"])
+        from aws_xray_sdk.core import patch_all as _xray_patch_all
+        logging.getLogger("aws_xray_sdk.core.patcher").setLevel(logging.WARNING)
+        logging.getLogger("aws_xray_sdk.core.lambda_launcher").setLevel(logging.ERROR)
+        _xray_patch_all()
     except ImportError:
         pass
 

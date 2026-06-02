@@ -35,12 +35,13 @@ from .serializers import night_report_to_dict
 _xray_enabled = False
 if "LAMBDA_TASK_ROOT" in os.environ:
     try:
-        from aws_xray_sdk.core import xray_recorder, patch as _xray_patch
+        from aws_xray_sdk.core import xray_recorder, patch_all as _xray_patch_all
         xray_recorder.configure(context_missing="LOG_ERROR")
-        _xray_patch(["boto3", "urllib"])    # boto3 for DynamoDB/S3, urllib for weather/TLE/geocode
-        # Lambda init-phase boto3 calls emit "Subsegment discarded" WARNINGs because
-        # the trace context isn't set up yet; silence them — tracing is still active.
+        # Suppress INFO noise from the patcher ("successfully patched module ...") and
+        # the init-phase lambda_launcher WARNINGs ("Subsegment discarded ...").
+        logging.getLogger("aws_xray_sdk.core.patcher").setLevel(logging.WARNING)
         logging.getLogger("aws_xray_sdk.core.lambda_launcher").setLevel(logging.ERROR)
+        _xray_patch_all()
         _xray_enabled = True
     except ImportError:
         pass
