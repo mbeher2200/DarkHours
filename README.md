@@ -21,7 +21,7 @@ Beyond the score:
 
 Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, and Celestrak.
 
-The two primary CLI scripts are:
+The two CLI scripts are:
 
 * `pynightsky.py` — Single-night reports, monthly calendars, and nearby dark-sky search.
 * `tripbuilder.py` — Multi-location score matrix and ranked best nights across a date range.
