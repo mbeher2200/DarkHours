@@ -31,7 +31,7 @@ _ALLOWED_SUB = f"repo:{_GITHUB_REPO}:ref:refs/heads/main"
 _GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 # Default CDK bootstrap qualifier (the `cdk-hnb659fds-*` roles created by `cdk bootstrap`).
 _BOOTSTRAP_QUALIFIER = "hnb659fds"
-_ECR_REPO_NAME = "pynightsky-api"
+_ECR_REPO_NAMES = ["pynightsky-api", "pynightsky-worker"]
 
 
 class CicdStack(Stack):
@@ -103,7 +103,8 @@ class CicdStack(Stack):
                 "ecr:PutImage",
             ],
             resources=[
-                f"arn:aws:ecr:{self.region}:{self.account}:repository/{_ECR_REPO_NAME}",
+                f"arn:aws:ecr:{self.region}:{self.account}:repository/{name}"
+                for name in _ECR_REPO_NAMES
             ],
         ))
 
