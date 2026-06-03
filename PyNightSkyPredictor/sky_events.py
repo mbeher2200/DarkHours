@@ -7,7 +7,7 @@ import time as _time
 import logging
 import math
 import statistics
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from skyfield.api import Loader, load, wgs84
@@ -36,14 +36,18 @@ def _ephemeris():
     return _load("de421.bsp")
 
 
-def sky_events(lat: float, lon: float, target_date: date) -> list:
-    """
-    Return all sky events in a 3-day window around target_date.
+# In-process cache for sky events (layer 1). Astronomical events for a given
+# (lat, lon, date) are immutable — no TTL needed in either layer.
+_mem_sky_events: dict[str, list] = {}
 
-    Searching 3 days ensures the full night is captured regardless of UTC offset.
-    Each event is a dict with 'time' (UTC timezone-aware datetime) and 'label'.
-    """
-    ts = load.timescale()
+
+def _sky_events_db_key(lat: float, lon: float, d: date) -> str:
+    return f"sky_events|{lat:.2f}|{lon:.2f}|{d.isoformat()}"
+
+
+def _compute_sky_events(lat: float, lon: float, target_date: date) -> list:
+    """Compute sky events via Skyfield (~80–170 ms). Called only on cache miss."""
+    ts  = load.timescale()
     eph = _ephemeris()
     observer = wgs84.latlon(lat, lon)
 
@@ -77,6 +81,44 @@ def sky_events(lat: float, lon: float, target_date: date) -> list:
     log.debug("Raw events (UTC) over 3-day window:")
     for e in events:
         log.debug("  %s  %s", e["time"].strftime("%Y-%m-%d %H:%M"), e["label"])
+    return events
+
+
+def sky_events(lat: float, lon: float, target_date: date) -> list:
+    """
+    Return all sky events in a 3-day window around target_date.
+
+    Two-layer cache (in-process dict → DynamoDB) with no TTL: astronomical event
+    times are deterministic and immutable for a given (lat, lon, date).
+    Warm-container repeat queries return in ~0 ms; cross-container or post-restart
+    queries return in ~5 ms (DynamoDB); first-ever hit computes in 80–170 ms.
+    """
+    db_key  = _sky_events_db_key(lat, lon, target_date)
+
+    # Layer 1: in-process — zero cost on a warm container
+    if db_key in _mem_sky_events:
+        return _mem_sky_events[db_key]
+
+    # Layer 2: DynamoDB — ~5 ms, shared across containers
+    cached = _cache.get(db_key)
+    if cached:
+        events = [
+            {"time": datetime.fromisoformat(e["time"]), "label": e["label"]}
+            for e in cached["events"]
+        ]
+        _mem_sky_events[db_key] = events
+        return events
+
+    # Layer 3: compute via Skyfield
+    _ephemeris()  # ensure load/wgs84/almanac are initialised
+    events = _compute_sky_events(lat, lon, target_date)
+
+    serialised = [{"time": e["time"].isoformat(), "label": e["label"]} for e in events]
+    try:
+        _cache.set(db_key, {"events": serialised})
+    except Exception as exc:
+        log.warning("sky_events cache write failed (non-fatal): %s", exc)
+    _mem_sky_events[db_key] = events
     return events
 
 
