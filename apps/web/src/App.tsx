@@ -20,6 +20,10 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<NightReport | null>(null)
+  // Track which optional sections were requested for the current report
+  const [reportWeather, setReportWeather] = useState(false)
+  const [reportTargets, setReportTargets] = useState(false)
+  const [reportSatellites, setReportSatellites] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -50,6 +54,9 @@ export default function App() {
     setLoading(true)
     try {
       setReport(await fetchNight(q))
+      setReportWeather(weather)
+      setReportTargets(targets)
+      setReportSatellites(satellites)
     } catch (err) {
       setReport(null)
       setError(err instanceof ApiRequestError ? err.message : 'Something went wrong.')
@@ -153,7 +160,14 @@ export default function App() {
       </form>
 
       {error && <div className="card error">{error}</div>}
-      {report && !loading && <ReportCard report={report} />}
+      {report && !loading && (
+        <ReportCard
+          report={report}
+          showWeather={reportWeather}
+          showTargets={reportTargets}
+          showSatellites={reportSatellites}
+        />
+      )}
 
       <footer className="colophon">
         Light pollution: Falchi 2016 / VIIRS · Weather: NOAA/NWS, Open-Meteo · Geocoding:
