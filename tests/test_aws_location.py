@@ -109,6 +109,8 @@ class TestGeocodeViaAws:
 class TestResolveDispatch:
     def test_aws_backend_calls_aws_geocoder(self, monkeypatch):
         _aws_env(monkeypatch)
+        import PyNightSkyPredictor.location as loc_mod
+        monkeypatch.setattr(loc_mod, "_mem_geocode", {})
 
         # Isolate: patch both geocoders + the geocode store so no real I/O
         mock_aws_geo = MagicMock(return_value={
@@ -135,6 +137,8 @@ class TestResolveDispatch:
 
     def test_local_backend_calls_nominatim(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")
+        import PyNightSkyPredictor.location as loc_mod
+        monkeypatch.setattr(loc_mod, "_mem_geocode", {})
 
         mock_nom_geo = MagicMock(return_value={
             "lat": 39.7392, "lon": -104.9903,
@@ -157,6 +161,8 @@ class TestResolveDispatch:
 
     def test_cache_hit_skips_geocoding(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")
+        import PyNightSkyPredictor.location as loc_mod
+        monkeypatch.setattr(loc_mod, "_mem_geocode", {})
         import PyNightSkyPredictor.ports as ports_mod
         ports_mod.reset_backend()
 

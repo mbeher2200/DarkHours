@@ -15,6 +15,7 @@ import calendar as _cal
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -46,8 +47,28 @@ if "LAMBDA_TASK_ROOT" in os.environ:
     except ImportError:
         pass
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warm expensive resources during Lambda's init phase so the first real
+    # request doesn't pay for ephemeris loading and DynamoDB connection setup.
+    if "LAMBDA_TASK_ROOT" in os.environ:
+        try:
+            from PyNightSkyPredictor import sky_events as _se
+            _se._ephemeris()   # mmap de421.bsp into the process
+        except Exception as _e:
+            logging.getLogger(__name__).debug("Ephemeris pre-warm failed: %s", _e)
+        try:
+            from PyNightSkyPredictor import ports as _p
+            _p.get_backend().cache.get("__warmup__")   # open DynamoDB connection pool
+        except Exception as _e:
+            logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
+    yield
+
+
 app = FastAPI(title="PyNightSky API", version="0.1.0",
-              description="Night-sky quality scoring for astrophotography planning.")
+              description="Night-sky quality scoring for astrophotography planning.",
+              lifespan=lifespan)
 
 # CORS origins come from env (comma-separated); default is none, so no site can
 # read the API cross-origin in a browser. Non-browser clients (curl, server-to-
@@ -150,6 +171,11 @@ def _month_bounds(month: str | None) -> tuple[date, date]:
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
+
+@app.post("/warmup")
+async def warmup():
+    """EventBridge scheduled warmup ping — keeps one Lambda container alive."""
+    return {"warm": True}
 
 @app.get("/healthz")
 def healthz():

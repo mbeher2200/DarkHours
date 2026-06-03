@@ -339,6 +339,11 @@ def sqm_to_zone(sqm: float) -> str:
 # Public interface
 # ---------------------------------------------------------------------------
 
+# In-process cache: Bortle data is static (raster pixels don't change).
+# Keyed by (lat, lon) rounded to 2 decimal places (~1 km resolution).
+_bortle_mem_cache: dict[tuple, dict | None] = {}
+
+
 def lookup(lat: float, lon: float) -> dict | None:
     """
     Return light pollution info for a location, using the best available
@@ -357,6 +362,10 @@ def lookup(lat: float, lon: float) -> dict | None:
 
     Returns None if rasterio is unavailable or both files cannot be read.
     """
+    _cache_key = (round(lat, 2), round(lon, 2))
+    if _cache_key in _bortle_mem_cache:
+        return _bortle_mem_cache[_cache_key]
+
     # --- Primary: VIIRS 2025 ---
     radiance = _viirs_radiance(lat, lon)
     if radiance is None:
@@ -367,7 +376,7 @@ def lookup(lat: float, lon: float) -> dict | None:
         bortle_cls, bortle_d = sqm_to_bortle(sqm)
         log.debug("Using VIIRS 2025: radiance=%.3f  SQM=%.1f  Bortle=%d",
                   radiance, sqm, bortle_cls)
-        return {
+        result = {
             "sqm":            sqm,
             "bortle_class":   bortle_cls,
             "bortle_desc":    bortle_d,
@@ -375,16 +384,18 @@ def lookup(lat: float, lon: float) -> dict | None:
             "below_detection": False,
             "source":         "VIIRS 2025",
         }
+        _bortle_mem_cache[_cache_key] = result
+        return result
     else:
         log.debug("VIIRS below detection floor, falling back to Falchi")
 
     # --- Fallback: Falchi 2016 ---
     luminance = _falchi_luminance(lat, lon)
     if luminance is None:
-        return None   # both sources failed
+        return None   # both sources failed — don't cache (may be a transient error)
 
     if luminance == 0.0:
-        return {
+        result = {
             "sqm":            None,
             "bortle_class":   None,
             "bortle_desc":    None,
@@ -392,13 +403,15 @@ def lookup(lat: float, lon: float) -> dict | None:
             "below_detection": True,
             "source":         "Falchi 2016",
         }
+        _bortle_mem_cache[_cache_key] = result
+        return result
 
     scaled = luminance * _FALCHI_SCALE
     sqm = luminance_to_sqm(scaled)
     bortle_cls, bortle_d = sqm_to_bortle(sqm)
     log.debug("Using Falchi 2016: luminance=%.4f  scaled=%.4f  SQM=%.1f  Bortle=%d",
               luminance, scaled, sqm, bortle_cls)
-    return {
+    result = {
         "sqm":            sqm,
         "bortle_class":   bortle_cls,
         "bortle_desc":    bortle_d,
@@ -406,6 +419,8 @@ def lookup(lat: float, lon: float) -> dict | None:
         "below_detection": False,
         "source":         "Falchi 2016",
     }
+    _bortle_mem_cache[_cache_key] = result
+    return result
 
 
 
