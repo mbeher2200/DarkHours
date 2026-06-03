@@ -1,4 +1,4 @@
-import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, SatPass } from './types'
+import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow } from './types'
 import {
   formatDayTime, formatTime, formatHm, tzAbbr,
   cardinal, rateConditions, fmtTemp, fmtWind, lpString,
