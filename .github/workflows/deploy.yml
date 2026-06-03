@@ -51,21 +51,28 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       # --- build the Lambda image (single amd64 manifest) and push :lambda + :<sha> ---
-      - name: Build & push image
+      - name: Build & push images
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          IMAGE="$REGISTRY/$ECR_REPO"
+          API="$REGISTRY/pynightsky-api"
           docker build --platform linux/amd64 --provenance=false \
             -f Dockerfile.lambda \
-            -t "$IMAGE:lambda" -t "$IMAGE:${{ github.sha }}" .
-          docker push "$IMAGE:lambda"
-          docker push "$IMAGE:${{ github.sha }}"
+            -t "$API:lambda" -t "$API:${{ github.sha }}" .
+          docker push "$API:lambda"
+          docker push "$API:${{ github.sha }}"
+
+          WORKER="$REGISTRY/pynightsky-worker"
+          docker build --platform linux/amd64 --provenance=false \
+            -f Dockerfile.worker \
+            -t "$WORKER:worker" -t "$WORKER:${{ github.sha }}" .
+          docker push "$WORKER:worker"
+          docker push "$WORKER:${{ github.sha }}"
 
       # --- deploy the stack, pinning the function to this exact image tag ---
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install CDK + stack deps
         run: |
           npm install -g aws-cdk@2
