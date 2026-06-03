@@ -7,7 +7,6 @@ dataclasses.asdict() + an ISO-8601 encoder does the job. TripReport reuses the
 serializers that already live in trip.py.
 """
 import dataclasses
-import json
 from datetime import date, datetime
 
 from PyNightSkyPredictor import trip as _trip
@@ -15,15 +14,15 @@ from PyNightSkyPredictor.predictor import NightReport
 from PyNightSkyPredictor.trip import TripReport
 
 
-def _json_default(o):
-    if isinstance(o, (datetime, date)):
-        return o.isoformat()
-    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
-
-
 def _to_jsonable(obj):
-    """Round-trip through json with an ISO datetime encoder → pure-JSON structure."""
-    return json.loads(json.dumps(obj, default=_json_default))
+    """Recursively convert datetimes to ISO strings; leave all other values as-is."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(v) for v in obj]
+    return obj
 
 
 def night_report_to_dict(report: NightReport) -> dict:
