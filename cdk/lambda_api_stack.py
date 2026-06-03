@@ -25,6 +25,8 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_lambda_event_sources as lambda_events,
+    aws_events as events,
+    aws_events_targets as targets,
     aws_s3 as s3,
     aws_s3_deployment as s3deploy,
     aws_cloudwatch as cloudwatch,
@@ -72,7 +74,7 @@ class LambdaApiStack(Stack):
         fn = lambda_.DockerImageFunction(
             self, "Api",
             code=lambda_.DockerImageCode.from_ecr(repo, tag_or_digest=image_tag),
-            memory_size=2048,          # 2 GB ~= the App Runner sizing; ~1.2 vCPU
+            memory_size=3008,
             timeout=Duration.seconds(120),
             tracing=lambda_.Tracing.ACTIVE,
             log_group=api_log_group,
@@ -81,8 +83,19 @@ class LambdaApiStack(Stack):
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
                 "LOG_LEVEL": "INFO",
+                # LWA routes non-HTTP Lambda events (EventBridge warmup pings) here
+                "AWS_LWA_PASS_THROUGH_PATH": "/warmup",
             },
         )
+
+        # --- Scheduled warmup ping — keeps one container alive, prevents cold starts ---
+        # EventBridge invokes Lambda directly every 4 minutes; LWA converts to POST /warmup.
+        # Cost: ~10,800 invocations/month + ~1,620 GB-s — both within Lambda free tier.
+        warmup_rule = events.Rule(
+            self, "WarmupRule",
+            schedule=events.Schedule.rate(Duration.minutes(4)),
+        )
+        warmup_rule.add_target(targets.LambdaFunction(fn))
 
         # least-privilege data access (reference foundational resources)
         bucket = s3.Bucket.from_bucket_name(self, "RasterBucket", raster_bucket)
