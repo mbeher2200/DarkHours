@@ -160,10 +160,12 @@ def assemble_night(
     with _futures.ThreadPoolExecutor(max_workers=_max_workers) as _pool:
         _ds_future = _pool.submit(_ds.lookup, lat, lon)
 
-        # Heuristic: start weather for today-or-future dates without waiting for
-        # sunrise. The precise _future_date check happens after sky_events returns;
-        # if it turns out the night is already past, the thread result is discarded.
-        if fetch_weather and target >= datetime.now(timezone.utc).date():
+        # Heuristic: start weather for tonight-or-future dates without waiting for
+        # sunrise. "Tonight" may be yesterday in UTC when the night spans midnight
+        # (e.g. 03:00 UTC — still before sunrise for a US location). Subtracting
+        # 1 day catches that case; the precise _future_date check after sky_events
+        # discards the thread result if the night has already fully passed.
+        if fetch_weather and target >= datetime.now(timezone.utc).date() - timedelta(days=1):
             _wx_cached = _ports.get_backend().cache.get(_wx_cache_key)
             if _wx_cached is None:
                 _wx_thread = _pool.submit(wx.forecast, lat, lon)
@@ -416,8 +418,12 @@ def assemble_night(
                     raise _wx_exc
                 if _wx_cached is not None:
                     points, wx_source = _wx_deserialize(_wx_cached)
-                else:
+                elif _wx_fetched is not None:
                     points, wx_source = _wx_fetched
+                else:
+                    # Defensive: _future_date=True but thread wasn't started.
+                    # Fetch synchronously (rare: only if heuristic gap widens).
+                    points, wx_source = wx.forecast(lat, lon)
 
                 before  = [p for p in points if sunset - timedelta(hours=6) <= p.time <= sunset]
                 during  = [p for p in points if sunset < p.time < sunrise]
