@@ -2,15 +2,12 @@
 """
 Weather forecast abstraction for night sky planning.
 
-Provider hierarchy (automatic, based on coordinates):
-  1. NOAA/NWS  — US locations; NAM-based, no API key; accurate cloud data
-  2. Open-Meteo — global fallback
-
+Single provider: Open-Meteo (global, no API key, one HTTP call).
 Seeing / transparency are sourced separately from 7Timer ASTRO and merged
-into primary-provider points by nearest timestamp.  7Timer derives seeing
-from Cn² profile integration through GFS — the only free scientifically
-grounded seeing source.  When 7Timer is unavailable those fields stay None
-and rate_conditions() redistributes their weights automatically.
+into the primary points by nearest timestamp.  7Timer derives seeing from
+Cn² profile integration through GFS — the only free scientifically grounded
+seeing source.  When 7Timer is unavailable those fields stay None and
+rate_conditions() redistributes their weights automatically.
 
 Adding a new provider:
   1. Subclass WeatherProvider
@@ -21,10 +18,9 @@ All providers must populate WeatherPoint with standardised units.
 Fields a provider cannot supply should be left as None.
 """
 
+import concurrent.futures as _futures
 import json
 import logging
-import re
-import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
@@ -114,6 +110,13 @@ def _parse_open_meteo_hourly(h: dict) -> list:
 # ---------------------------------------------------------------------------
 
 class OpenMeteoProvider(WeatherProvider):
+    """
+    Open-Meteo hourly forecast — global, no API key, single HTTP call.
+
+    Uses ``best_match`` model selection: Open-Meteo automatically picks the
+    highest-resolution model available for the location and forecast horizon
+    (HRRR for CONUS near-term, GFS/ECMWF elsewhere or further out).
+    """
     name = "Open-Meteo"
     _URL = (
         "https://api.open-meteo.com/v1/forecast"
@@ -123,6 +126,7 @@ class OpenMeteoProvider(WeatherProvider):
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
+        "&models=best_match"
     )
 
     def forecast(self, lat: float, lon: float) -> list:
@@ -243,166 +247,6 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
 
 
 # ---------------------------------------------------------------------------
-# NOAA / NWS provider (US locations — NAM-based, no API key required)
-# ---------------------------------------------------------------------------
-
-def _noaa_iso_hours(dur: str) -> float:
-    """Parse an ISO 8601 duration string (e.g. 'PT6H', 'P1DT3H') → hours (float)."""
-    days  = int(m.group(1)) if (m := re.search(r'(\d+)D', dur)) else 0
-    hrs   = int(m.group(1)) if (m := re.search(r'(\d+)H', dur)) else 0
-    mins  = int(m.group(1)) if (m := re.search(r'(\d+)M', dur)) else 0
-    return days * 24 + hrs + mins / 60
-
-
-def _noaa_expand(values: list) -> dict:
-    """
-    Expand NWS ISO 8601 interval values into a {datetime (UTC): value} dict.
-
-    NWS grid data uses entries like::
-
-        {"validTime": "2026-05-26T20:00:00+00:00/PT3H", "value": 45}
-
-    meaning the value applies for 3 hours.  This function expands each entry
-    into individual hourly keys.
-    """
-    result = {}
-    for item in values:
-        if item.get("value") is None:
-            continue
-        t_str, dur = item["validTime"].split("/")
-        start  = datetime.fromisoformat(t_str).astimezone(timezone.utc)
-        n_hrs  = max(1, int(_noaa_iso_hours(dur)))
-        for h in range(n_hrs):
-            t = (start + timedelta(hours=h)).replace(minute=0, second=0, microsecond=0)
-            if t not in result:
-                result[t] = item["value"]
-    return result
-
-
-def _noaa_precip_type(wx_list) -> str:
-    """Derive precip_type from a NWS weather value list."""
-    for entry in (wx_list or []):
-        if entry.get("coverage") in (None, "none", ""):
-            continue
-        kind = (entry.get("weather") or "").lower()
-        if not kind:
-            continue
-        # Order matters: snow_showers must hit snow before the shower check
-        if "thunderstorm" in kind:
-            return "rain"
-        if "snow" in kind or "blizzard" in kind or "ice_crystal" in kind:
-            return "snow"
-        if "freezing" in kind or "ice_pellet" in kind:
-            return "frzr"
-        if "rain" in kind or "drizzle" in kind or "shower" in kind:
-            return "rain"
-    return "none"
-
-
-def _parse_noaa_grid(data: dict) -> list:
-    """Parse a NWS forecastGridData response → list[WeatherPoint]."""
-    props = data["properties"]
-
-    sky        = _noaa_expand(props.get("skyCover",            {}).get("values", []))
-    temp       = _noaa_expand(props.get("temperature",          {}).get("values", []))
-    dewpt      = _noaa_expand(props.get("dewpoint",             {}).get("values", []))  # °C
-    humid      = _noaa_expand(props.get("relativeHumidity",     {}).get("values", []))
-    wind       = _noaa_expand(props.get("windSpeed",            {}).get("values", []))  # km/h
-    wind_dir   = _noaa_expand(props.get("windDirection",        {}).get("values", []))  # degrees
-    wind_chill = _noaa_expand(props.get("windChill",            {}).get("values", []))  # °C
-    heat_index = _noaa_expand(props.get("heatIndex",            {}).get("values", []))  # °C
-    wx_vals    = _noaa_expand(props.get("weather",              {}).get("values", []))
-
-    points = []
-    for t in sorted(sky.keys()):
-        # At the NWS 7-day boundary skyCover extends slightly further than
-        # temperature/humidity/wind.  Drop hours with no temperature — they
-        # produce misleading cloud-only rows and can't be scored meaningfully.
-        if t not in temp:
-            continue
-        wind_kmh = wind.get(t)
-
-        # Apparent temperature: prefer windChill (cold/windy), then heatIndex
-        # (hot/humid); NWS only populates these when conditions warrant them.
-        # When neither applies, conditions are mild and apparent temp ≈ actual
-        # temp, so fall back to temperature_c to keep the column populated.
-        wc = wind_chill.get(t)
-        hi = heat_index.get(t)
-        if wc is not None:
-            feels = wc
-        elif hi is not None:
-            feels = hi
-        else:
-            feels = temp.get(t)   # mild — apparent temp equals actual temp
-
-        points.append(WeatherPoint(
-            time            = t,
-            cloud_cover_pct = round(sky[t])       if t in sky   else None,
-            seeing_arcsec   = None,               # filled later by 7Timer blend
-            transparency    = None,
-            humidity_pct    = round(humid[t])     if t in humid else None,
-            wind_speed_ms   = round(wind_kmh / 3.6, 2) if wind_kmh is not None else None,
-            lifted_index    = None,
-            precip_type     = _noaa_precip_type(wx_vals.get(t)),
-            temperature_c      = temp.get(t),
-            feels_like_c       = feels,
-            dew_point_c        = dewpt.get(t),
-            wind_direction_deg = wind_dir.get(t),
-        ))
-    return points
-
-
-class NOAAProvider(WeatherProvider):
-    """
-    NOAA / NWS hourly forecast for US locations.
-
-    Uses the NWS ``forecastGridData`` endpoint which provides accurate
-    NAM-model sky cover percentages, temperature, wind, humidity, and
-    precipitation type.  No API key required.
-
-    Raises RuntimeError("Location not covered by NOAA/NWS") for coordinates
-    outside NWS coverage (i.e. anywhere outside the US and territories).
-    """
-    name    = "NOAA/NWS"
-    _POINTS = "https://api.weather.gov/points/{lat},{lon}"
-    # NWS asks for a User-Agent identifying the app + a contact (so they can reach
-    # the operator on abuse/problems). The repo URL is the public contact point.
-    _HEADERS = {
-        "User-Agent": "PyNightSkyPredictor/1.0 (+https://github.com/mbeher2200/PyNightSkyPredictor)",
-        "Accept":     "application/geo+json",
-    }
-
-    def _get(self, url: str) -> dict:
-        req = urllib.request.Request(url, headers=self._HEADERS)
-        with _http.urlopen(req, timeout=12) as resp:
-            return json.loads(resp.read())
-
-    def forecast(self, lat: float, lon: float) -> list:
-        # Step 1: resolve NWS grid point for these coordinates
-        try:
-            meta = self._get(self._POINTS.format(lat=f"{lat:.4f}", lon=f"{lon:.4f}"))
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                raise RuntimeError("Location not covered by NOAA/NWS")
-            raise RuntimeError(f"NOAA points lookup failed: HTTP {e.code}")
-        except Exception as e:
-            raise RuntimeError(f"NOAA points lookup failed: {e}")
-
-        grid_url = meta["properties"]["forecastGridData"]
-        log.debug("NOAA grid URL: %s", grid_url)
-
-        # Step 2: fetch grid data (sky cover, temperature, wind, precipitation)
-        try:
-            data = self._get(grid_url)
-        except Exception as e:
-            raise RuntimeError(f"NOAA grid data request failed: {e}")
-
-        points = _parse_noaa_grid(data)
-        log.debug("NOAA returned %d hourly points", len(points))
-        return points
-
-
-# ---------------------------------------------------------------------------
 # 7Timer ASTRO provider (seeing + transparency via Cn² profile integration)
 # ---------------------------------------------------------------------------
 
@@ -469,26 +313,10 @@ class SevenTimerProvider(WeatherProvider):
 # 7Timer seeing blend
 # ---------------------------------------------------------------------------
 
-def _blend_7timer(points: list, lat: float, lon: float) -> list:
-    """
-    Fetch 7Timer ASTRO and merge seeing_arcsec / transparency / lifted_index
-    into existing WeatherPoints by nearest timestamp (within 90 minutes).
-
-    7Timer provides these fields at 3-hour intervals so multiple consecutive
-    hourly points will share the same seeing value — this is correct behaviour
-    since 7Timer's resolution is 3 hours.
-
-    On any 7Timer failure the points are returned unchanged.  rate_conditions()
-    redistributes the seeing/transparency weights automatically when those
-    fields are None, so partial data degrades gracefully.
-    """
-    try:
-        seven = SevenTimerProvider().forecast(lat, lon)
-    except Exception as e:
-        log.warning("7Timer unavailable — proceeding without seeing data: %s", e,
-                    extra={"service": "7timer"})
+def _merge_7timer(points: list, seven: list) -> list:
+    """Merge pre-fetched 7Timer ASTRO seeing/transparency into WeatherPoints."""
+    if not seven:
         return points
-
     result = []
     for p in points:
         nearest  = min(seven, key=lambda s: abs((s.time - p.time).total_seconds()))
@@ -500,7 +328,6 @@ def _blend_7timer(points: list, lat: float, lon: float) -> list:
                 lifted_index=nearest.lifted_index,
             )
         result.append(p)
-
     return result
 
 
@@ -521,10 +348,8 @@ def rate_conditions(p: WeatherPoint) -> int:
 
     Precipitation of any kind caps the score at 1.
 
-    When seeing and transparency are None (Open-Meteo or NOAA without 7Timer
-    blend), their combined 35% redistributes to the remaining factors.  This
-    means nights with 7Timer data available are scored on more information
-    than nights without — which is the correct behaviour.
+    When seeing and transparency are None (Open-Meteo without 7Timer blend),
+    their combined 35% redistributes to the remaining factors.
     """
     if p.precip_type and p.precip_type not in ("none", None):
         return 1
@@ -533,13 +358,11 @@ def rate_conditions(p: WeatherPoint) -> int:
     weights = {}
 
     if p.cloud_cover_pct is not None:
-        # Non-linear: penalise heavy cloud more steeply above 50%
         c = p.cloud_cover_pct / 100
         scores["cloud"]  = max(0.0, 1 - c ** 0.7)
         weights["cloud"] = 0.50
 
     if p.seeing_arcsec is not None:
-        # 0.4" (best) → 1.0,  3.0" (worst) → 0.0
         scores["seeing"]  = max(0.0, (3.0 - p.seeing_arcsec) / 2.6)
         weights["seeing"] = 0.20
 
@@ -552,7 +375,6 @@ def rate_conditions(p: WeatherPoint) -> int:
         weights["wind"] = 0.10
 
     if p.humidity_pct is not None:
-        # Below 50% = no penalty; above 90% = zero
         scores["humid"]  = max(0.0, 1 - max(0, p.humidity_pct - 50) / 40)
         weights["humid"] = 0.05
 
@@ -568,7 +390,7 @@ def rate_conditions(p: WeatherPoint) -> int:
 # Module-level interface
 # ---------------------------------------------------------------------------
 
-_provider: WeatherProvider | None = None   # None = auto-select by coordinates
+_provider: WeatherProvider | None = None   # None = auto-select (OpenMeteoProvider)
 
 
 def set_provider(provider: WeatherProvider) -> None:
@@ -593,49 +415,38 @@ def get_provider() -> WeatherProvider | None:
 
 def forecast(lat: float, lon: float) -> tuple[list, str]:
     """
-    Fetch a forecast for the given coordinates using the best available provider,
-    then blend seeing / transparency / lifted_index from 7Timer ASTRO.
+    Fetch a forecast for the given coordinates via Open-Meteo, then blend
+    seeing / transparency / lifted_index from 7Timer ASTRO.
 
     Returns
     -------
     points : list[WeatherPoint]
     source : str
         Human-readable description of data sources used, e.g.
-        "NOAA/NWS + 7Timer" or "Open-Meteo".
+        "Open-Meteo" or "Open-Meteo + 7Timer".
 
-    Provider selection (when not overridden via set_provider):
-      • NOAA/NWS    — US locations (continental US, Alaska, Hawaii, territories)
-      • Open-Meteo  — all other locations
-
-    Seeing is always sourced from 7Timer ASTRO regardless of primary provider.
-    If 7Timer is unavailable, those fields remain None and rate_conditions()
-    redistributes their weights automatically — the score is still valid, just
-    computed from fewer factors.
+    7Timer is fetched concurrently with Open-Meteo so its latency is
+    hidden rather than added on top.
     """
-    if _provider is not None:
-        log.debug("Using explicit provider: %s", _provider.name)
-        primary_name = _provider.name
-        points = _provider.forecast(lat, lon)
-    else:
-        # Auto-select: try NOAA, then fall back to Open-Meteo for ANY NOAA failure —
-        # not just "outside coverage" but also api.weather.gov outages/timeouts/5xx —
-        # so a US user still gets a forecast during a weather.gov blip. Only if
-        # Open-Meteo ALSO fails does the error propagate (caller surfaces wx_error).
-        try:
-            points = NOAAProvider().forecast(lat, lon)
-            primary_name = "NOAA/NWS"
-            log.debug("Using NOAA/NWS for %.4f, %.4f", lat, lon)
-        except RuntimeError as e:
-            if "not covered" in str(e).lower():
-                log.debug("Outside NOAA coverage — using Open-Meteo for %.4f, %.4f", lat, lon)
-            else:
-                log.warning("NOAA/NWS unavailable (%s) — falling back to Open-Meteo "
-                            "for %.4f, %.4f", e, lat, lon,
-                            extra={"service": "noaa"})
-            points = OpenMeteoProvider().forecast(lat, lon)
-            primary_name = "Open-Meteo"
+    with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+        _seven_future = _pool.submit(SevenTimerProvider().forecast, lat, lon)
 
-    blended    = _blend_7timer(points, lat, lon)
+        primary = _provider if _provider is not None else OpenMeteoProvider()
+        try:
+            points = primary.forecast(lat, lon)
+        except RuntimeError:
+            raise
+
+        primary_name = primary.name
+
+        try:
+            seven = _seven_future.result()
+        except Exception as e:
+            log.warning("7Timer unavailable — proceeding without seeing data: %s", e,
+                        extra={"service": "7timer"})
+            return points, primary_name
+
+    blended    = _merge_7timer(points, seven)
     has_seeing = any(p.seeing_arcsec is not None for p in blended)
     source     = f"{primary_name} + 7Timer" if has_seeing else primary_name
     return blended, source

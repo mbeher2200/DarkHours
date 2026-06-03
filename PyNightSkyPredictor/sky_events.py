@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Sun and moon event calculator for astronomical photography planning."""
 
+import concurrent.futures as _futures
 import json
+import time as _time
 import logging
 import math
 import statistics
@@ -110,19 +112,16 @@ def dark_moon_intervals(events: list, night_start, night_end) -> list:
 
 
 # Dark-cycle windows are cached through the Cache port (local files or DynamoDB,
-# per backend) under a reserved system key. The whole dict is loaded/saved as one
-# blob, keeping the existing in-memory overlap-scan logic while becoming
-# cloud-shared and stateless. The __-prefix marks it as a non-cache system record
-# (clear_all/clear_expired skip it).
-_DARK_CYCLE_KEY = "__dark_cycle__"
+# Per-window DynamoDB keys: dark_cycle|{lat:.3f}|{lon:.3f}|{window_start}.
+# Each window is a small independent item so reads are targeted rather than
+# loading a single growing blob for all locations.
+# Module-level dict acts as an in-process layer — warm containers skip DynamoDB
+# entirely for locations already computed in this container's lifetime.
+_mem_dark_cycle: dict[str, dict] = {}
 
 
-def _load_dark_cycle_cache() -> dict:
-    return _cache.get(_DARK_CYCLE_KEY) or {}
-
-
-def _save_dark_cycle_cache(cache: dict):
-    _cache.set(_DARK_CYCLE_KEY, cache)
+def _dark_cycle_db_key(lat: float, lon: float, window_start: date) -> str:
+    return f"dark_cycle|{lat:.3f}|{lon:.3f}|{window_start.isoformat()}"
 
 
 def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> list:
@@ -136,27 +135,51 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
     t0 = ts.utc(d0.year, d0.month, d0.day)
     t1 = ts.utc(d1.year, d1.month, d1.day)
 
+    # Three targeted risings_and_settings calls instead of dark_twilight_day:
+    #   sun at -0.8333° → Sunrise/Sunset       (step=0.25 vs dark_twilight_day step=0.04)
+    #   sun at -18.0°   → Astronomical night begins/ends
+    #   moon            → Moonrise/Moonset
+    # All three are independent and run in parallel threads.
+    sun   = eph["sun"]
+    f_hor  = almanac.risings_and_settings(eph, sun,         observer, horizon_degrees=-0.8333)
+    f_ast  = almanac.risings_and_settings(eph, sun,         observer, horizon_degrees=-18.0)
+    f_moon = almanac.risings_and_settings(eph, eph["moon"], observer)
+
+    def _timed(fn, *args):
+        t0_ = _time.monotonic()
+        result = fn(*args)
+        return result, round((_time.monotonic() - t0_) * 1000)
+
+    _t_wall0 = _time.monotonic()
+    with _futures.ThreadPoolExecutor(max_workers=3) as _pool:
+        _hor_f  = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_hor)
+        _ast_f  = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_ast)
+        _moon_f = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_moon)
+        (hor_times,  hor_rising),  _hor_ms  = _hor_f.result()
+        (ast_times,  ast_rising),  _ast_ms  = _ast_f.result()
+        (moon_times, moon_rising), _moon_ms = _moon_f.result()
+    _wall_ms = round((_time.monotonic() - _t_wall0) * 1000)
+
+    log.info("dark_cycle threads hor=%dms ast=%dms moon=%dms wall=%dms",
+             _hor_ms, _ast_ms, _moon_ms, _wall_ms)
+
     all_events = []
-    f_sun = almanac.sunrise_sunset(eph, observer)
-    for t, rising in zip(*almanac.find_discrete(t0, t1, f_sun)):
+    for t, rising in zip(hor_times, hor_rising):
         all_events.append({"time": t.utc_datetime(),
                            "label": "Sunrise" if rising else "Sunset"})
-
-    f_moon = almanac.risings_and_settings(eph, eph["moon"], observer)
-    for t, rising in zip(*almanac.find_discrete(t0, t1, f_moon)):
+    for t, rising in zip(ast_times, ast_rising):
+        # rising=True  → sun crosses -18° going up   → astronomical night ends
+        # rising=False → sun crosses -18° going down  → astronomical night begins
+        all_events.append({"time": t.utc_datetime(),
+                           "label": "Astronomical night ends" if rising
+                           else "Astronomical night begins"})
+    for t, rising in zip(moon_times, moon_rising):
         all_events.append({"time": t.utc_datetime(),
                            "label": "Moonrise" if rising else "Moonset"})
 
-    f_tw = almanac.dark_twilight_day(eph, observer)
-    times_tw, phases_tw = almanac.find_discrete(t0, t1, f_tw)
-    for i, (t, phase) in enumerate(zip(times_tw, phases_tw)):
-        prev = phases_tw[i - 1] if i > 0 else None
-        if prev is not None and {int(phase), int(prev)} == {0, 1}:
-            label = "Astronomical night begins" if phase == 0 else "Astronomical night ends"
-            all_events.append({"time": t.utc_datetime(), "label": label})
-
     all_events.sort(key=lambda e: e["time"])
 
+    _t_loop0 = _time.monotonic()
     hours = []
     for offset in range(-14, 16):
         night_date = target_date + timedelta(days=offset)
@@ -182,6 +205,7 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
         total_secs = sum((e - s).total_seconds() for s, e in intervals)
         hours.append(total_secs / 3600)
 
+    log.info("dark_cycle loop=%dms", round((_time.monotonic() - _t_loop0) * 1000))
     return hours
 
 
@@ -210,50 +234,49 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
     """
     Return dark sky stats for a 30-night window centred on target_date.
 
-    Cache keys are "lat,lon:window_start" so each 30-night window is stored
-    independently — different lunar cycles for the same location never
-    overwrite each other.
-
-    Lookup strategy:
-      1. Try the ideal key (window centred on target_date).
-      2. Scan for any cached window that already contains target_date and
-         reuse it with the correct index (avoids recomputing overlapping
-         windows for nearby dates).
-      3. Compute fresh, store under the ideal key, and return.
+    Three-layer lookup:
+      1. Module-level dict (_mem_dark_cycle) — zero-cost on warm containers.
+      2. DynamoDB per-window key — shared across containers, no TTL (astronomical
+         data is immutable for a given location+window).
+      3. Compute fresh via Skyfield (~410ms at 3008 MB), then populate both layers.
     """
-    loc_prefix   = f"{lat:.3f},{lon:.3f}"
     window_start = target_date - timedelta(days=14)
-    ideal_key    = f"{loc_prefix}:{window_start.isoformat()}"
+    mem_key      = f"{lat:.3f},{lon:.3f}:{window_start.isoformat()}"
+    db_key       = _dark_cycle_db_key(lat, lon, window_start)
 
-    cache = _load_dark_cycle_cache()
+    # 1. In-process cache — exact hit
+    if mem_key in _mem_dark_cycle:
+        log.debug("Dark cycle mem-cache hit (exact) for %s", mem_key)
+        return _dark_stats(_mem_dark_cycle[mem_key]["dark_hours"], 14)
 
-    # 1. Exact hit — target is the centre of a cached window
-    if ideal_key in cache:
-        entry = cache[ideal_key]
-        log.debug("Dark cycle cache hit (exact) for %s", ideal_key)
-        return _dark_stats(entry["dark_hours"], 14)
-
-    # 2. Target falls inside another cached window for this location
-    for key, entry in cache.items():
-        if not key.startswith(loc_prefix + ":"):
+    # 1b. In-process cache — overlap: any cached window for this location covers target_date
+    loc_prefix = f"{lat:.3f},{lon:.3f}:"
+    for mk, entry in _mem_dark_cycle.items():
+        if not mk.startswith(loc_prefix):
             continue
-        cached_start = date.fromisoformat(entry["window_start"])
-        cached_end   = cached_start + timedelta(days=len(entry["dark_hours"]) - 1)
-        if cached_start <= target_date <= cached_end:
-            tonight_idx = (target_date - cached_start).days
-            log.debug("Dark cycle cache hit (overlap) for %s (window %s, idx %d)",
-                      loc_prefix, cached_start, tonight_idx)
+        cached_ws  = date.fromisoformat(entry["window_start"])
+        cached_end = cached_ws + timedelta(days=len(entry["dark_hours"]) - 1)
+        if cached_ws <= target_date <= cached_end:
+            tonight_idx = (target_date - cached_ws).days
+            log.debug("Dark cycle mem-cache hit (overlap) for %s idx %d", mk, tonight_idx)
             return _dark_stats(entry["dark_hours"], tonight_idx)
 
-    # 3. Cache miss — compute and store under the ideal key
-    log.debug("Dark cycle cache miss for %s — computing 30-night window", loc_prefix)
-    dark_hours = _compute_dark_hours_cycle(lat, lon, target_date, tz)
+    # 2. DynamoDB cache
+    cached = _cache.get(db_key)
+    if cached:
+        log.debug("Dark cycle DynamoDB hit for %s", db_key)
+        _mem_dark_cycle[mem_key] = cached
+        return _dark_stats(cached["dark_hours"], 14)
 
-    cache[ideal_key] = {
-        "window_start": window_start.isoformat(),
-        "dark_hours":   dark_hours,
-    }
-    _save_dark_cycle_cache(cache)
+    # 3. Compute and persist
+    log.debug("Dark cycle cache miss for %s — computing 30-night window", mem_key)
+    dark_hours = _compute_dark_hours_cycle(lat, lon, target_date, tz)
+    entry = {"window_start": window_start.isoformat(), "dark_hours": dark_hours}
+    try:
+        _cache.set(db_key, entry)
+    except Exception as e:
+        log.warning("Dark cycle cache write failed (non-fatal): %s", e)
+    _mem_dark_cycle[mem_key] = entry
 
     return _dark_stats(dark_hours, 14)
 

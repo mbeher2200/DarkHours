@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Night sky prediction engine — assembles a NightReport for a given location and date."""
 
+import concurrent.futures as _futures
+import dataclasses
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -9,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from . import darksky as _ds
 from . import moon_events as _me
+from . import ports as _ports
 from . import scoring
 from . import sky_events as se
 from . import targets as _tgt
@@ -16,6 +20,30 @@ from .moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 from . import weather as wx
 
 log = logging.getLogger(__name__)
+
+_WX_CACHE_TTL = 1800  # 30 minutes
+
+
+def _wx_serialize(points: list, source: str) -> dict:
+    """Serialize weather forecast results for DynamoDB caching."""
+    return {
+        "source": source,
+        "points": [
+            {**dataclasses.asdict(p), "time": p.time.isoformat()}
+            for p in points
+        ],
+    }
+
+
+def _wx_deserialize(cached: dict) -> tuple:
+    """Deserialize cached weather data back to (list[WeatherPoint], source)."""
+    field_names = {f.name for f in dataclasses.fields(wx.WeatherPoint)}
+    points = []
+    for p in cached["points"]:
+        kwargs = {k: v for k, v in p.items() if k in field_names}
+        kwargs["time"] = datetime.fromisoformat(kwargs["time"])
+        points.append(wx.WeatherPoint(**kwargs))
+    return points, cached["source"]
 
 
 @dataclass
@@ -59,7 +87,7 @@ class NightReport:
     # Weather
     weather_points: list  # list[WeatherPoint]
     weather_score: float | None
-    wx_source: str | None  # e.g. "NOAA/NWS + 7Timer" or "Open-Meteo"
+    wx_source: str | None  # e.g. "Open-Meteo + 7Timer" or "Open-Meteo"
     wx_pending: bool
     wx_no_data: bool
     wx_archive_error: bool
@@ -106,82 +134,232 @@ def assemble_night(
     def _local(dt):
         return dt.astimezone(tz)
 
-    events = se.sky_events(lat, lon, target)
+    _t = {}  # timing checkpoints — emitted as a single log line at end
+    _t0 = time.monotonic()
+    _now = datetime.now(timezone.utc)
 
-    # --- Key event times ---
-    sunset = next(
-        (e["time"] for e in events
-         if e["label"] == "Sunset" and _local(e["time"]).date() == target),
-        None,
-    )
-    if not sunset:
-        raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
+    # --- I/O kicked off immediately — independent of all Skyfield work ---
+    # darksky (S3 raster) and weather (HTTP) need only lat/lon, which we have now.
+    # They run concurrently with sky_events + moon + lunar_cycle on the main thread.
+    _wx_cache_key = f"wx|{lat:.2f}|{lon:.2f}|{target.isoformat()}"
+    _wx_cached    = None
+    _wx_exc       = None
+    _wx_thread    = None
 
-    sunrise = se.find_event(events, "Sunrise", after=sunset)
-    if not sunrise:
-        raise ValueError(f"No sunrise found after sunset on {target}")
+    # TLE fetches also need nothing from Skyfield — start them alongside weather.
+    _tle_futures: dict[int, _futures.Future] = {}
+    _sl_future:   _futures.Future | None     = None
+    _sat_stale        = False
+    _sat_days_offset  = (target - date.today()).days
 
-    moonrise    = se.find_last_event(events, "Moonrise", before=sunrise)
-    moonset     = se.find_event(events, "Moonset", after=sunset)
-    night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise)
-    night_end   = se.find_event(events, "Astronomical night ends",   after=night_start or sunset, before=sunrise)
+    _max_workers = 3
+    if fetch_satellites and _sat_days_offset >= 0:
+        # 3 individual TLE fetches + 1 Starlink group fetch on top of ds + wx
+        _max_workers = 8
 
-    # Events within the display window (sunset/moonrise → sunrise/moonset)
-    window_start = min(sunset, moonrise) if moonrise and moonrise < sunset else sunset
-    window_end   = max(sunrise, moonset) if moonset  and moonset  > sunrise else sunrise
-    night_events = [e for e in events if window_start <= e["time"] <= window_end]
+    with _futures.ThreadPoolExecutor(max_workers=_max_workers) as _pool:
+        _ds_future = _pool.submit(_ds.lookup, lat, lon)
 
-    # --- Moon ---
-    phase_name, illumination = se.moon_phase_info(sunset)
-    moon_dist_km   = _me.moon_distance_km(sunset)
-    moon_special   = _me.classify_full_moon(illumination, moon_dist_km)
-    moon_eclipses  = _me.eclipses_for_night(sunset, sunrise)
+        # Heuristic: start weather for today-or-future dates without waiting for
+        # sunrise. The precise _future_date check happens after sky_events returns;
+        # if it turns out the night is already past, the thread result is discarded.
+        if fetch_weather and target >= datetime.now(timezone.utc).date():
+            _wx_cached = _ports.get_backend().cache.get(_wx_cache_key)
+            if _wx_cached is None:
+                _wx_thread = _pool.submit(wx.forecast, lat, lon)
 
-    # --- Dark intervals ---
-    if night_start and night_end:
-        intervals          = se.dark_moon_intervals(events, night_start, night_end)
-        dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
-        total_astro_hours  = (night_end - night_start).total_seconds() / 3600
+        # TLE fetches — start immediately, overlaps with ~600 ms of Skyfield work.
+        if fetch_satellites:
+            from . import tle_provider as _tle_mod
+            _sat_stale = _sat_days_offset < 0
+            if not _sat_stale:
+                for _norad_id, _ in _tle_mod.TRACKED_SATELLITES:
+                    _tle_futures[_norad_id] = _pool.submit(_tle_mod.get_tle, _norad_id)
+                _sl_future = _pool.submit(_tle_mod.get_starlink_train_tles)
 
-        # Moon score: weight moonlit fraction by K&S sky-brightening credit rather
-        # than the naive (1 − illum/100) approximation.  K&S is evaluated at the
-        # site-wide proxy geometry (90° sep, 30° alt) — the darkest accessible sky.
-        #
-        #   score = 10 × (moon_free_frac  +  moonlit_frac × ks_credit)
-        #
-        # Key improvements over the naive formula:
-        #   50% quarter moon → credit 0.31  (was 0.50) — correctly penalised
-        #   75% gibbous      → credit 0.00  (was 0.25) — correctly zeroed
-        #   ≤15% crescent    → credit ~0.96 (was ~0.85) — minor difference only
-        moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
-        moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * ks_moon_credit(illumination)), 1)
+        # --- Skyfield work runs concurrently with the I/O threads above ---
+        events = se.sky_events(lat, lon, target)
+        _t["sky_events_ms"] = round((time.monotonic() - _t0) * 1000)
 
-        # Crescent exemption for the *displayed* Clear Dark Sky Hours:
-        # illumination ≤ 20% → K&S shows Δmag < 0.25 at 90° sep regardless of altitude
-        # (imperceptible-to-minor).  Report the full astronomical window as dark rather
-        # than subtracting the few hours the crescent is technically above the horizon.
-        # The underlying geometric intervals are preserved for weather score weighting.
-        if illumination <= KS_CRESCENT_EXEMPTION_PCT and total_astro_hours > 0:
-            display_dark_hours     = total_astro_hours
-            display_dark_intervals = [(night_start, night_end)]
+        # --- Key event times ---
+        _tc = time.monotonic()
+        sunset = next(
+            (e["time"] for e in events
+             if e["label"] == "Sunset" and _local(e["time"]).date() == target),
+            None,
+        )
+        if not sunset:
+            raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
+
+        sunrise = se.find_event(events, "Sunrise", after=sunset)
+        if not sunrise:
+            raise ValueError(f"No sunrise found after sunset on {target}")
+
+        moonrise    = se.find_last_event(events, "Moonrise", before=sunrise)
+        moonset     = se.find_event(events, "Moonset", after=sunset)
+        night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise)
+        night_end   = se.find_event(events, "Astronomical night ends",   after=night_start or sunset, before=sunrise)
+
+        # Events within the display window (sunset/moonrise → sunrise/moonset)
+        window_start = min(sunset, moonrise) if moonrise and moonrise < sunset else sunset
+        window_end   = max(sunrise, moonset) if moonset  and moonset  > sunrise else sunrise
+        night_events = [e for e in events if window_start <= e["time"] <= window_end]
+
+        _t["event_parse_ms"] = round((time.monotonic() - _tc) * 1000)
+
+        # --- Moon ---
+        _tc = time.monotonic()
+        phase_name, illumination = se.moon_phase_info(sunset)
+        moon_dist_km   = _me.moon_distance_km(sunset)
+        moon_special   = _me.classify_full_moon(illumination, moon_dist_km)
+        moon_eclipses  = _me.eclipses_for_night(sunset, sunrise)
+        _t["moon_ms"] = round((time.monotonic() - _tc) * 1000)
+
+        # --- Dark intervals ---
+        if night_start and night_end:
+            intervals          = se.dark_moon_intervals(events, night_start, night_end)
+            dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
+            total_astro_hours  = (night_end - night_start).total_seconds() / 3600
+
+            # Moon score: weight moonlit fraction by K&S sky-brightening credit rather
+            # than the naive (1 − illum/100) approximation.  K&S is evaluated at the
+            # site-wide proxy geometry (90° sep, 30° alt) — the darkest accessible sky.
+            #
+            #   score = 10 × (moon_free_frac  +  moonlit_frac × ks_credit)
+            #
+            # Key improvements over the naive formula:
+            #   50% quarter moon → credit 0.31  (was 0.50) — correctly penalised
+            #   75% gibbous      → credit 0.00  (was 0.25) — correctly zeroed
+            #   ≤15% crescent    → credit ~0.96 (was ~0.85) — minor difference only
+            moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
+            moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * ks_moon_credit(illumination)), 1)
+
+            # Crescent exemption for the *displayed* Clear Dark Sky Hours:
+            # illumination ≤ 20% → K&S shows Δmag < 0.25 at 90° sep regardless of altitude
+            # (imperceptible-to-minor).  Report the full astronomical window as dark rather
+            # than subtracting the few hours the crescent is technically above the horizon.
+            # The underlying geometric intervals are preserved for weather score weighting.
+            if illumination <= KS_CRESCENT_EXEMPTION_PCT and total_astro_hours > 0:
+                display_dark_hours     = total_astro_hours
+                display_dark_intervals = [(night_start, night_end)]
+            else:
+                display_dark_hours     = dark_hours_tonight
+                display_dark_intervals = intervals
         else:
-            display_dark_hours     = dark_hours_tonight
-            display_dark_intervals = intervals
-    else:
-        # No astronomical darkness (polar summer / always dark) — timing
-        # is undefined; fall back to K&S credit score only.
-        intervals              = []
-        dark_hours_tonight     = 0.0
-        display_dark_hours     = 0.0
-        display_dark_intervals = []
-        moon_score             = round(10 * ks_moon_credit(illumination), 1)
+            # No astronomical darkness (polar summer / always dark) — timing
+            # is undefined; fall back to K&S credit score only.
+            intervals              = []
+            dark_hours_tonight     = 0.0
+            display_dark_hours     = 0.0
+            display_dark_intervals = []
+            moon_score             = round(10 * ks_moon_credit(illumination), 1)
 
-    # --- Lunar cycle dark analysis ---
-    cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
-    dark_score = cycle["score"]
+        # --- Lunar cycle dark analysis ---
+        _tc = time.monotonic()
+        cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
+        dark_score = cycle["score"]
+        _t["lunar_cycle_ms"] = round((time.monotonic() - _tc) * 1000)
 
-    # --- Light pollution ---
-    ds_info      = _ds.lookup(lat, lon)
+        # --- Collect I/O (weather + darksky started at function entry) ---
+        _tc = time.monotonic()
+        _future_date = sunrise >= _now
+
+        # Collect darksky (S3 raster read — almost certainly done by now)
+        ds_info = _ds_future.result()
+
+        # Collect weather future (started at entry; may still be running if
+        # Open-Meteo is slower than the Skyfield work above)
+        if _wx_thread is not None:
+            if _future_date:
+                try:
+                    _wx_fetched = _wx_thread.result()
+                    try:
+                        _ports.get_backend().cache.set(
+                            _wx_cache_key, _wx_serialize(*_wx_fetched), ttl_seconds=_WX_CACHE_TTL
+                        )
+                    except Exception as _ce:
+                        log.debug("Weather cache write failed (non-fatal): %s", _ce)
+                except RuntimeError as _e:
+                    _wx_exc     = _e
+                    _wx_fetched = None
+            else:
+                _wx_fetched = None   # night already past; thread runs to completion in background
+        else:
+            _wx_fetched = None
+
+        _t["io_wait_ms"] = round((time.monotonic() - _tc) * 1000)
+
+        # --- Phase 2: satellite passes + visible_targets in parallel ---
+        # TLE futures started at function entry are almost certainly done by now
+        # (Skyfield took ~500–700 ms; Celestrak takes ~300–500 ms per TLE).
+        # sunset + sunrise are now available, so we can submit the Skyfield pass
+        # computation and visible_targets concurrently.
+        _tc = time.monotonic()
+
+        sat_pass_list             = []
+        starlink_train_list       = []
+        sat_future_stale          = False
+        sat_future_warn           = False
+        sat_tle_stale             = False
+        sat_network_error         = False
+        sat_starlink_unavailable  = False
+
+        _pass_futures: list[tuple[str, bool, _futures.Future]] = []
+        _sl_passes_future: _futures.Future | None = None
+
+        if fetch_satellites and not _sat_stale:
+            from . import satellites as _sat_mod
+            sat_future_warn = _sat_days_offset > 3
+            for _norad_id, _sat_name in _tle_mod.TRACKED_SATELLITES:
+                _tle_result = _tle_futures[_norad_id].result()
+                if _tle_result.lines is None:
+                    sat_network_error = True
+                    continue
+                if _tle_result.stale:
+                    sat_tle_stale = True
+                _pass_futures.append((
+                    _sat_name,
+                    _tle_result.stale,
+                    _pool.submit(_sat_mod.satellite_passes,
+                                 _tle_result.lines, lat, lon, sunset, sunrise),
+                ))
+            if _sl_future is not None:
+                _sl_tles, _, _sl_error = _sl_future.result()
+                if _sl_error and not _sl_tles:
+                    sat_starlink_unavailable = True
+                elif _sl_tles:
+                    _sl_passes_future = _pool.submit(
+                        _sat_mod.starlink_train_passes, _sl_tles, lat, lon, sunset, sunrise
+                    )
+
+        _vt_future: _futures.Future | None = None
+        if fetch_targets:
+            _site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
+            _vt_future = _pool.submit(
+                _tgt.visible_targets, lat, lon, sunset, sunrise, illumination,
+                night_start=night_start, night_end=night_end, sky_sqm=_site_sqm,
+            )
+
+        # Collect satellite passes
+        for _sat_name, _, _pass_f in _pass_futures:
+            _result = _pass_f.result()
+            if _result is None:
+                sat_future_stale = True
+                sat_future_warn  = False
+                continue
+            for _sp in _result:
+                _sp.satellite_name = _sat_name
+            sat_pass_list.extend(_result)
+        sat_pass_list.sort(key=lambda p: p.rise_time)
+
+        if _sl_passes_future is not None:
+            starlink_train_list = _sl_passes_future.result()
+
+        target_list = _vt_future.result() if _vt_future is not None else []
+        _t["sat_targets_ms"] = round((time.monotonic() - _tc) * 1000)
+
+    # executor exits — all futures are resolved
+
     bortle_score = (
         round(max(0.0, (10 - ds_info["bortle_class"]) / 9 * 10), 1)
         if ds_info and ds_info["bortle_class"] is not None
@@ -199,8 +377,8 @@ def assemble_night(
 
     if fetch_weather:
         try:
-            now = datetime.now(timezone.utc)
-            if sunrise < now:
+            if not _future_date:
+                # Past date: sequential fetch (no parallelism needed — uncommon path)
                 try:
                     days_ago = (date.today() - target).days
                     if days_ago <= wx.OpenMeteoPastProvider._MAX_PAST_DAYS:
@@ -233,7 +411,14 @@ def assemble_night(
                     wx_no_data       = not wx_archive_error
                     night_points     = []
             else:
-                points, wx_source = wx.forecast(lat, lon)
+                # Future date: use cached or concurrently-fetched result
+                if _wx_exc is not None:
+                    raise _wx_exc
+                if _wx_cached is not None:
+                    points, wx_source = _wx_deserialize(_wx_cached)
+                else:
+                    points, wx_source = _wx_fetched
+
                 before  = [p for p in points if sunset - timedelta(hours=6) <= p.time <= sunset]
                 during  = [p for p in points if sunset < p.time < sunrise]
                 after   = [p for p in points if sunrise <= p.time <= sunrise + timedelta(hours=12)]
@@ -258,61 +443,22 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
-    # --- Satellite passes (optional — requires Celestrak TLE fetch) ---
-    sat_pass_list             = []
-    starlink_train_list       = []
-    sat_stale                 = False
-    sat_future_stale          = False
-    sat_future_warn           = False
-    sat_tle_stale             = False
-    sat_network_error         = False
-    sat_starlink_unavailable  = False
-    if fetch_satellites:
-        from . import satellites as _sat
-        from . import tle_provider as _tle
-        days_offset = (target - date.today()).days   # negative = past, positive = future
-        sat_stale   = days_offset < 0               # fast-path: past dates, don't even try
-        if not sat_stale:
-            sat_future_warn = days_offset > 3
-            for norad_id, sat_name in _tle.TRACKED_SATELLITES:
-                tle_result = _tle.get_tle(norad_id)
-                if tle_result.lines is None:
-                    # Complete failure — Celestrak unreachable and no cached TLE
-                    sat_network_error = True
-                    continue
-                if tle_result.stale:
-                    sat_tle_stale = True
-                result = _sat.satellite_passes(tle_result.lines, lat, lon, sunset, sunrise)
-                if result is None:
-                    # TLE too stale for this window (too far in future)
-                    sat_future_stale = True
-                    sat_future_warn  = False   # stale supersedes the softer warning
-                    continue
-                for sp in result:
-                    sp.satellite_name = sat_name
-                sat_pass_list.extend(result)
-            # Sort all passes from all satellites into chronological order
-            sat_pass_list.sort(key=lambda p: p.rise_time)
-
-            # --- Starlink trains ---
-            sl_tles, _sl_stale, sl_error = _tle.get_starlink_train_tles()
-            if sl_error and not sl_tles:
-                sat_starlink_unavailable = True
-            elif sl_tles:
-                starlink_train_list = _sat.starlink_train_passes(
-                    sl_tles, lat, lon, sunset, sunrise
-                )
-
-    # --- Visible targets ---
-    target_list = []
-    if fetch_targets:
-        site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
-        target_list = _tgt.visible_targets(lat, lon, sunset, sunrise, illumination,
-                                            night_start=night_start, night_end=night_end,
-                                            sky_sqm=site_sqm)
-
     # --- Overall rating ---
+    _tc = time.monotonic()
     rating = scoring.rate_night(moon_score, dark_score, weather_score, bortle_score)
+    _t["scoring_ms"] = round((time.monotonic() - _tc) * 1000)
+    _t["total_ms"] = round((time.monotonic() - _t0) * 1000)
+
+    log.info(
+        "assemble_night timing lat=%.2f lon=%.2f date=%s wx_cached=%s | "
+        "sky_events=%dms event_parse=%dms moon=%dms lunar_cycle=%dms "
+        "io_wait=%dms sat_targets=%dms scoring=%dms total=%dms",
+        lat, lon, target, _wx_cached is not None,
+        _t["sky_events_ms"], _t["event_parse_ms"], _t["moon_ms"],
+        _t["lunar_cycle_ms"], _t["io_wait_ms"],
+        _t.get("sat_targets_ms", 0), _t["scoring_ms"],
+        _t["total_ms"],
+    )
 
     return NightReport(
         date=target,
@@ -351,7 +497,7 @@ def assemble_night(
         visible_targets=target_list,
         active_showers=active_showers,
         sat_passes=sat_pass_list,
-        sat_stale=sat_stale,
+        sat_stale=_sat_stale,
         sat_future_stale=sat_future_stale,
         sat_future_warn=sat_future_warn,
         sat_tle_stale=sat_tle_stale,

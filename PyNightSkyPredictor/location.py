@@ -90,6 +90,10 @@ def _save(cache: dict):
 
 _US_ZIP_RE = re.compile(r"^\d{5}(-\d{4})?$")
 
+# In-process cache: persists across warm Lambda invocations within the same container.
+# Geocode entries are permanent in DynamoDB so an in-process copy is always safe.
+_mem_geocode: dict[str, dict] = {}
+
 
 def _geocode_query(name: str) -> str:
     """Return the query to send to Nominatim, adding ', US' for bare zip codes."""
@@ -166,8 +170,14 @@ def resolve(name: str) -> tuple:
     caches the result (including timezone) so subsequent lookups are instant
     and fully offline.
     """
-    cache = _load()
     key = name.strip().lower()
+
+    # Fast path: in-process dict avoids a DynamoDB round-trip on warm containers.
+    if key in _mem_geocode:
+        e = _mem_geocode[key]
+        return e["lat"], e["lon"], e["display_name"], e["tz_name"]
+
+    cache = _load()
 
     if key in cache:
         entry = cache[key]
@@ -179,6 +189,7 @@ def resolve(name: str) -> tuple:
             _save(cache)
         log.debug("Cache hit for '%s': lat=%s, lon=%s, tz=%s",
                   key, entry["lat"], entry["lon"], entry["tz_name"])
+        _mem_geocode[key] = entry
         return entry["lat"], entry["lon"], entry["display_name"], entry["tz_name"]
 
     # Cache miss — geocode via the appropriate backend
@@ -192,6 +203,7 @@ def resolve(name: str) -> tuple:
 
     cache[key] = entry
     _save(cache)
+    _mem_geocode[key] = entry
     log.debug("Geocoded '%s': lat=%s, lon=%s, tz=%s",
               key, entry["lat"], entry["lon"], entry["tz_name"])
 
