@@ -105,9 +105,9 @@ export default function App() {
     setLoading(true)
     try {
       setReport(await fetchNight(q))
-      setReportWeather(weather)
+      setReportWeather(weather && !wxForecastUnavailable)
       setReportTargets(targets)
-      setReportSatellites(satellites)
+      setReportSatellites(satellites && !satUnavailable)
     } catch (err) {
       setReport(null)
       setError(err instanceof ApiRequestError ? err.message : 'Something went wrong.')
