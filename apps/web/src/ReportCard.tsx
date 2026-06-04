@@ -635,9 +635,12 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
 
 // ── Nearby dark-sky results ──────────────────────────────────────────────────
 
-function NearbyResults({ data }: { data: NearbyResult }) {
+function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boolean }) {
   const { origin_bortle, origin_sqm, radius_miles, results, light_domes, best_available } = data
   const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(1)})` : ''
+
+  // Convert stored miles to the active unit system
+  const fmtMi = (mi: number) => fmtDist(mi * 1.60934, imperial)
 
   if (origin_bortle <= 1) {
     return (
@@ -655,15 +658,15 @@ function NearbyResults({ data }: { data: NearbyResult }) {
   return (
     <>
       <p className="nearby-origin">
-        Origin: Bortle {origin_bortle}{sqmStr}  ·  {radius_miles} mi radius
+        Origin: Bortle {origin_bortle}{sqmStr}  ·  {fmtMi(radius_miles)} radius
       </p>
 
       {results.length === 0 && (
         <p className="sat-notice">
-          No significantly darker sky found within {radius_miles} mi.
+          No significantly darker sky found within {fmtMi(radius_miles)}.
           {best_available && (
             <> Closest darker spot: Bortle {best_available.bortle_class
-            }, {best_available.distance_miles.toFixed(1)} mi {best_available.direction
+            }, {fmtMi(best_available.distance_miles)} {best_available.direction
             }{best_available.drive_minutes != null ? ` · ~${best_available.drive_minutes}m drive` : ''
             }{best_available.name ? ` (${best_available.name})` : ''}</>
           )}
@@ -682,12 +685,12 @@ function NearbyResults({ data }: { data: NearbyResult }) {
             <div className="nearby-highlights">
               <div className="nearby-highlight-row">
                 <span className="nearby-highlight-label">Nearest</span>
-                <span>Bortle {nearest.bortle_class}  ·  {nearest.distance_miles.toFixed(1)} mi {nearest.direction}{driveStr(nearest) ? `  ·  ${driveStr(nearest)}` : ''}  ({placeStr(nearest)})</span>
+                <span>Bortle {nearest.bortle_class}  ·  {fmtMi(nearest.distance_miles)} {nearest.direction}{driveStr(nearest) ? `  ·  ${driveStr(nearest)}` : ''}  ({placeStr(nearest)})</span>
               </div>
               {showDarkest && (
                 <div className="nearby-highlight-row">
                   <span className="nearby-highlight-label">Darkest</span>
-                  <span>Bortle {darkest.bortle_class}  ·  {darkest.distance_miles.toFixed(1)} mi {darkest.direction}{driveStr(darkest) ? `  ·  ${driveStr(darkest)}` : ''}  ({placeStr(darkest)})</span>
+                  <span>Bortle {darkest.bortle_class}  ·  {fmtMi(darkest.distance_miles)} {darkest.direction}{driveStr(darkest) ? `  ·  ${driveStr(darkest)}` : ''}  ({placeStr(darkest)})</span>
                 </div>
               )}
             </div>
@@ -711,7 +714,7 @@ function NearbyResults({ data }: { data: NearbyResult }) {
                         <td>{placeStr(p)}</td>
                         <td className="wx-num">{p.bortle_class}</td>
                         <td className="wx-num">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
-                        <td className="wx-num">{p.distance_miles.toFixed(1)} mi</td>
+                        <td className="wx-num">{fmtMi(p.distance_miles)}</td>
                         {hasDrive && <td className="wx-num">{driveStr(p) ?? '—'}</td>}
                         <td className="wx-num">{p.direction}</td>
                       </tr>
@@ -728,7 +731,7 @@ function NearbyResults({ data }: { data: NearbyResult }) {
           <div className="nearby-domes-label">Light domes</div>
           {light_domes.map((d, i) => (
             <div key={i} className="nearby-dome-row">
-              {placeStr(d)}  ·  Bortle {d.bortle_class}  ·  {d.distance_miles.toFixed(1)} mi {d.direction}
+              {placeStr(d)}  ·  Bortle {d.bortle_class}  ·  {fmtMi(d.distance_miles)} {d.direction}
             </div>
           ))}
         </div>
@@ -956,18 +959,18 @@ export default function ReportCard({
         <div className="nearby-body">
           {nearbyState.phase === 'idle' && (
             <div className="nearby-radius-toggle">
-              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>60 mi</button>
-              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>120 mi</button>
+              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
+              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
             </div>
           )}
           {nearbyState.phase === 'loading' && (
-            <p className="sat-notice">Scanning within {nearbyState.radius} mi…</p>
+            <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
           )}
           {nearbyState.phase === 'error' && (
             <p className="sat-notice">{nearbyState.message}</p>
           )}
           {nearbyState.phase === 'done' && (
-            <NearbyResults data={nearbyState.data} />
+            <NearbyResults data={nearbyState.data} imperial={imperial} />
           )}
         </div>
       </details>
