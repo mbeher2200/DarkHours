@@ -6,10 +6,13 @@ the local VIIRS/Falchi rasters, so it's skipped when they're absent (e.g. CI);
 the real cloud path is covered by the @pytest.mark.aws smoke instead.
 """
 import pathlib
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 
+import apps.api.main as main_mod
+from apps import jobs
 from apps.api.main import app
 
 client = TestClient(app)
@@ -77,6 +80,58 @@ def test_trip_end_before_start_400():
 def test_trip_too_many_locations_400():
     params = [("locations", f"loc{i}") for i in range(11)] + [("start", "2026-06-01"), ("end", "2026-06-02")]
     assert client.get("/trip", params=params).status_code == 400
+
+
+# ── /nearby endpoint ──────────────────────────────────────────────────────────
+
+_NEARBY_RESULT = {
+    "origin_bortle": 7, "origin_sqm": 19.5, "radius_miles": 60,
+    "results": [], "light_domes": [], "has_dark_sky": False, "best_available": None,
+}
+
+
+@pytest.fixture
+def _nearby_mocks(monkeypatch):
+    """Patch geocoding + run_job so /nearby tests need no rasters or network."""
+    store: dict = {}
+    monkeypatch.setattr(jobs._cache, "set",
+                        lambda k, v, ttl_seconds=None: store.__setitem__(k, v))
+    monkeypatch.setattr(jobs._cache, "get", lambda k: store.get(k))
+    monkeypatch.delenv("PYNIGHTSKY_JOBS_QUEUE_URL", raising=False)
+    monkeypatch.setattr(main_mod._loc, "timezone_for",
+                        lambda lat, lon: ZoneInfo("America/Denver"))
+    monkeypatch.setattr(jobs, "run_job", lambda p: _NEARBY_RESULT)
+    return store
+
+
+def test_nearby_returns_202(monkeypatch, _nearby_mocks):
+    r = TestClient(app).get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 60})
+    assert r.status_code == 202
+    body = r.json()
+    assert "job_id" in body
+    assert body["poll"].startswith("/jobs/")
+
+
+def test_nearby_job_polls_to_done(monkeypatch, _nearby_mocks):
+    c = TestClient(app)
+    r = c.get("/nearby", params={"lat": 35.2, "lon": -111.6})
+    jid = r.json()["job_id"]
+    poll = c.get(f"/jobs/{jid}")
+    assert poll.status_code == 200
+    assert poll.json()["status"] == "done"
+    assert poll.json()["result"]["origin_bortle"] == 7
+
+
+def test_nearby_radius_too_large_422():
+    assert client.get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 999}).status_code == 422
+
+
+def test_nearby_radius_too_small_422():
+    assert client.get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 1}).status_code == 422
+
+
+def test_nearby_requires_location_or_coords():
+    assert client.get("/nearby", params={"radius": 60}).status_code == 400
 
 
 @pytest.mark.eph

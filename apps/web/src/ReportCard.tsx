@@ -1,10 +1,11 @@
-import type React from 'react'
-import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary } from './types'
+import React, { useState } from 'react'
+import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace } from './types'
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
   scoreBand, scoreLabel, moonWashSeverity, moonUpAt,
 } from './format'
+import { fetchNearby, ApiRequestError } from './api'
 import { Sunrise, Sunset, Moon, Star, Stars } from 'lucide-react'
 
 // Alt/Az in standard format: "42° alt · 195° (S)"
@@ -579,6 +580,104 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
   )
 }
 
+// ── Nearby dark-sky results ──────────────────────────────────────────────────
+
+function NearbyResults({ data }: { data: NearbyResult }) {
+  const { origin_bortle, origin_sqm, radius_miles, results, light_domes, best_available } = data
+  const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(1)})` : ''
+
+  if (origin_bortle <= 1) {
+    return (
+      <p className="sat-notice">
+        Already at Bortle {origin_bortle}{sqmStr} — you are at an optimal dark sky.
+      </p>
+    )
+  }
+
+  const placeStr = (p: NearbyPlace) =>
+    p.name ?? `${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°`
+
+  return (
+    <>
+      <p className="nearby-origin">
+        Origin: Bortle {origin_bortle}{sqmStr}  ·  {radius_miles} mi radius
+      </p>
+
+      {results.length === 0 && (
+        <p className="sat-notice">
+          No significantly darker sky found within {radius_miles} mi.
+          {best_available && (
+            <> Closest darker spot: Bortle {best_available.bortle_class
+            }, {best_available.distance_miles.toFixed(1)} mi {best_available.direction
+            }{best_available.name ? ` (${best_available.name})` : ''}</>
+          )}
+        </p>
+      )}
+
+      {results.length > 0 && (() => {
+        const nearest = [...results].sort((a, b) => a.distance_miles - b.distance_miles)[0]
+        const darkest = [...results].sort((a, b) =>
+          a.bortle_class !== b.bortle_class ? a.bortle_class - b.bortle_class : a.distance_miles - b.distance_miles
+        )[0]
+        const showDarkest = darkest !== nearest && darkest.bortle_class < nearest.bortle_class
+        return (
+          <>
+            <div className="nearby-highlights">
+              <div className="nearby-highlight-row">
+                <span className="nearby-highlight-label">Nearest</span>
+                <span>Bortle {nearest.bortle_class}  ·  {nearest.distance_miles.toFixed(1)} mi {nearest.direction}  ({placeStr(nearest)})</span>
+              </div>
+              {showDarkest && (
+                <div className="nearby-highlight-row">
+                  <span className="nearby-highlight-label">Darkest</span>
+                  <span>Bortle {darkest.bortle_class}  ·  {darkest.distance_miles.toFixed(1)} mi {darkest.direction}  ({placeStr(darkest)})</span>
+                </div>
+              )}
+            </div>
+            <div className="wx-table-wrap">
+              <table className="wx-table">
+                <thead>
+                  <tr>
+                    <th>Area</th>
+                    <th>Bortle</th>
+                    <th>SQM</th>
+                    <th>Distance</th>
+                    <th>Direction</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...results]
+                    .sort((a, b) => a.distance_miles - b.distance_miles)
+                    .map((p, i) => (
+                      <tr key={i}>
+                        <td>{placeStr(p)}</td>
+                        <td className="wx-num">{p.bortle_class}</td>
+                        <td className="wx-num">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
+                        <td className="wx-num">{p.distance_miles.toFixed(1)} mi</td>
+                        <td className="wx-num">{p.direction}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      })()}
+
+      {light_domes.length > 0 && (
+        <div className="nearby-domes">
+          <div className="nearby-domes-label">Light domes</div>
+          {light_domes.map((d, i) => (
+            <div key={i} className="nearby-dome-row">
+              {placeStr(d)}  ·  Bortle {d.bortle_class}  ·  {d.distance_miles.toFixed(1)} mi {d.direction}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Main report card ─────────────────────────────────────────────────────────
 
 export default function ReportCard({
@@ -594,6 +693,26 @@ export default function ReportCard({
   showSatellites?: boolean
   imperial?: boolean
 }) {
+  const [nearbyState, setNearbyState] = useState<
+    | { phase: 'idle' }
+    | { phase: 'loading' }
+    | { phase: 'done'; data: NearbyResult }
+    | { phase: 'error'; message: string }
+  >({ phase: 'idle' })
+
+  async function handleFindNearby() {
+    setNearbyState({ phase: 'loading' })
+    try {
+      const data = await fetchNearby(report.lat, report.lon)
+      setNearbyState({ phase: 'done', data })
+    } catch (err) {
+      setNearbyState({
+        phase: 'error',
+        message: err instanceof ApiRequestError ? err.message : 'Nearby search failed.',
+      })
+    }
+  }
+
   const r   = report
   const tz  = r.tz_name
   const lp  = r.light_pollution
@@ -749,6 +868,26 @@ export default function ReportCard({
           </div>
         </details>
       )}
+
+      <details className="nearby-section" open={nearbyState.phase !== 'idle'}>
+        <summary>Find nearby dark sky</summary>
+        <div className="nearby-body">
+          {nearbyState.phase === 'idle' && (
+            <button className="nearby-trigger" onClick={handleFindNearby}>
+              Search within 60 mi
+            </button>
+          )}
+          {nearbyState.phase === 'loading' && (
+            <p className="sat-notice">Scanning nearby skies…</p>
+          )}
+          {nearbyState.phase === 'error' && (
+            <p className="sat-notice">{nearbyState.message}</p>
+          )}
+          {nearbyState.phase === 'done' && (
+            <NearbyResults data={nearbyState.data} />
+          )}
+        </div>
+      </details>
     </section>
   )
 }

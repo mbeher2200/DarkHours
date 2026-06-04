@@ -21,6 +21,7 @@ from datetime import date
 
 from PyNightSkyPredictor import cache as _cache
 from PyNightSkyPredictor import trip as _trip
+from PyNightSkyPredictor.darksky import find_nearby as _find_nearby
 from apps.api.serializers import trip_report_to_dict
 
 _JOB_PREFIX = "job|"
@@ -39,13 +40,24 @@ def _sqs():
     return _sqs_client
 
 
-def run_job(params: dict) -> dict:
-    """Execute a resolved calendar/trip job → JSON-safe TripReport dict.
+def _run_nearby_job(params: dict) -> dict:
+    """Execute a resolved nearby job → JSON-safe dict from find_nearby()."""
+    result = _find_nearby(params["lat"], params["lon"], int(params.get("radius_miles", 60)))
+    if result is None:
+        raise RuntimeError("Light pollution data unavailable (rasterio not installed).")
+    return result
 
-    params = {"locs": [{lat,lon,display_name,tz_name}, ...],
-              "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "weather": bool}
-    Locations are already geocoded at submit time, so this does no network geocoding.
+
+def run_job(params: dict) -> dict:
+    """Dispatch a job to the appropriate handler based on params['type'].
+
+    params for "nearby": {"type": "nearby", "lat": float, "lon": float, "radius_miles": int}
+    params for "trip"  : {"locs": [...], "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "weather": bool}
+    Defaulting to "trip" when "type" is absent keeps all existing calendar/trip jobs working.
     """
+    if params.get("type") == "nearby":
+        return _run_nearby_job(params)
+    # trip/calendar path — locations already geocoded at submit time
     report = _trip.plan_trip(
         params["locs"],
         date.fromisoformat(params["start"]),

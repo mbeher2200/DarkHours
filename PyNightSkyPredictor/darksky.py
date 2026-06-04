@@ -991,11 +991,15 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     dome_clusters = sorted(dome_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_DOMES]
 
     # ── Naming ─────────────────────────────────────────────────────────────
-    # Strategy: one Overpass around: call fetches ALL named natural areas in
-    # the search radius at once (~3s, cached per origin).  Cluster naming is
-    # then pure CPU (instant).  Nominatim dome calls run concurrently in the
-    # main thread while the Overpass fetch runs in a background thread.
-    # Total first-run time ≈ max(Overpass_call, Nominatim_dome_calls) ≈ 4-5s.
+    # On the AWS backend, Overpass is skipped entirely: AWS Location reverse-
+    # geocodes each cluster in parallel (~50 ms/call, no rate limit, DynamoDB-
+    # cached).  On the local backend, Overpass still runs (it returns richer
+    # park/forest names), with an 8 s join timeout so a slow Overpass server
+    # can't stall the whole function.  In both cases, final naming falls back
+    # to a thread-pool of _settlement() calls so results always have names.
+
+    _OVERPASS_JOIN_TIMEOUT_S = 15.0
+    _use_overpass = (ports.get_backend()._name != "aws")
 
     best_available = None
     best_candidate = None
@@ -1004,35 +1008,49 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
             all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
         )[0]
 
-    # Launch Overpass area fetch in background
+    # Optionally launch Overpass area fetch in background (local backend only)
     natural_areas: list = []
 
-    def _fetch_areas():
-        natural_areas.extend(
-            _overpass_natural_areas_in_radius(lat, lon, radius_miles)
-        )
+    if _use_overpass:
+        def _fetch_areas():
+            natural_areas.extend(
+                _overpass_natural_areas_in_radius(lat, lon, radius_miles)
+            )
+        areas_thread = threading.Thread(target=_fetch_areas, daemon=True)
+        areas_thread.start()
 
-    areas_thread = threading.Thread(target=_fetch_areas, daemon=True)
-    areas_thread.start()
-
-    # Concurrently: name light domes via Nominatim (main thread, rate-limited)
+    # Concurrently: name light domes (main thread, rate-limited on local)
     for dome in dome_clusters:
         dome_name = _settlement(dome["lat"], dome["lon"])
         dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
 
-    # Wait for Overpass result (usually already done by the time domes are named)
-    areas_thread.join()
+    if _use_overpass:
+        areas_thread.join(timeout=_OVERPASS_JOIN_TIMEOUT_S)
+        if areas_thread.is_alive():
+            log.warning("Overpass join timed out after %ss; falling back to geocoding for cluster names",
+                        _OVERPASS_JOIN_TIMEOUT_S)
 
-    # Name clusters from fetched areas — CPU only, instant
+    # Name each cluster: try Overpass areas first (CPU, local only), then geocoding.
+    # Thread pool lets AWS Location calls execute in parallel (no rate limit).
     all_to_name = dark_clusters + ([best_candidate] if best_candidate else [])
-    for c in all_to_name:
+
+    def _name_one(c: dict) -> str | None:
         name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
         if not name:
             name = _settlement(c["lat"], c["lon"])
-        if name == _OVER_WATER:
-            c["name"] = None          # flagged for removal below
-        else:
-            c["name"] = name or f"{c['lat']:.2f}°, {c['lon']:.2f}°"
+        return name
+
+    if all_to_name:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=min(len(all_to_name), 6)) as pool:
+            futures = {pool.submit(_name_one, c): c for c in all_to_name}
+            for fut in as_completed(futures):
+                c = futures[fut]
+                name = fut.result()
+                if name == _OVER_WATER:
+                    c["name"] = None
+                else:
+                    c["name"] = name or f"{c['lat']:.2f}°, {c['lon']:.2f}°"
 
     # Drop clusters over ocean / large water bodies — they're dark only because
     # no one lives there, not because they're useful observing sites.

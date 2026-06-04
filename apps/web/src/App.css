@@ -396,6 +396,70 @@ details summary {
   gap: 3px;
 }
 
+/* ── nearby dark-sky section ─────────────────────────────────────────────── */
+.nearby-body {
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nearby-trigger {
+  align-self: flex-start;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nearby-trigger:hover {
+  border-color: #7aa2ff;
+  color: #7aa2ff;
+}
+.nearby-origin {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.nearby-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nearby-highlight-row {
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.nearby-highlight-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  min-width: 52px;
+  padding-top: 1px;
+}
+.nearby-domes {
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nearby-domes-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+.nearby-dome-row {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── targets table ────────────────────────────────────────────────────────── */
 .tg-table-wrap {
   overflow-x: auto;
