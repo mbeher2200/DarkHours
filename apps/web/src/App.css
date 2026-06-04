@@ -492,6 +492,45 @@ details summary {
 .tg-table tr:last-child td {
   border-bottom: none;
 }
+/* ── Meteor shower cards ─────────────────────────────────────────────────── */
+.ms-section {
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+.ms-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ms-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.ms-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.ms-name {
+  font-weight: 600;
+  color: var(--text-h);
+  font-size: 14px;
+}
+.ms-zhr {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ms-note {
+  font-size: 12px;
+  color: var(--fair);
+}
+
 /* ── Milky Way card ──────────────────────────────────────────────────────── */
 .mw-section {
   margin-top: 10px;
