@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import './App.css'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
-import { todayIso } from './format'
+import { todayIso, defaultImperial } from './format'
 import ReportCard from './ReportCard'
 import type { NightReport } from './types'
 
@@ -16,6 +16,12 @@ export default function App() {
   const [weather, setWeather] = useState(true)
   const [targets, setTargets] = useState(false)
   const [satellites, setSatellites] = useState(false)
+  const [imperial, setImperial] = useState<boolean>(defaultImperial)
+
+  function toggleUnits(imp: boolean) {
+    setImperial(imp)
+    localStorage.setItem('units', imp ? 'imperial' : 'si')
+  }
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -152,6 +158,18 @@ export default function App() {
             />
             Satellites
           </label>
+          <div className="units-toggle" role="group" aria-label="Unit system">
+            <button
+              type="button"
+              className={!imperial ? 'active' : ''}
+              onClick={() => toggleUnits(false)}
+            >°C / m/s</button>
+            <button
+              type="button"
+              className={imperial ? 'active' : ''}
+              onClick={() => toggleUnits(true)}
+            >°F / mph</button>
+          </div>
         </fieldset>
 
         <button type="submit" className="submit" disabled={loading}>
@@ -166,13 +184,29 @@ export default function App() {
           showWeather={reportWeather}
           showTargets={reportTargets}
           showSatellites={reportSatellites}
+          imperial={imperial}
         />
       )}
 
       <footer className="colophon">
-        Light pollution: Falchi 2016 / VIIRS · Weather: NOAA/NWS, Open-Meteo · Geocoding:
-        OpenStreetMap Nominatim
+        Light pollution:{' '}
+        <a href="https://www.lightpollutionmap.info" target="_blank" rel="noreferrer">Falchi 2016 / VIIRS</a>
+        {' · '}Weather:{' '}
+        <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
+        {' · '}
+        <a href="https://www.7timer.info" target="_blank" rel="noreferrer">7Timer</a>
+        {' · '}Satellites:{' '}
+        <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
+        <br />
+        Ephemeris:{' '}
+        <a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noreferrer">NASA/JPL DE421</a>
+        {' · '}Moon imagery:{' '}
+        <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
       </footer>
+      <div className="source-link">
+        Source Code:{' '}
+        <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
     </div>
   )
 }
