@@ -113,6 +113,32 @@
   color: var(--text);
   cursor: pointer;
 }
+.toggles label.wx-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.toggles label.wx-unavailable input {
+  cursor: not-allowed;
+}
+.toggle-tip-wrap {
+  position: relative;
+}
+.tip-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e2235;
+  color: #c8d0e8;
+  border: 1px solid #3a3f5c;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
 .units-toggle {
   display: flex;
   gap: 2px;

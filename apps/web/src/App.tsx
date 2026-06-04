@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
 import { todayIso, defaultImperial } from './format'
@@ -6,6 +6,43 @@ import ReportCard from './ReportCard'
 import type { NightReport } from './types'
 
 type Mode = 'place' | 'coords'
+
+function Tip({ text, children }: { text: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false)
+  const [nudge, setNudge] = useState(0)
+  const bubbleRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!visible || !bubbleRef.current) return
+    const rect = bubbleRef.current.getBoundingClientRect()
+    if (rect.left < 8) {
+      setNudge(8 - rect.left)
+    } else if (rect.right > window.innerWidth - 8) {
+      setNudge(window.innerWidth - 8 - rect.right)
+    } else {
+      setNudge(0)
+    }
+  }, [visible])
+
+  return (
+    <span
+      className="toggle-tip-wrap"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => { setVisible(false); setNudge(0) }}
+    >
+      {children}
+      {visible && (
+        <span
+          ref={bubbleRef}
+          className="tip-bubble"
+          style={{ transform: `translateX(calc(-50% + ${nudge}px))` }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('place')
@@ -31,11 +68,19 @@ export default function App() {
   const [reportTargets, setReportTargets] = useState(false)
   const [reportSatellites, setReportSatellites] = useState(false)
 
+  const [wxForecastUnavailable, satUnavailable] = (() => {
+    if (!date) return [false, false]
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const d = new Date(date + 'T00:00:00')
+    const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
+    return [days > 7, days < 0 || days > 10]
+  })()
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
 
-    const q: NightQuery = { date, weather, targets, satellites }
+    const q: NightQuery = { date, weather: weather && !wxForecastUnavailable, targets, satellites: satellites && !satUnavailable }
     if (mode === 'place') {
       if (!place.trim()) {
         setError('Enter a place to search for.')
@@ -142,22 +187,40 @@ export default function App() {
         </label>
 
         <fieldset className="toggles">
-          <label>
-            <input type="checkbox" checked={weather} onChange={(e) => setWeather(e.target.checked)} />
-            Weather
-          </label>
+          {wxForecastUnavailable ? (
+            <Tip text="Weather forecast unavailable beyond 7 days">
+              <label className="wx-unavailable">
+                <input type="checkbox" checked={false} disabled onChange={() => {}} />
+                Weather
+              </label>
+            </Tip>
+          ) : (
+            <label>
+              <input type="checkbox" checked={weather} onChange={(e) => setWeather(e.target.checked)} />
+              Weather
+            </label>
+          )}
           <label>
             <input type="checkbox" checked={targets} onChange={(e) => setTargets(e.target.checked)} />
             Visible targets
           </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={satellites}
-              onChange={(e) => setSatellites(e.target.checked)}
-            />
-            Satellites
-          </label>
+          {satUnavailable ? (
+            <Tip text={
+              date && new Date(date + 'T00:00:00') < new Date(new Date().setHours(0, 0, 0, 0))
+                ? 'Satellite passes unavailable for past dates'
+                : 'TLE accuracy degrades beyond ~10 days — passes unreliable'
+            }>
+              <label className="wx-unavailable">
+                <input type="checkbox" checked={false} disabled onChange={() => {}} />
+                Satellites
+              </label>
+            </Tip>
+          ) : (
+            <label>
+              <input type="checkbox" checked={satellites} onChange={(e) => setSatellites(e.target.checked)} />
+              Satellites
+            </label>
+          )}
           <div className="units-toggle" role="group" aria-label="Unit system">
             <button
               type="button"
