@@ -7,10 +7,10 @@ Most tools treat moonrise as a binary. Moon up, night ruined. A 5% crescent abov
 PyNightSkyPredictor uses the Krisciunas & Schaefer (1991) photometric model to compute sky brightening at every target's position throughout the night, and clips each imaging window at the point where scattered moonlight exceeds the contrast threshold for that object type.
 
 The Night Quality Score (1–10) combines:
-* Lunar interference — K&S sky-brightening credit, not raw illumination percentage
-* Seeing forecast — Cn² profile integration via 7Timer ASTRO/GFS (3 days out)
-* Total clear dark sky hours — moon-corrected and cloud-adjusted
-* Bortle scale — VIIRS 2025 satellite data with Falchi 2016 radiative-transfer fallback for genuinely dark sites
+* Lunar interference (25%) — K&S sky-brightening credit, not raw illumination percentage
+* Seeing / cloud cover (40%) — Cn² profile integration via 7Timer ASTRO/GFS, cloud-adjusted
+* Total clear dark sky hours (25%) — moon-corrected
+* Bortle scale (10%) — VIIRS 2025 satellite data with Falchi 2016 radiative-transfer fallback for genuinely dark sites
 
 Beyond the score:
 * Per-target imaging windows clipped by K&S moonlight interference
@@ -315,8 +315,9 @@ pip install -r requirements.txt          # runtime dependencies
 pip install -r requirements-dev.txt      # + pytest, for running the test suite
 ```
 
-`requirements.txt` holds only the runtime libraries (the lean set destined for the future
-container image); `requirements-dev.txt` layers the test toolchain on top.
+`requirements.txt` holds only the runtime libraries; `requirements-dev.txt` layers the test toolchain on top. The additional files `requirements-api.txt`, `requirements-worker.txt`, and `requirements-security.txt` are used by the cloud deployment (API server, background worker, and security-scanning CI respectively) and are not needed for local CLI use.
+
+Container builds: see `Dockerfile`, `Dockerfile.lambda`, and `Dockerfile.worker` — cloud deployment documentation is in progress.
 
 ---
 
@@ -338,7 +339,7 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
 | `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
 | `PyNightSkyPredictor/targets.json` | Curated target catalog |
-| `PyNightSkyPredictor/config.py` | Configuration loader (`config.json`) |
+| `PyNightSkyPredictor/config.py` | Configuration loader — merges `PyNightSkyPredictor/config.json` over built-in defaults (see [Configuration](#configuration) below) |
 | `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search; `LocalRasterSource` adapter |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
 | `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
@@ -347,6 +348,7 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/trip.py` | Trip planning engine |
 | `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache` adapter |
 | `PyNightSkyPredictor/ports.py` | I/O backend interfaces (`Cache`, `GeocodeStore`, `RasterSource`) + `PYNIGHTSKY_BACKEND` selector |
+| `PyNightSkyPredictor/_http.py` | Security-restricted HTTP wrapper — all outbound fetches go through here; blocks non-HTTP(S) schemes (guards against CWE-22 file:// injection) |
 
 **Formatting** — `PyNightSkyPredictor/format_ctx.py`: timezone/unit conversion, locale detection.
 
@@ -389,6 +391,50 @@ The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–
 
 All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) for full attribution.
 
+### Configuration
+
+Drop a `PyNightSkyPredictor/config.json` to override the built-in defaults:
+
+```json
+{
+  "targets": {
+    "min_elevation_deg": 20,
+    "moon_min_separation_deg": 30,
+    "moon_max_illumination_pct": 50
+  },
+  "prime_targets": {
+    "min_peak_altitude_deg": 40,
+    "min_window_hours": 1.0
+  }
+}
+```
+
+Any key you omit falls back to the default shown above. The file is optional — without it, all defaults apply.
+
+---
+
+## Cloud Deployment
+
+The repository includes an optional cloud-native deployment that exposes the engine as an HTTP JSON API with a React/TypeScript web frontend.
+
+**Stack:**
+- **Compute** — FastAPI on AWS Lambda (container image) fronted by CloudFront with WAFv2 rate limiting
+- **Storage** — DynamoDB for cache and geocode store; S3 for the VIIRS/Falchi rasters as Cloud-Optimized GeoTIFFs
+- **Frontend** — React/TypeScript SPA (Vite) served from S3 via CloudFront
+- **Resilience** — scheduled Lambda warmer for satellite TLEs; SQS + worker Lambda for async calendar/trip jobs
+- **Observability** — structured JSON logs, X-Ray tracing, CloudWatch metric alarms
+
+**Repository layout:**
+- `cdk/` — Python CDK stacks (Lambda API, CloudFront distribution, WAF, warmer, CI/CD)
+- `apps/api/` — FastAPI application
+- `apps/worker/` — async job worker
+- `apps/web/` — React SPA
+- `Dockerfile.lambda`, `Dockerfile.worker` — container images
+
+**CI/CD** — GitHub Actions deploys via OIDC (no long-lived AWS keys); the pipeline builds and pushes container images to ECR, then runs `cdk deploy`.
+
+To run your own instance, deploy the CDK stacks against your own AWS account with `PYNIGHTSKY_BACKEND=aws`.
+
 ---
 
 ## Testing
@@ -396,26 +442,47 @@ All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/
 Requires the dev dependencies (`pip install -r requirements-dev.txt`).
 
 ```bash
-python -m pytest                  # Full suite — 105 tests
-python -m pytest -m "not eph"     # Fast suite — 94 tests, no ephemeris file needed
+python -m pytest                  # Full suite — 304 tests
+python -m pytest -m "not eph"     # Fast suite — no ephemeris file needed
 python -m pytest -v               # Verbose output
 ```
+
+**Core engine tests** (pure math, no network, no ephemeris unless noted):
 
 | Test file | Coverage |
 |-----------|----------|
 | `test_moonlight.py` | `ks_delta_mag` (including distance correction), `ks_moon_credit`, `moon_wash_severity` |
-| `test_scoring.py` | `rate_night` geometric mean formula, weight redistribution, weather score |
+| `test_scoring.py` | `rate_night` formula, weight redistribution, weather score |
 | `test_milky_way.py` | `gal_to_radec` IAU matrix, `mw_max_visible`, core geometry |
 | `test_moon_events.py` | `classify_full_moon` thresholds, eclipse integration against known 2026 events |
 | `test_sky_events.py` | `dark_moon_intervals`, moon phase, sunset timing (ephemeris) |
 | `test_mw_geometry.py` | Five-location Milky Way geometry regression (Whitehorse → Ushuaia) |
+| `test_predictor_formulas.py` | Moon score, Bortle conversion, crescent exemption — pure math from `predictor.py` |
+| `test_darksky_formulas.py` | SQM-from-radiance conversions, Bortle classification boundaries |
+| `test_targets_helpers.py` | Coordinate parsing, visibility window detection — pure helpers from `targets.py` |
+| `test_tle_provider.py` | TLE parsing, Starlink filter, `get_tle()` state machine — fully hermetic |
+| `test_weather_conditions.py` | `rate_conditions()`, Open-Meteo parser, 7Timer merge — pure logic |
+| `test_weather_fallback.py` | Provider fallback behaviour — network stubbed |
 
-Tests marked `@pytest.mark.eph` require the bundled `de421.bsp`; skipped by `-m "not eph"`. All other tests are pure math with no network or file dependencies.
+**Adapter & cloud tests** (require moto / FastAPI TestClient; AWS smoke tests need real credentials):
+
+| Test file | Coverage |
+|-----------|----------|
+| `test_adapters.py` | `LocalFileCache` vs `DynamoCache`, `LocalGeocodeStore` vs `DynamoGeocodeStore` contract parity (DynamoDB mocked via moto) |
+| `test_api.py` | HTTP API endpoints via FastAPI TestClient — healthz, error paths, `/night` success |
+| `test_aws_location.py` | AWS Location Service geocoding adapter — all boto3 calls mocked |
+| `test_aws_smoke.py` | Opt-in integration smoke against real AWS (skipped unless `PYNIGHTSKY_BACKEND=aws` + credentials set) |
+| `test_warmer.py` | TLE warmer Lambda handler — `tle_provider` mocked, no network |
+| `test_jobs.py` | Async job lifecycle — in-memory cache, `run_job` and SQS mocked |
+
+Tests marked `@pytest.mark.eph` require the bundled `de421.bsp`; skipped by `-m "not eph"`. All other core tests are pure math with no network or file dependencies.
 
 ---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+This is a personal, non-commercial project. All third-party data sources are used within their respective free-tier terms for personal, non-commercial use.
 
 Development assisted by GitHub Copilot and Claude.
