@@ -340,6 +340,7 @@ details summary {
   min-width: 148px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .ev-icon {
   flex-shrink: 0;
@@ -693,6 +694,15 @@ details summary {
 }
 .wx-num {
   font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.wx-table th:not(:first-child),
+.tg-table  th:not(:first-child) {
+  text-align: right;
+}
+/* Grouped span headers (e.g. Rise / Peak / Set in sat table) look better centred */
+.wx-table th[colspan] {
+  text-align: center;
 }
 
 @media (max-width: 480px) {
