@@ -116,6 +116,8 @@ _MAX_DATE = date(2050, 12, 31)
 _MAX_TRIP_DAYS = 30                  # /trip date-range span cap
 _MAX_TRIP_LOCATIONS = 10            # /trip location-count cap
 _MAX_NAME_LEN = 200                 # geocode query length cap
+_NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
+_NEARBY_RADIUS_MAX = 100            # practical driving distance; grid has good density to this range
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -261,6 +263,20 @@ def trip(
         locs.append({"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name})
     job_id = jobs.submit({"locs": locs, "start": s.isoformat(),
                           "end": e.isoformat(), "weather": weather})
+    return _accepted(job_id)
+
+
+@app.get("/nearby")
+def nearby(
+    location: str | None = Query(None, max_length=_MAX_NAME_LEN),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
+    radius: int = Query(_NEARBY_RADIUS_DEFAULT, ge=5, le=_NEARBY_RADIUS_MAX,
+                        description="Search radius in miles (5–150)"),
+):
+    """Submit a nearby dark-sky search → 202 + job_id (poll /jobs/{id})."""
+    la, lo, _disp, _tz = _resolve(location, lat, lon)
+    job_id = jobs.submit({"type": "nearby", "lat": la, "lon": lo, "radius_miles": radius})
     return _accepted(job_id)
 
 

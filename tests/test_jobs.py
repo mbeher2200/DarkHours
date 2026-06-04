@@ -78,3 +78,49 @@ def test_trip_endpoint_returns_202_then_done(monkeypatch, mem_cache):
 
 def test_jobs_endpoint_unknown_returns_404(mem_cache):
     assert TestClient(main_mod.app).get("/jobs/doesnotexist").status_code == 404
+
+
+# ── nearby job dispatch ────────────────────────────────────────────────────────
+
+def test_run_job_nearby_dispatches(monkeypatch):
+    """run_job routes type='nearby' to find_nearby, not plan_trip."""
+    monkeypatch.setattr(jobs, "_find_nearby",
+                        lambda lat, lon, radius_miles: {
+                            "origin_bortle": 7, "origin_sqm": 19.5,
+                            "radius_miles": radius_miles,
+                            "results": [], "light_domes": [],
+                            "has_dark_sky": False, "best_available": None,
+                        })
+    result = jobs.run_job({"type": "nearby", "lat": 35.2, "lon": -111.6, "radius_miles": 60})
+    assert result["origin_bortle"] == 7
+    assert result["radius_miles"] == 60
+
+
+def test_run_job_nearby_raises_when_none(monkeypatch):
+    """run_job wraps find_nearby returning None as RuntimeError."""
+    monkeypatch.setattr(jobs, "_find_nearby", lambda *a, **kw: None)
+    with pytest.raises(RuntimeError, match="unavailable"):
+        jobs.run_job({"type": "nearby", "lat": 0.0, "lon": 0.0})
+
+
+def test_run_job_defaults_to_trip_when_type_absent(monkeypatch):
+    """Existing calendar/trip jobs (no 'type' key) still reach plan_trip."""
+    called = {}
+
+    class _FakeReport:
+        date_start = __import__("datetime").date(2026, 6, 1)
+        date_end   = __import__("datetime").date(2026, 6, 2)
+        locations  = []
+        nights     = []
+        ranked     = []
+
+    def fake_plan_trip(locs, start, end, fetch_weather):
+        called["ok"] = True
+        return _FakeReport()
+
+    monkeypatch.setattr(jobs._trip, "plan_trip", fake_plan_trip)
+    try:
+        jobs.run_job({"locs": [], "start": "2026-06-01", "end": "2026-06-02"})
+    except Exception:
+        pass   # serializer may fail on the fake report — what matters is plan_trip was called
+    assert called.get("ok"), "plan_trip was not called for a job without 'type'"
