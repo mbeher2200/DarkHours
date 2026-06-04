@@ -4,9 +4,13 @@
 import type { WeatherPoint, LightPollution } from './types'
 
 // Mirror CLI detect_units(): imperial for en-US locale, SI otherwise.
-export const imperial: boolean =
-  typeof navigator !== 'undefined' &&
-  (navigator.language === 'en-US' || navigator.language.startsWith('en-US'))
+// Used only to seed the initial default; components receive `imperial` as a prop.
+export function defaultImperial(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const saved = localStorage.getItem('units')
+  if (saved) return saved === 'imperial'
+  return navigator.language === 'en-US' || navigator.language.startsWith('en-US')
+}
 
 // " 6:47 PM"  — space-padded 12-hour, no date (mirrors FormatCtx.fmt_time)
 export function formatTime(iso: string | null, tz: string): string {
@@ -64,6 +68,18 @@ export function tzAbbr(tz: string): string {
   }
 }
 
+// Full timezone title, e.g. "Eastern Daylight Time"
+export function tzTitle(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, timeZoneName: 'long',
+    }).formatToParts(new Date())
+    return parts.find(p => p.type === 'timeZoneName')?.value ?? tz
+  } catch {
+    return tz
+  }
+}
+
 // 8-point cardinal from azimuth degrees
 export function cardinal(az: number): string {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
@@ -108,20 +124,70 @@ export function rateConditions(p: WeatherPoint): number {
 }
 
 // Temperature formatting (mirrors FormatCtx.temp)
-export function fmtTemp(c: number | null): string {
+export function fmtTemp(c: number | null, imp: boolean): string {
   if (c == null) return '—'
-  if (imperial) return `${Math.round(c * 9 / 5 + 32)}°F`
+  if (imp) return `${Math.round(c * 9 / 5 + 32)}°F`
   return `${c.toFixed(1)}°C`
 }
 
 // Wind formatting with optional direction (mirrors FormatCtx.wind)
-export function fmtWind(ms: number | null, dir: number | null): string {
+export function fmtWind(ms: number | null, dir: number | null, imp: boolean): string {
   if (ms == null) return '—'
-  const speed = imperial ? `${Math.round(ms * 2.237)}mph` : `${ms.toFixed(1)}m/s`
+  const speed = imp ? `${Math.round(ms * 2.237)}mph` : `${ms.toFixed(1)}m/s`
   return dir != null ? `${speed} ${cardinal(dir)}` : speed
 }
 
-// Combined light-pollution display string (mirrors format_ctx.lp_str)
+// Distance formatting: km ↔ mi (mirrors FormatCtx.dist)
+export function fmtDist(km: number, imp: boolean): string {
+  if (imp) return `${Math.round(km * 0.621371).toLocaleString()} mi`
+  return `${Math.round(km).toLocaleString()} km`
+}
+
+// ── Moon wash (Krisciunas & Schaefer 1991) — mirrors moonlight.py ────────────
+
+// Sky surface brightness increase from scattered moonlight (Δ mag/arcsec²)
+function ksDeltaMag(illuminationPct: number, sepDeg: number, moonAltDeg: number): number {
+  if (illuminationPct <= 0 || moonAltDeg <= 0) return 0
+  const illum   = illuminationPct / 100
+  const alpha   = Math.acos(Math.max(-1, Math.min(1, 2 * illum - 1))) * 180 / Math.PI
+  const V_moon  = -12.73 + 0.026 * alpha + 4e-9 * Math.pow(alpha, 4)
+  const I_moon  = Math.pow(10, -0.4 * (V_moon + 16.57))
+  const alt     = Math.max(1, moonAltDeg)
+  const X_moon  = 1 / Math.cos((90 - alt) * Math.PI / 180)
+  const ext     = Math.pow(10, -0.4 * 0.172 * X_moon)
+  const rho     = Math.max(0.1, sepDeg)
+  const f_rho   = rho > 10
+    ? Math.pow(10, 5.36) * (1.06 + Math.pow(Math.cos(rho * Math.PI / 180), 2))
+    : 6.2e7 / (rho * rho)
+  const I_sky   = Math.pow(10, (27.78 - 21.6) / 2.5)  // Bortle-2 baseline
+  return 2.5 * Math.log10(1 + f_rho * ext * I_moon / I_sky)
+}
+
+// None = negligible, 'minor', 'moderate', 'severe' (mirrors moon_wash_severity)
+export function moonWashSeverity(
+  illuminationPct: number,
+  sepDeg: number | null,
+  moonAltDeg: number | null,
+): string | null {
+  const delta = ksDeltaMag(illuminationPct, sepDeg ?? 45, moonAltDeg ?? 45)
+  if (delta < 0.10) return null
+  if (delta < 0.50) return 'minor'
+  if (delta < 1.50) return 'moderate'
+  return 'severe'
+}
+
+// Is the moon above the horizon at the given ISO time?
+export function moonUpAt(iso: string, moonrise: string | null, moonset: string | null): boolean {
+  const t    = new Date(iso).getTime()
+  const rise = moonrise ? new Date(moonrise).getTime() : null
+  const set  = moonset  ? new Date(moonset).getTime()  : null
+  if (rise && set) return rise < set ? (t >= rise && t <= set) : (t >= rise || t <= set)
+  if (rise) return t >= rise
+  if (set)  return t <= set
+  return false
+}
+
+// ── Combined light-pollution display string (mirrors format_ctx.lp_str) ──────
 export function lpString(lp: LightPollution): string | null {
   if (lp.below_detection) return 'Light pollution data unavailable'
   if (lp.sqm == null) return null

@@ -39,6 +39,10 @@ export interface TargetWindow {
   peak_az_deg: number
   arch_angle_deg: number | null
   moon_interference: boolean
+  moon_sep_at_peak_deg: number | null
+  moon_alt_at_peak_deg: number | null
+  photo_cutoff: string | null   // last moment viable for astrophotography
+  visual_cutoff: string | null  // last moment viable for visual observation
 }
 
 export interface VisibleTarget {
@@ -107,6 +111,30 @@ export interface StarlinkTrain {
   launch_date: string | null   // ISO date or null
 }
 
+export interface MilkyWaySummary {
+  arch_start:           string        // ISO 8601
+  arch_end:             string        // ISO 8601
+  arch_hours:           number
+  moon_limited:         boolean
+  moon_penalised:       boolean
+  n_visible:            number
+  n_max_possible:       number
+  n_total:              number
+  local_score:          number        // 0–10
+  alt_score:            number
+  cov_score:            number
+  win_score:            number
+  core_peak_time:       string        // ISO 8601
+  core_peak_in_window:  boolean
+  core_peak_alt_deg:    number
+  core_peak_az_deg:     number
+  arch_angle_deg:       number | null
+  farthest_name:        string | null
+  farthest_peak_alt_deg: number | null
+  farthest_peak_az_deg:  number | null
+  core_max_alt_deg:     number
+}
+
 export interface NightReport {
   date: string
   lat: number
@@ -140,6 +168,7 @@ export interface NightReport {
   score: number
   score_components: ScoreComponents
   visible_targets: VisibleTarget[]
+  mw_summary: MilkyWaySummary | null
   active_showers: ActiveShower[]
   sat_passes: SatPass[]
   sat_stale: boolean
