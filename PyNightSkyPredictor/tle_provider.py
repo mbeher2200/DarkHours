@@ -241,18 +241,24 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
             _cache.set(key, raw, ttl_seconds=TLE_TTL)
             log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
         except urllib.error.HTTPError as e:
-            err_msg = f"Celestrak HTTP {e.code} for Starlink group"
-            log.warning("%s", err_msg)
+            if e.code == 403:
+                # Celestrak's one-download-per-update policy: data hasn't changed
+                # since our last successful fetch. Stale cache is still current.
+                log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
+            else:
+                err_msg = f"Celestrak HTTP {e.code} for Starlink group"
+                log.warning("%s", err_msg)
         except urllib.error.URLError as e:
             err_msg = f"Celestrak unreachable (Starlink group): {e.reason}"
             log.warning("%s", err_msg)
 
     if raw is None:
-        # 3. Stale fallback
+        # 3. Stale fallback — always try this; on 403 the stale data IS current
         raw = _cache.get_stale(key)
         if raw:
             log.debug("Using stale Starlink group TLE")
             return _filter_train_tles(raw), True, None
-        return [], False, err_msg
+        # No cache at all — silently skip trains rather than surfacing an error
+        return [], False, None
 
     return _filter_train_tles(raw), False, None
