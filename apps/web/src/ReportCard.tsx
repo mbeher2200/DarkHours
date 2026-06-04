@@ -7,6 +7,11 @@ import {
 } from './format'
 import { Sunrise, Sunset, Moon, Star, Stars } from 'lucide-react'
 
+// Alt/Az in standard format: "42° alt · 195° (S)"
+function fmtPos(altDeg: number, azDeg: number): string {
+  return `${Math.round(altDeg)}° alt · ${Math.round(azDeg)}° (${cardinal(azDeg)})`
+}
+
 // ── Moon phase image (NASA SVS) ──────────────────────────────────────────────
 // Uses NASA Scientific Visualization Studio 1024×1024 phase images
 // (public domain, downloaded to /moon-phases/).
@@ -308,7 +313,7 @@ function MilkyWayCard({ summary, waypoints, report }: {
       <div className="mw-row">
         <span className="mw-label">Galactic core</span>
         <span>
-          Peaks {s.core_peak_alt_deg}°/{s.core_max_alt_deg}° {cardinal(s.core_peak_az_deg)}
+          {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)} (max {s.core_max_alt_deg}° alt)
           {archQuality && s.arch_angle_deg != null && `  ·  arch ${s.arch_angle_deg.toFixed(0)}° (${archQuality})`}
         </span>
       </div>
@@ -317,9 +322,9 @@ function MilkyWayCard({ summary, waypoints, report }: {
       <div className="mw-row">
         <span className="mw-label">{bestLabel}</span>
         <span>
-          {formatTime(bestTime, tz)}  —  core {s.core_peak_alt_deg}° {cardinal(s.core_peak_az_deg)}
+          {formatTime(bestTime, tz)} — core @ {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)}
           {s.farthest_name && s.farthest_peak_alt_deg != null && (
-            <>,&nbsp;arch sweeps to {s.farthest_name} ({s.farthest_peak_alt_deg}° {cardinal(s.farthest_peak_az_deg ?? 0)})</>
+            <>,&nbsp;arch to {s.farthest_name} @ {fmtPos(s.farthest_peak_alt_deg, s.farthest_peak_az_deg ?? 0)}</>
           )}
         </span>
       </div>
@@ -356,13 +361,13 @@ function MilkyWayCard({ summary, waypoints, report }: {
                     <tr key={t.name}>
                       <td>{t.name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
                       <td className="wx-num">
-                        {w.peak_time ? `${formatTime(w.peak_time, tz)} @ ${w.peak_alt_deg?.toFixed(0)}° ${cardinal(w.peak_az_deg)}` : '—'}
+                        {w.peak_time ? `${formatTime(w.peak_time, tz)} @ ${fmtPos(w.peak_alt_deg!, w.peak_az_deg)}` : '—'}
                       </td>
                       <td className="wx-num">{archNote}</td>
                       <td className="wx-num">
                         {w.peak_time ? `${formatTime(w.start, tz)} – ${formatTime(w.end, tz)}` : '—'}
                       </td>
-                      <td className={`tg-sky tg-sky-${sky.replace(' ', '-').toLowerCase()}`}>{sky}</td>
+                      <td className={`tg-sky ${sky.startsWith('Moon') ? 'tg-sky-moon-wash' : `tg-sky-${sky.replace(' ', '-').toLowerCase()}`}`}>{sky}</td>
                     </tr>
                   )
                 })}
@@ -406,7 +411,7 @@ function skyCondition(
 
   if (moonUpAt(peakIso, moonrise, moonset)) {
     const sev = moonWashSeverity(illuminationPct, moonSepAtPeak, moonAltAtPeak)
-    if (sev) return `Moon wash · ${sev}`
+    if (sev) return `Moon wash (${sev})`
   }
   return base
 }
@@ -524,10 +529,9 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
 
             let bestView = '—'
             if (w.peak_time && w.peak_alt_deg != null) {
-              const az       = `${w.peak_az_deg.toFixed(0)}°(${cardinal(w.peak_az_deg)})`
               const bestTime = hasClip ? w.photo_cutoff! : w.peak_time
               const bestAlt  = hasClip ? altAt(w.photo_cutoff!, w) : Math.round(w.peak_alt_deg)
-              bestView = `${formatTime(bestTime, tz)} @ ${bestAlt}°  ${az}`
+              bestView = `${formatTime(bestTime, tz)} @ ${fmtPos(bestAlt, w.peak_az_deg)}`
             }
 
             let winStr = '—'
@@ -563,7 +567,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
                 <td>{name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
                 <td className="wx-num">{bestView}</td>
                 <td className={`tg-sky ${skyCls}`}>
-                  {sky}{moonNote ? <span className="tg-moon-note"> · moon</span> : null}
+                  {sky}{moonNote ? <span className="tg-moon-note"> · moon up</span> : null}
                 </td>
                 <td className="wx-num">{winStr}</td>
               </tr>
