@@ -460,6 +460,35 @@ _AREA_PRIORITY = {
 }
 
 
+def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> None:
+    """Annotate each cluster dict with drive_minutes (int | None) via AWS Location route matrix.
+
+    AWS-backend only. Mutates in-place. Silently sets None on any API failure so the
+    caller always has the field, just without a value.
+    """
+    if not clusters:
+        return
+    import boto3
+    calc_name = os.environ.get("PYNIGHTSKY_ROUTE_CALCULATOR", "pynightsky-route-calculator")
+    try:
+        client = boto3.client("location")
+        resp = client.calculate_route_matrix(
+            CalculatorName=calc_name,
+            DeparturePositions=[[origin_lon, origin_lat]],
+            DestinationPositions=[[c["lon"], c["lat"]] for c in clusters],
+            TravelMode="Car",
+        )
+        row = resp.get("RouteMatrix", [[]])[0]
+        for i, c in enumerate(clusters):
+            entry = row[i] if i < len(row) else {}
+            secs  = entry.get("DurationSeconds") if entry else None
+            c["drive_minutes"] = round(secs / 60) if secs is not None else None
+    except Exception as e:
+        log.debug("AWS route matrix failed: %s", e)
+        for c in clusters:
+            c["drive_minutes"] = None
+
+
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance in miles between two lat/lon points."""
     R    = 3958.8
@@ -1074,6 +1103,16 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
 
     if best_candidate is not None:
         best_available = best_candidate
+
+    # Drive-time annotation (AWS backend only; silently skipped locally)
+    needs_drive = dark_clusters + ([best_available] if best_available else [])
+    if ports.get_backend()._name == "aws":
+        _aws_drive_times(lat, lon, needs_drive)
+    else:
+        for c in needs_drive:
+            c["drive_minutes"] = None
+    for c in dome_clusters:
+        c["drive_minutes"] = None
 
     return {
         "origin_bortle":  origin_bortle,
