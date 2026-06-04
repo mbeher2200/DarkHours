@@ -501,14 +501,6 @@ details summary {
   line-height: 1.6;
   margin-top: 8px;
 }
-.source-link {
-  text-align: center;
-  color: var(--text-dim);
-  font-size: 12px;
-  margin-top: 6px;
-  padding-bottom: 16px;
-}
-
 /* ── weather table ────────────────────────────────────────── */
 .wx-details summary {
   color: var(--text-dim);
