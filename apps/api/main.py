@@ -50,19 +50,25 @@ if "LAMBDA_TASK_ROOT" in os.environ:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-warm expensive resources during Lambda's init phase so the first real
-    # request doesn't pay for ephemeris loading and DynamoDB connection setup.
+    # Pre-warm expensive resources in a daemon thread so the lifespan yields
+    # immediately and Lambda Web Adapter gets its readiness signal without delay.
+    # Previously this ran synchronously and caused LWA's 10s probe to time out.
     if "LAMBDA_TASK_ROOT" in os.environ:
-        try:
-            from PyNightSkyPredictor import sky_events as _se
-            _se._ephemeris()   # mmap de421.bsp into the process
-        except Exception as _e:
-            logging.getLogger(__name__).debug("Ephemeris pre-warm failed: %s", _e)
-        try:
-            from PyNightSkyPredictor import ports as _p
-            _p.get_backend().cache.get("__warmup__")   # open DynamoDB connection pool
-        except Exception as _e:
-            logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
+        import threading
+
+        def _prewarm() -> None:
+            try:
+                from PyNightSkyPredictor import sky_events as _se
+                _se._ephemeris()   # mmap de421.bsp into the process
+            except Exception as _e:
+                logging.getLogger(__name__).debug("Ephemeris pre-warm failed: %s", _e)
+            try:
+                from PyNightSkyPredictor import ports as _p
+                _p.get_backend().cache.get("__warmup__")   # open DynamoDB connection pool
+            except Exception as _e:
+                logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
+
+        threading.Thread(target=_prewarm, daemon=True).start()
     yield
 
 

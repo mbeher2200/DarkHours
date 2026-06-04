@@ -29,6 +29,24 @@ if "LAMBDA_TASK_ROOT" in os.environ:
     except ImportError:
         pass
 
+    # Pre-warm both S3 COGs during Lambda init so the first job doesn't pay for
+    # cold GDAL VSI_CACHE misses (header reads + overview structure = ~10-15s on
+    # a fresh container). Opening + sampling one pixel caches the COG index and
+    # at least one tile, cutting the first real job's raster I/O to near-zero.
+    def _prewarm_rasters() -> None:
+        try:
+            import rasterio
+            from PyNightSkyPredictor import ports as _p
+            src = _p.get_backend().raster_source
+            for dataset in ("viirs", "falchi"):
+                path = src.path_for(dataset, show_progress=False)
+                with rasterio.open(path) as ds:
+                    list(ds.sample([(0.0, 0.0)]))   # one pixel primes the file header + tile
+        except Exception as _e:
+            log.debug("Raster pre-warm failed: %s", _e)
+
+    _prewarm_rasters()
+
 
 def handler(event, context=None):
     records = event.get("Records", []) if isinstance(event, dict) else []
