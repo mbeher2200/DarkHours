@@ -44,7 +44,7 @@ def urlopen(url, *args, timeout=10, **kwargs):
             "GET", full,
             headers=headers,
             timeout=urllib3.Timeout(total=timeout),
-            preload_content=True,
+            preload_content=False,
         )
     except urllib3.exceptions.TimeoutError as exc:
         raise urllib.error.URLError("timed out") from exc
