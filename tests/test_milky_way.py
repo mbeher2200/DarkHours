@@ -1,12 +1,51 @@
 """
-Tests for milky_way.py — coordinate math and geometry helpers (pure math, no dependencies).
+Tests for milky_way.py — coordinate math, geometry helpers, and arch summary synthesis.
+Pure math/logic tests: no ephemeris, no network.
 """
 
 import math
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from PyNightSkyPredictor.milky_way import gal_to_radec, mw_max_visible, mw_theoretical_core_max
+from PyNightSkyPredictor.milky_way import (
+    gal_to_radec,
+    milky_way_arch_summary,
+    mw_max_visible,
+    mw_theoretical_core_max,
+)
+
+
+# ---------------------------------------------------------------------------
+# Minimal mock objects for milky_way_arch_summary
+# (avoids importing targets.py at module level, which triggers config loading)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _Win:
+    """Lightweight TargetWindow stand-in — only fields used by arch_summary."""
+    start: datetime
+    end: datetime
+    peak_time: datetime
+    peak_alt_deg: float
+    peak_az_deg: float = 180.0
+    start_alt_deg: float = 5.0
+    end_alt_deg: float = 5.0
+    moon_interference: bool = False
+    photo_cutoff: object = None
+    ks_computed: bool = False
+    photo_start: object = None
+    arch_angle_deg: object = None
+
+
+@dataclass
+class _Tgt:
+    """Lightweight VisibleTarget stand-in."""
+    name: str
+    type: str = "milky_way"
+    windows: list = field(default_factory=list)
+    note: object = None
 
 
 # ---------------------------------------------------------------------------
@@ -146,3 +185,118 @@ class TestMwMaxVisible:
         # The waypoint Decs are symmetric about 0°, so lat=0 sees all.
         # At lat=-90, only positive-Dec waypoints are seen.
         assert mw_max_visible(-90) < mw_max_visible(0)
+
+
+# ---------------------------------------------------------------------------
+# milky_way_arch_summary — quality score synthesis
+# ---------------------------------------------------------------------------
+
+# Reference night: core visible 22:00–04:00 UTC (6h window)
+_BASE  = datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc)
+_NS    = _BASE + timedelta(hours=-2)  # 22:00
+_NE    = _BASE + timedelta(hours=4)   # 04:00
+_CPEAK = _BASE + timedelta(hours=1)   # 01:00 — core transit
+
+
+def _win(start=_NS, end=_NE, peak_alt=20.0, moon_interference=False):
+    peak = start + (end - start) / 2
+    return _Win(start=start, end=end, peak_time=peak,
+                peak_alt_deg=peak_alt, moon_interference=moon_interference)
+
+
+def _tgt(name, peak_alt=20.0, moon_interference=False, start=_NS, end=_NE):
+    return _Tgt(name=name, windows=[_win(start, end, peak_alt, moon_interference)])
+
+
+# lat=36 (Grand Canyon area): theo_max=25°, n_max=8
+_LAT = 36.0
+
+
+class TestMilkyWayArchSummary:
+    def test_empty_list_returns_none(self):
+        assert milky_way_arch_summary([]) is None
+
+    def test_missing_galactic_core_returns_none(self):
+        targets = [_tgt("Cygnus Star Cloud", peak_alt=40.0)]
+        assert milky_way_arch_summary(targets, lat=_LAT) is None
+
+    def test_core_only_returns_dict(self):
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert isinstance(result, dict)
+
+    def test_required_keys_present(self):
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        for key in (
+            "arch_start", "arch_end", "arch_hours", "moon_limited",
+            "n_visible", "n_max_possible", "local_score",
+            "core_peak_time", "core_peak_alt_deg",
+        ):
+            assert key in result, f"Missing key: {key}"
+
+    def test_local_score_in_valid_range(self):
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert 0.0 <= result["local_score"] <= 10.0
+
+    def test_n_visible_matches_target_count(self):
+        targets = [
+            _tgt("Galactic Core",     peak_alt=20.0),
+            _tgt("Cygnus Star Cloud", peak_alt=40.0),
+        ]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert result["n_visible"] == 2
+
+    def test_arch_hours_reflects_window_overlap(self):
+        """Core [22:00–04:00] ∩ Cygnus [01:00–04:00] = 3 h arch window."""
+        cygnus_start = _BASE + timedelta(hours=1)  # 01:00
+        targets = [
+            _tgt("Galactic Core",     peak_alt=20.0),
+            _tgt("Cygnus Star Cloud", peak_alt=40.0,
+                 start=cygnus_start, end=_NE),
+        ]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert result["arch_hours"] == pytest.approx(3.0, abs=0.15)
+
+    def test_moon_interference_on_core_lowers_score(self):
+        """When the core window has moon_interference, the 0.7× penalty fires."""
+        no_moon  = [_tgt("Galactic Core", peak_alt=20.0, moon_interference=False)]
+        with_moon = [_tgt("Galactic Core", peak_alt=20.0, moon_interference=True)]
+        score_clean = milky_way_arch_summary(no_moon, lat=_LAT)["local_score"]
+        score_moon  = milky_way_arch_summary(with_moon, lat=_LAT)["local_score"]
+        assert score_moon < score_clean
+
+    def test_moon_limited_flag_false_without_moonrise(self):
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(
+            targets, lat=_LAT, moonrise=None, moonset=None, moon_illumination_pct=0.0
+        )
+        assert result["moon_limited"] is False
+
+    def test_higher_core_altitude_gives_higher_score(self):
+        """Higher core culmination → better alt_score component → higher local_score."""
+        low  = milky_way_arch_summary([_tgt("Galactic Core", peak_alt=10.0)], lat=_LAT)
+        high = milky_way_arch_summary([_tgt("Galactic Core", peak_alt=24.0)], lat=_LAT)
+        assert high["local_score"] > low["local_score"]
+
+    def test_farthest_name_populated_with_far_waypoint(self):
+        targets = [
+            _tgt("Galactic Core",     peak_alt=20.0),
+            _tgt("Cygnus Star Cloud", peak_alt=45.0),
+        ]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert result["farthest_name"] == "Cygnus Star Cloud"
+
+    def test_farthest_name_none_when_no_far_waypoints(self):
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert result["farthest_name"] is None
+
+    def test_score_formula_components_present(self):
+        """alt_score, cov_score, win_score are returned for transparency."""
+        targets = [_tgt("Galactic Core", peak_alt=20.0)]
+        result = milky_way_arch_summary(targets, lat=_LAT)
+        assert "alt_score" in result
+        assert "cov_score" in result
+        assert "win_score" in result
