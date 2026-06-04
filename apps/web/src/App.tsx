@@ -204,8 +204,9 @@ export default function App() {
         <a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noreferrer">NASA/JPL DE421</a>
         {' · '}Moon imagery:{' '}
         <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
-        {' · '}
-        <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">Source</a>
+        <br />
+        Source:{' '}
+        <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
       </footer>
     </div>
   )
