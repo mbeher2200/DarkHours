@@ -403,15 +403,18 @@ details summary {
   flex-direction: column;
   gap: 10px;
 }
+.nearby-radius-toggle {
+  display: flex;
+  gap: 6px;
+}
 .nearby-trigger {
-  align-self: flex-start;
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 8px;
   color: var(--text);
   cursor: pointer;
   font-size: 13px;
-  padding: 6px 14px;
+  padding: 6px 16px;
 }
 .nearby-trigger:hover {
   border-color: #7aa2ff;

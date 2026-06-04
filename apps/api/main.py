@@ -123,7 +123,7 @@ _MAX_TRIP_DAYS = 30                  # /trip date-range span cap
 _MAX_TRIP_LOCATIONS = 10            # /trip location-count cap
 _MAX_NAME_LEN = 200                 # geocode query length cap
 _NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
-_NEARBY_RADIUS_MAX = 100            # practical driving distance; grid has good density to this range
+_NEARBY_RADIUS_MAX = 120            # 10 of 11 sample rings; good density up to ~2.5h drive
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
