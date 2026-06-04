@@ -195,12 +195,12 @@ export default function App() {
         <a href="https://www2.lightpollutionmap.info" target="_blank" rel="noreferrer">VIIRS Black Marble 2025</a>
         {' · '}Weather:{' '}
         <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
-        {' · '}
+        {' / '}
         <a href="https://www.7timer.info" target="_blank" rel="noreferrer">7Timer</a>
-        {' · '}Satellites:{' '}
-        <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
         <br />
-        Ephemeris:{' '}
+        Satellites:{' '}
+        <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
+        {' · '}Ephemeris:{' '}
         <a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noreferrer">NASA/JPL DE421</a>
         {' · '}Moon imagery:{' '}
         <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
