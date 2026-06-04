@@ -1,7 +1,7 @@
 """weather.forecast() provider behaviour (hermetic — no network).
 
-Open-Meteo is the sole primary provider. 7Timer blending is stubbed out so
-nothing hits the wire.
+Open-Meteo is the primary provider; 7Timer is the fallback. Network calls are
+stubbed so nothing hits the wire.
 """
 from datetime import datetime, timezone
 
@@ -37,11 +37,26 @@ def test_uses_open_meteo_outside_us(monkeypatch):
     assert source == "Open-Meteo" and len(points) == 1
 
 
-def test_propagates_when_open_meteo_fails(monkeypatch):
+def test_falls_back_to_7timer_when_open_meteo_fails(monkeypatch):
+    """When Open-Meteo fails, 7Timer data is returned as the fallback source."""
     monkeypatch.setattr(wx.OpenMeteoProvider, "forecast",
                         lambda self, lat, lon: (_ for _ in ()).throw(
                             RuntimeError("Open-Meteo request failed: HTTP 502")))
-    with pytest.raises(RuntimeError, match="Open-Meteo"):
+    monkeypatch.setattr(wx.SevenTimerProvider, "forecast",
+                        lambda self, lat, lon: [_pt(), _pt()])
+    points, source = wx.forecast(40.0, -105.0)
+    assert source == "7Timer" and len(points) == 2
+
+
+def test_propagates_when_both_providers_fail(monkeypatch):
+    """RuntimeError is raised only when both Open-Meteo and 7Timer fail."""
+    monkeypatch.setattr(wx.OpenMeteoProvider, "forecast",
+                        lambda self, lat, lon: (_ for _ in ()).throw(
+                            RuntimeError("Open-Meteo request failed: HTTP 502")))
+    monkeypatch.setattr(wx.SevenTimerProvider, "forecast",
+                        lambda self, lat, lon: (_ for _ in ()).throw(
+                            RuntimeError("7Timer request failed: timeout")))
+    with pytest.raises(RuntimeError, match="Open-Meteo.*7Timer also failed"):
         wx.forecast(40.0, -105.0)
 
 

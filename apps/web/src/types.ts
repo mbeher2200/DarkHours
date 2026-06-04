@@ -165,6 +165,7 @@ export interface NightReport {
   wx_source: string | null
   wx_pending: boolean
   wx_no_data: boolean
+  wx_error: string | null
   score: number
   score_components: ScoreComponents
   visible_targets: VisibleTarget[]
