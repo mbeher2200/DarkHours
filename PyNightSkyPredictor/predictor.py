@@ -16,6 +16,7 @@ from . import ports as _ports
 from . import scoring
 from . import sky_events as se
 from . import targets as _tgt
+from .milky_way import milky_way_arch_summary as _mw_arch_summary, mw_theoretical_core_max as _mw_core_max
 from .moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 from . import weather as wx
 
@@ -99,6 +100,7 @@ class NightReport:
 
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
+    mw_summary:      dict | None = None   # milky_way_arch_summary output (MW targets only)
 
     # Active meteor showers tonight (always populated)
     active_showers: list  = field(default_factory=list)
@@ -360,6 +362,24 @@ def assemble_night(
         target_list = _vt_future.result() if _vt_future is not None else []
         _t["sat_targets_ms"] = round((time.monotonic() - _tc) * 1000)
 
+    # Milky Way arch summary (fast pure calculation — runs after executor closes)
+    mw_summary = None
+    if fetch_targets:
+        _mw_targets = [t for t in target_list if t.type == "milky_way"]
+        if _mw_targets:
+            try:
+                mw_summary = _mw_arch_summary(
+                    _mw_targets,
+                    lat=lat,
+                    moonrise=moonrise,
+                    moonset=moonset,
+                    moon_illumination_pct=illumination,
+                )
+                # Also attach the theoretical core ceiling for context
+                mw_summary["core_max_alt_deg"] = round(_mw_core_max(lat))
+            except Exception as _e:
+                log.debug("mw_arch_summary failed: %s", _e)
+
     # executor exits — all futures are resolved
 
     bortle_score = (
@@ -501,6 +521,7 @@ def assemble_night(
         score=rating["score"],
         score_components=rating["components"],
         visible_targets=target_list,
+        mw_summary=mw_summary,
         active_showers=active_showers,
         sat_passes=sat_pass_list,
         sat_stale=_sat_stale,
