@@ -684,6 +684,7 @@ export default function ReportCard({
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~7-day forecast horizon)" />}
         {showWeather && r.wx_no_data && <MetaRow k="Weather" v="No data  (not covered for this location/date)" />}
+        {showWeather && r.wx_error && !r.weather_points.length && <MetaRow k="Weather" v="Temporarily unavailable — weather providers are down" />}
       </div>
 
       {r.events.length > 0 && (

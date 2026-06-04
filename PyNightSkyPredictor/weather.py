@@ -432,12 +432,21 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         _seven_future = _pool.submit(SevenTimerProvider().forecast, lat, lon)
 
         primary = _provider if _provider is not None else OpenMeteoProvider()
+        primary_err: str | None = None
         try:
             points = primary.forecast(lat, lon)
-        except RuntimeError:
-            raise
-
-        primary_name = primary.name
+            primary_name = primary.name
+        except RuntimeError as e:
+            primary_err = str(e)
+            log.warning("Primary weather (%s) failed, falling back to 7Timer: %s",
+                        primary.name, e, extra={"service": primary.name.lower()})
+            # Fall back to 7Timer as full primary — it carries cloud/temp/wind/precip
+            try:
+                points = _seven_future.result()
+                return points, "7Timer"
+            except Exception as e2:
+                log.error("7Timer also failed: %s", e2, extra={"service": "7timer"})
+                raise RuntimeError(f"{primary_err}; 7Timer also failed: {e2}") from e2
 
         try:
             seven = _seven_future.result()
