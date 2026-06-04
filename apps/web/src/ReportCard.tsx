@@ -458,12 +458,65 @@ function isPrime(t: VisibleTarget, darkIntervals: [string, string][]): boolean {
     : (best.peak_alt_deg ?? 0) >= MIN_ALT && durH >= MIN_HRS
 }
 
+// ── Meteor shower card ───────────────────────────────────────────────────────
+
+function MeteorShowerCard({ target, zhr, report }: {
+  target: VisibleTarget
+  zhr: number
+  report: NightReport
+}) {
+  const tz = report.tz_name
+  const w  = bestWindow(target)
+
+  const sky = w.peak_time
+    ? skyCondition(
+        w.peak_time, report.dark_intervals, report.night_start, report.night_end,
+        report.illumination_pct, report.moonrise, report.moonset,
+        w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+      )
+    : null
+  const skyCls = sky
+    ? sky.startsWith('Moon') ? 'tg-sky-moon-wash' : `tg-sky-${sky.replace(' ', '-').toLowerCase()}`
+    : ''
+
+  return (
+    <div className="ms-card">
+      <div className="ms-header-row">
+        <span className="ms-name">{target.name} Meteor Shower</span>
+        <span className="ms-zhr">Peak ZHR {zhr}</span>
+      </div>
+      {target.note && <div className="ms-note">{target.note}</div>}
+      {w.peak_time && w.peak_alt_deg != null && (
+        <>
+          <div className="mw-row">
+            <span className="mw-label">Best viewing</span>
+            <span>{formatTime(w.peak_time, tz)} @ {fmtPos(w.peak_alt_deg, w.peak_az_deg)}</span>
+          </div>
+          <div className="mw-row">
+            <span className="mw-label">Window</span>
+            <span>
+              {formatTime(w.start, tz)} – {formatTime(w.end, tz)}
+              {'  ·  '}{w.start_alt_deg.toFixed(0)}° → {w.end_alt_deg.toFixed(0)}°
+            </span>
+          </div>
+          {sky && (
+            <div className="mw-row">
+              <span className="mw-label">Sky</span>
+              <span className={`tg-sky ${skyCls}`}>{sky}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: NightReport }) {
   const tz = report.tz_name
 
-  // Milky Way rendered separately; non-MW filtered to prime targets (mirrors CLI)
+  // Milky Way + meteor showers rendered separately as cards; rest filtered to prime
   const nonMW = targets
-    .filter(t => t.type !== 'milky_way')
+    .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
     .filter(t => isPrime(t, report.dark_intervals))
 
   const sorted = [...nonMW].sort((a, b) => {
@@ -488,11 +541,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
     | { kind: 'header'; type: string; key: string }
     | { kind: 'target'; target: VisibleTarget; key: string }
 
-  if (sorted.length === 0) return (
-    <p className="sat-notice" style={{ paddingTop: 10 }}>
-      No non-Milky-Way targets meet prime criteria (≥40° altitude, ≥1h window) this night.
-    </p>
-  )
+  if (sorted.length === 0) return null
 
   const rows: RowItem[] = []
   for (const g of groups) {
@@ -600,6 +649,8 @@ function NearbyResults({ data }: { data: NearbyResult }) {
 
   const placeStr = (p: NearbyPlace) =>
     p.name ?? `${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°`
+  const driveStr = (p: NearbyPlace) =>
+    p.drive_minutes != null ? `~${p.drive_minutes}m drive` : null
 
   return (
     <>
@@ -613,6 +664,7 @@ function NearbyResults({ data }: { data: NearbyResult }) {
           {best_available && (
             <> Closest darker spot: Bortle {best_available.bortle_class
             }, {best_available.distance_miles.toFixed(1)} mi {best_available.direction
+            }{best_available.drive_minutes != null ? ` · ~${best_available.drive_minutes}m drive` : ''
             }{best_available.name ? ` (${best_available.name})` : ''}</>
           )}
         </p>
@@ -624,17 +676,18 @@ function NearbyResults({ data }: { data: NearbyResult }) {
           a.bortle_class !== b.bortle_class ? a.bortle_class - b.bortle_class : a.distance_miles - b.distance_miles
         )[0]
         const showDarkest = darkest !== nearest && darkest.bortle_class < nearest.bortle_class
+        const hasDrive = results.some(p => p.drive_minutes != null)
         return (
           <>
             <div className="nearby-highlights">
               <div className="nearby-highlight-row">
                 <span className="nearby-highlight-label">Nearest</span>
-                <span>Bortle {nearest.bortle_class}  ·  {nearest.distance_miles.toFixed(1)} mi {nearest.direction}  ({placeStr(nearest)})</span>
+                <span>Bortle {nearest.bortle_class}  ·  {nearest.distance_miles.toFixed(1)} mi {nearest.direction}{driveStr(nearest) ? `  ·  ${driveStr(nearest)}` : ''}  ({placeStr(nearest)})</span>
               </div>
               {showDarkest && (
                 <div className="nearby-highlight-row">
                   <span className="nearby-highlight-label">Darkest</span>
-                  <span>Bortle {darkest.bortle_class}  ·  {darkest.distance_miles.toFixed(1)} mi {darkest.direction}  ({placeStr(darkest)})</span>
+                  <span>Bortle {darkest.bortle_class}  ·  {darkest.distance_miles.toFixed(1)} mi {darkest.direction}{driveStr(darkest) ? `  ·  ${driveStr(darkest)}` : ''}  ({placeStr(darkest)})</span>
                 </div>
               )}
             </div>
@@ -646,6 +699,7 @@ function NearbyResults({ data }: { data: NearbyResult }) {
                     <th>Bortle</th>
                     <th>SQM</th>
                     <th>Distance</th>
+                    {hasDrive && <th>Drive</th>}
                     <th>Direction</th>
                   </tr>
                 </thead>
@@ -658,6 +712,7 @@ function NearbyResults({ data }: { data: NearbyResult }) {
                         <td className="wx-num">{p.bortle_class}</td>
                         <td className="wx-num">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
                         <td className="wx-num">{p.distance_miles.toFixed(1)} mi</td>
+                        {hasDrive && <td className="wx-num">{driveStr(p) ?? '—'}</td>}
                         <td className="wx-num">{p.direction}</td>
                       </tr>
                     ))}
@@ -840,14 +895,17 @@ export default function ReportCard({
       )}
 
       {showTargets && (() => {
-        const primeCount = r.visible_targets.filter(t => isPrime(t, r.dark_intervals)).length
+        const showerTargets  = r.visible_targets.filter(t => t.type === 'meteor_shower')
+        const primeCount     = r.visible_targets.filter(t => isPrime(t, r.dark_intervals)).length
+        const hasAnything    = r.visible_targets.length > 0
+
         return (
         <details className="targets" open>
           <summary>
             Prime Targets
             {primeCount > 0 ? ` (${primeCount})` : ''}
           </summary>
-          {r.visible_targets.length === 0
+          {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
             : <>
                 {r.mw_summary && (
@@ -858,6 +916,23 @@ export default function ReportCard({
                       waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
                       report={r}
                     />
+                  </div>
+                )}
+                {showerTargets.length > 0 && (
+                  <div className="ms-section">
+                    <div className="mw-section-label">
+                      Meteor Shower{showerTargets.length > 1 ? 's' : ''}
+                    </div>
+                    <div className="ms-cards">
+                      {showerTargets.map(t => (
+                        <MeteorShowerCard
+                          key={t.name}
+                          target={t}
+                          zhr={r.active_showers.find(s => s.name === t.name)?.zhr ?? 0}
+                          report={r}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
                 <TargetsTable targets={r.visible_targets} report={r} />
