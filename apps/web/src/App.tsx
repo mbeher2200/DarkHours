@@ -190,7 +190,9 @@ export default function App() {
 
       <footer className="colophon">
         Light pollution:{' '}
-        <a href="https://www.lightpollutionmap.info" target="_blank" rel="noreferrer">Falchi 2016 / VIIRS</a>
+        <a href="https://doi.org/10.5880.GFZ.1.4.2016.001" target="_blank" rel="noreferrer">Falchi et al. 2016</a>
+        {' / '}
+        <a href="https://www2.lightpollutionmap.info" target="_blank" rel="noreferrer">VIIRS Black Marble 2025</a>
         {' · '}Weather:{' '}
         <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
         {' · '}
