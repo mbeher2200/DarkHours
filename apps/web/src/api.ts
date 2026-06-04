@@ -1,4 +1,4 @@
-import type { ApiError, NightReport } from './types'
+import type { ApiError, NightReport, NearbyResult, NearbyJobRecord } from './types'
 
 export interface NightQuery {
   location?: string
@@ -30,6 +30,48 @@ function buildQuery(q: NightQuery): string {
   p.set('targets', String(q.targets))
   p.set('satellites', String(q.satellites))
   return p.toString()
+}
+
+const NEARBY_POLL_MS    = 3_000
+const NEARBY_TIMEOUT_MS = 120_000
+
+/**
+ * Submit a nearby dark-sky search and poll until complete.
+ * Uses the same async SQS+job pattern as /calendar and /trip.
+ */
+export async function fetchNearby(lat: number, lon: number, radius = 60): Promise<NearbyResult> {
+  const p = new URLSearchParams({ lat: String(lat), lon: String(lon), radius: String(radius) })
+  let res: Response
+  try {
+    res = await fetch(`/nearby?${p}`)
+  } catch {
+    throw new ApiRequestError(0, 'Could not reach the API. Check your connection and try again.')
+  }
+  if (res.status !== 202) {
+    let detail = `Nearby request failed (${res.status}).`
+    try {
+      const b = (await res.json()) as ApiError
+      if (b?.detail) detail = b.detail
+    } catch { /* non-JSON error body */ }
+    throw new ApiRequestError(res.status, detail)
+  }
+  const { job_id } = (await res.json()) as { job_id: string }
+
+  const deadline = Date.now() + NEARBY_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, NEARBY_POLL_MS))
+    let poll: Response
+    try {
+      poll = await fetch(`/jobs/${job_id}`)
+    } catch {
+      throw new ApiRequestError(0, 'Lost connection while waiting for nearby results.')
+    }
+    if (!poll.ok) throw new ApiRequestError(poll.status, `Poll failed (${poll.status}).`)
+    const rec = (await poll.json()) as NearbyJobRecord
+    if (rec.status === 'done')  return rec.result
+    if (rec.status === 'error') throw new ApiRequestError(500, rec.error)
+  }
+  throw new ApiRequestError(0, 'Nearby search timed out. Try a smaller radius.')
 }
 
 /**

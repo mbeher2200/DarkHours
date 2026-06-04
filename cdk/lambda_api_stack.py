@@ -296,11 +296,12 @@ class LambdaApiStack(Stack):
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
             additional_behaviors={
-                "/night": api_cached,
-                "/healthz": api_cached,
+                "/night":    api_cached,
+                "/healthz":  api_cached,
                 "/calendar": no_cache,
-                "/trip": no_cache,
-                "/jobs/*": no_cache,
+                "/trip":     no_cache,
+                "/nearby":   no_cache,
+                "/jobs/*":   no_cache,
             },
         )
 

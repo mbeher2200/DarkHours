@@ -185,3 +185,30 @@ export interface NightReport {
 export interface ApiError {
   detail: string
 }
+
+// ── Nearby dark-sky search ────────────────────────────────────────────────────
+
+export interface NearbyPlace {
+  name: string | null
+  bortle_class: number
+  sqm: number | null
+  distance_miles: number
+  direction: string
+  lat: number
+  lon: number
+}
+
+export interface NearbyResult {
+  origin_bortle: number
+  origin_sqm: number | null
+  radius_miles: number
+  results: NearbyPlace[]
+  light_domes: NearbyPlace[]
+  has_dark_sky: boolean
+  best_available: NearbyPlace | null
+}
+
+export type NearbyJobRecord =
+  | { status: 'pending' }
+  | { status: 'done'; result: NearbyResult }
+  | { status: 'error'; error: string }
