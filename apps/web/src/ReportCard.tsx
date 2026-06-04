@@ -939,6 +939,13 @@ export default function ReportCard({
                   </div>
                 )}
                 <TargetsTable targets={r.visible_targets} report={r} />
+                {primeCount === 0 && !r.mw_summary && showerTargets.length === 0 && (
+                  <p className="sat-notice" style={{ paddingTop: 10 }}>
+                    {r.dark_intervals.length === 0
+                      ? 'No astronomical darkness this night — moon prevents dark-sky observing.'
+                      : 'No targets meet prime criteria (≥40° altitude, ≥1h dark window) this night.'}
+                  </p>
+                )}
               </>
           }
         </details>
