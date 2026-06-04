@@ -327,7 +327,7 @@ def sqm_to_bortle(sqm: float) -> tuple[int, str]:
 
 def sqm_to_zone(sqm: float) -> str:
     """Return the djlorenz light pollution zone label (e.g. '0', '1a', '3b')."""
-    if sqm >= 21.99:
+    if sqm > 21.99:
         return "0"
     for min_sqm, label in _LORENZ_ZONES:
         if sqm >= min_sqm:
