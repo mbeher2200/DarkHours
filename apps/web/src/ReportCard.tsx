@@ -695,15 +695,15 @@ export default function ReportCard({
 }) {
   const [nearbyState, setNearbyState] = useState<
     | { phase: 'idle' }
-    | { phase: 'loading' }
+    | { phase: 'loading'; radius: number }
     | { phase: 'done'; data: NearbyResult }
     | { phase: 'error'; message: string }
   >({ phase: 'idle' })
 
-  async function handleFindNearby() {
-    setNearbyState({ phase: 'loading' })
+  async function handleFindNearby(radius: number) {
+    setNearbyState({ phase: 'loading', radius })
     try {
-      const data = await fetchNearby(report.lat, report.lon)
+      const data = await fetchNearby(report.lat, report.lon, radius)
       setNearbyState({ phase: 'done', data })
     } catch (err) {
       setNearbyState({
@@ -873,12 +873,13 @@ export default function ReportCard({
         <summary>Find nearby dark sky</summary>
         <div className="nearby-body">
           {nearbyState.phase === 'idle' && (
-            <button className="nearby-trigger" onClick={handleFindNearby}>
-              Search within 60 mi
-            </button>
+            <div className="nearby-radius-toggle">
+              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>60 mi</button>
+              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>120 mi</button>
+            </div>
           )}
           {nearbyState.phase === 'loading' && (
-            <p className="sat-notice">Scanning nearby skies…</p>
+            <p className="sat-notice">Scanning within {nearbyState.radius} mi…</p>
           )}
           {nearbyState.phase === 'error' && (
             <p className="sat-notice">{nearbyState.message}</p>
