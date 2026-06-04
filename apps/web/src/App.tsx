@@ -253,13 +253,13 @@ export default function App() {
 
       <footer className="colophon">
         Light pollution:{' '}
-        <a href="https://doi.org/10.5880.GFZ.1.4.2016.001" target="_blank" rel="noreferrer">Falchi et al. 2016</a>
+        <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noreferrer">Falchi et al. 2016</a>
         {' / '}
         <a href="https://www2.lightpollutionmap.info" target="_blank" rel="noreferrer">VIIRS Black Marble 2025</a>
         {' · '}Weather:{' '}
         <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
         {' / '}
-        <a href="https://www.7timer.info" target="_blank" rel="noreferrer">7Timer</a>
+        <a href="https://github.com/Yeqzids/7timer-issues/wiki" target="_blank" rel="noreferrer">7Timer</a>
         <br />
         Satellites:{' '}
         <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
