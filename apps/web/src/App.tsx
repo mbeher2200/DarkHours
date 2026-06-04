@@ -153,6 +153,7 @@ export default function App() {
               placeholder="e.g. Cherry Springs State Park"
               value={place}
               onChange={(e) => setPlace(e.target.value)}
+              maxLength={200}
               autoFocus
             />
           </label>
@@ -183,7 +184,7 @@ export default function App() {
 
         <label className="field">
           <span>Date</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input type="date" value={date} min="1900-01-01" max="2050-12-31" onChange={(e) => setDate(e.target.value)} />
         </label>
 
         <fieldset className="toggles">
