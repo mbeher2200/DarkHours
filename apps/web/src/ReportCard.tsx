@@ -488,7 +488,11 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
     | { kind: 'header'; type: string; key: string }
     | { kind: 'target'; target: VisibleTarget; key: string }
 
-  if (sorted.length === 0) return null
+  if (sorted.length === 0) return (
+    <p className="sat-notice" style={{ paddingTop: 10 }}>
+      No non-Milky-Way targets meet prime criteria (≥40° altitude, ≥1h window) this night.
+    </p>
+  )
 
   const rows: RowItem[] = []
   for (const g of groups) {
@@ -835,11 +839,13 @@ export default function ReportCard({
         <WeatherTable points={r.weather_points} tz={tz} imperial={imperial} />
       )}
 
-      {showTargets && (
+      {showTargets && (() => {
+        const primeCount = r.visible_targets.filter(t => isPrime(t, r.dark_intervals)).length
+        return (
         <details className="targets" open>
           <summary>
             Prime Targets
-            {r.visible_targets.length > 0 ? ` (${r.visible_targets.length})` : ''}
+            {primeCount > 0 ? ` (${primeCount})` : ''}
           </summary>
           {r.visible_targets.length === 0
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
@@ -858,7 +864,8 @@ export default function ReportCard({
               </>
           }
         </details>
-      )}
+        )
+      })()}
 
       {showSatellites && (
         <details className="sat-section" open>
