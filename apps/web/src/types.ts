@@ -196,6 +196,7 @@ export interface NearbyPlace {
   direction: string
   lat: number
   lon: number
+  drive_minutes: number | null
 }
 
 export interface NearbyResult {

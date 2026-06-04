@@ -125,6 +125,23 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(geo_policy)
         fn.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
 
+        route_calc = location.CfnRouteCalculator(
+            self, "RouteCalculator",
+            calculator_name="pynightsky-route-calculator",
+            data_source="Esri",
+            pricing_plan="RequestBasedUsage",
+        )
+        route_calc_arn = (
+            f"arn:aws:geo:{self.region}:{self.account}"
+            f":route-calculator/{route_calc.calculator_name}"
+        )
+        route_policy = iam.PolicyStatement(
+            actions=["geo:CalculateRouteMatrix"],
+            resources=[route_calc_arn],
+        )
+        fn.add_to_role_policy(route_policy)
+        fn.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
+
         # --- async jobs: SQS queue + container-Lambda worker (M6.3) ---
         # Long /calendar+/trip computes run off the request path. The API enqueues a
         # job; this worker (a container Lambda — it needs rasterio) runs plan_trip and
@@ -158,6 +175,8 @@ class LambdaApiStack(Stack):
         table.grant_read_write_data(worker)
         worker.add_to_role_policy(geo_policy)
         worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
+        worker.add_to_role_policy(route_policy)
+        worker.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
         worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
 
         # The API can enqueue jobs and knows the queue URL (its presence flips the
