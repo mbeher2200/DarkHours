@@ -177,11 +177,12 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
     t0 = ts.utc(d0.year, d0.month, d0.day)
     t1 = ts.utc(d1.year, d1.month, d1.day)
 
-    # Three targeted risings_and_settings calls instead of dark_twilight_day:
-    #   sun at -0.8333° → Sunrise/Sunset       (step=0.25 vs dark_twilight_day step=0.04)
-    #   sun at -18.0°   → Astronomical night begins/ends
-    #   moon            → Moonrise/Moonset
-    # All three are independent and run in parallel threads.
+    # Two targeted risings_and_settings calls run in parallel (sunrise/sunset and moon).
+    # Astronomical twilight (sun at -18°) is searched per-night inside the loop using
+    # narrow sunset→sunrise windows. The full-window approach with find_discrete silently
+    # drops some nightly transitions near the full moon period when consecutive sample
+    # points both land in daytime — a per-night narrow search (≤14h, at most 2 events)
+    # is immune to this class of miss.
     sun   = eph["sun"]
     f_hor  = almanac.risings_and_settings(eph, sun,         observer, horizon_degrees=-0.8333)
     f_ast  = almanac.risings_and_settings(eph, sun,         observer, horizon_degrees=-18.0)
@@ -193,28 +194,20 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
         return result, round((_time.monotonic() - t0_) * 1000)
 
     _t_wall0 = _time.monotonic()
-    with _futures.ThreadPoolExecutor(max_workers=3) as _pool:
+    with _futures.ThreadPoolExecutor(max_workers=2) as _pool:
         _hor_f  = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_hor)
-        _ast_f  = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_ast)
         _moon_f = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_moon)
         (hor_times,  hor_rising),  _hor_ms  = _hor_f.result()
-        (ast_times,  ast_rising),  _ast_ms  = _ast_f.result()
         (moon_times, moon_rising), _moon_ms = _moon_f.result()
     _wall_ms = round((_time.monotonic() - _t_wall0) * 1000)
 
-    log.info("dark_cycle threads hor=%dms ast=%dms moon=%dms wall=%dms",
-             _hor_ms, _ast_ms, _moon_ms, _wall_ms)
+    log.info("dark_cycle threads hor=%dms moon=%dms wall=%dms",
+             _hor_ms, _moon_ms, _wall_ms)
 
     all_events = []
     for t, rising in zip(hor_times, hor_rising):
         all_events.append({"time": t.utc_datetime(),
                            "label": "Sunrise" if rising else "Sunset"})
-    for t, rising in zip(ast_times, ast_rising):
-        # rising=True  → sun crosses -18° going up   → astronomical night ends
-        # rising=False → sun crosses -18° going down  → astronomical night begins
-        all_events.append({"time": t.utc_datetime(),
-                           "label": "Astronomical night ends" if rising
-                           else "Astronomical night begins"})
     for t, rising in zip(moon_times, moon_rising):
         all_events.append({"time": t.utc_datetime(),
                            "label": "Moonrise" if rising else "Moonset"})
@@ -238,8 +231,23 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
         if not sunrise:
             hours.append(0.0)
             continue
-        night_start = find_event(all_events, "Astronomical night begins", after=sunset, before=sunrise)
-        night_end   = find_event(all_events, "Astronomical night ends", after=night_start or sunset, before=sunrise)
+
+        # Per-night narrow search for astronomical twilight — avoids find_discrete
+        # dropping events that a full 30-day window call can miss.
+        t_set  = ts.from_datetime(sunset)
+        t_rise = ts.from_datetime(sunrise)
+        ast_t, ast_r = almanac.find_discrete(t_set, t_rise, f_ast, num=8)
+        night_start = next(
+            (t.utc_datetime().replace(tzinfo=timezone.utc)
+             for t, r in zip(ast_t, ast_r) if not r),
+            None,
+        )
+        night_end = next(
+            (t.utc_datetime().replace(tzinfo=timezone.utc)
+             for t, r in zip(ast_t, ast_r)
+             if r and night_start is not None and t.utc_datetime() > night_start),
+            None,
+        )
         if not night_start or not night_end:
             hours.append(0.0)
             continue
