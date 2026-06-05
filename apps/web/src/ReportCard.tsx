@@ -3,10 +3,37 @@ import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySu
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
-  scoreBand, scoreLabel, moonWashSeverity, moonUpAt,
+  scoreBand, scoreLabel, moonWashSeverity, moonUpAt, fmtWeatherCode,
 } from './format'
 import { fetchNearby, ApiRequestError } from './api'
-import { Sunrise, Sunset, Moon, Star, Stars } from 'lucide-react'
+import {
+  Sunrise, Sunset, Moon, Star, Stars,
+  MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
+  CloudRain, CloudRainWind, CloudSnow, Snowflake, CloudMoonRain, CloudLightning,
+  type LucideIcon,
+} from 'lucide-react'
+
+// ── WMO weather code icons ───────────────────────────────────────────────────
+
+const WMO_ICONS: Record<number, LucideIcon> = {
+  0: Stars,        1: MoonStar,      2: CloudMoon,    3: Cloudy,
+  45: CloudFog,   48: CloudFog,
+  51: CloudDrizzle, 53: CloudDrizzle, 55: CloudDrizzle,
+  56: CloudHail,  57: CloudHail,
+  61: CloudRain,  63: CloudRain,     65: CloudRainWind,
+  66: CloudHail,  67: CloudHail,
+  71: CloudSnow,  73: CloudSnow,     75: CloudSnow,   77: Snowflake,
+  80: CloudMoonRain, 81: CloudMoonRain, 82: CloudRainWind,
+  85: CloudSnow,  86: CloudSnow,
+  95: CloudLightning, 96: CloudLightning, 99: CloudLightning,
+}
+
+function WmoIcon({ code, size = 19 }: { code: number | null; size?: number }) {
+  if (code == null) return null
+  const Icon = WMO_ICONS[code]
+  if (!Icon) return null
+  return <Icon size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+}
 
 // Alt/Az in standard format: "42° alt · 195° (S)"
 function fmtPos(altDeg: number, azDeg: number): string {
@@ -60,25 +87,27 @@ function WeatherTable({ points, tz, imperial }: { points: WeatherPoint[]; tz: st
           <thead>
             <tr>
               <th>Time</th>
-              <th>Wx</th>
+              <th>Rating</th>
               <th>Cloud</th>
+              {hasSeeing && <th>Seeing</th>}
+              {hasTransp && <th>Transparency</th>}
               {hasTemp   && <th>Temp</th>}
               {hasDew    && <th>Dew Pt</th>}
-              {hasSeeing && <th>Seeing</th>}
-              {hasTransp && <th>Transp.</th>}
               <th>Humidity</th>
               <th>Wind</th>
-              <th>Precip</th>
             </tr>
           </thead>
           <tbody>
             {points.map((p, i) => (
               <tr key={i}>
                 <td className="wx-time">{formatTime(p.time, tz)}</td>
-                <td className="wx-num">{rateConditions(p)}/10</td>
+                <td className="wx-num">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <WmoIcon code={p.weather_code} />
+                    {rateConditions(p)}/10
+                  </span>
+                </td>
                 <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
-                {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
-                {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
                 {hasSeeing && (
                   <td className="wx-num">
                     {p.seeing_arcsec != null
@@ -93,9 +122,10 @@ function WeatherTable({ points, tz, imperial }: { points: WeatherPoint[]; tz: st
                       : '—'}
                   </td>
                 )}
+                {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
+                {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
                 <td className="wx-num">{p.humidity_pct != null ? `${p.humidity_pct}%` : '—'}</td>
                 <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
-                <td>{p.precip_type && p.precip_type !== 'none' ? p.precip_type.charAt(0).toUpperCase() + p.precip_type.slice(1) : 'None'}</td>
               </tr>
             ))}
           </tbody>
@@ -874,7 +904,7 @@ export default function ReportCard({
           <div className="ev-table">
             {r.events.map((e, i) => {
               const l = e.label.toLowerCase()
-              const ip = { size: 14, strokeWidth: 1.5, style: { flexShrink: 0, opacity: 0.7, verticalAlign: 'middle' } } as const
+              const ip = { size: 19, strokeWidth: 1.5, style: { flexShrink: 0, opacity: 0.7, verticalAlign: 'middle' } } as const
               const icon = l.includes('sunrise')                    ? <Sunrise {...ip} />
                          : l.includes('sunset')                     ? <Sunset  {...ip} />
                          : l.includes('moonrise') || l.includes('moonset') ? <Moon {...ip} />

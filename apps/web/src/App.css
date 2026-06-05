@@ -45,6 +45,33 @@
   flex-direction: column;
   gap: 16px;
 }
+.location-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.location-header .mode-toggle {
+  flex: 1;
+}
+.geo-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.geo-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+.geo-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .mode-toggle {
   display: flex;
   gap: 4px;
@@ -337,14 +364,14 @@ details summary {
 }
 .ev-time {
   flex-shrink: 0;
-  min-width: 148px;
+  min-width: 62px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 .ev-icon {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: 19px;
   line-height: 1;
 }
 .ev-label {
@@ -641,12 +668,9 @@ details summary {
   cursor: pointer;
 }
 .wx-table-wrap {
-  /* C: bleed to card edges, gaining 20px on each side */
   overflow-x: auto;
   margin-top: 10px;
-  margin-left: -20px;
   margin-right: -20px;
-  padding-left: 20px;
   padding-right: 20px;
 }
 .wx-table {
@@ -676,7 +700,7 @@ details summary {
 .wx-table tr:last-child td {
   border-bottom: none;
 }
-.wx-time {
+.wx-table td.wx-time {
   /* A: sticky first column */
   position: sticky;
   left: 0;
@@ -684,6 +708,13 @@ details summary {
   z-index: 1;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-left: 0;
+  width: 1px;
+}
+.wx-table th:first-child {
+  width: 1px;
+  padding-left: 0;
 }
 /* A: sticky header cell for TIME column */
 .wx-table th:first-child {

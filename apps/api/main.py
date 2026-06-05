@@ -157,7 +157,8 @@ def _resolve(location: str | None, lat: float | None, lon: float | None):
             tz = _loc.timezone_for(lat, lon)
         except ValueError as e:
             raise HTTPException(400, str(e))   # e.g. no timezone for the point
-        return lat, lon, f"{lat:.4f}°, {lon:.4f}°", tz
+        disp = _loc.reverse_geocode(lat, lon) or f"{lat:.4f}°, {lon:.4f}°"
+        return lat, lon, disp, tz
     raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
 
 

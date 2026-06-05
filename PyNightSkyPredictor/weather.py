@@ -46,11 +46,13 @@ class WeatherPoint:
     humidity_pct:    Optional[int]      # 0–100
     wind_speed_ms:   Optional[float]    # m/s
     lifted_index:    Optional[int]      # positive = stable, negative = unstable
-    precip_type:     Optional[str]      # "none" | "rain" | "snow" | "frzr" | "icep"
-    temperature_c:   Optional[float]    # °C
-    feels_like_c:    Optional[float]    # °C apparent temperature
-    dew_point_c:        Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
-    wind_direction_deg: Optional[float] = None  # degrees from north (meteorological)
+    precip_type:          Optional[str]  # "none" | "rain" | "snow" | "frzr" | "icep"
+    temperature_c:        Optional[float]  # °C
+    feels_like_c:         Optional[float]  # °C apparent temperature
+    dew_point_c:             Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
+    wind_direction_deg:      Optional[float] = None  # degrees from north (meteorological)
+    precip_probability_pct:  Optional[int]  = None  # 0–100 % chance of precipitation
+    weather_code:            Optional[int]  = None  # WMO weather interpretation code
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +90,7 @@ def _parse_open_meteo_hourly(h: dict) -> list:
         else:
             precip_type = "none"
 
+        n = len(h["time"])
         points.append(WeatherPoint(
             time=t,
             cloud_cover_pct=h["cloud_cover"][i],
@@ -98,9 +101,11 @@ def _parse_open_meteo_hourly(h: dict) -> list:
             lifted_index=None,
             precip_type=precip_type,
             temperature_c=h["temperature_2m"][i],
-            feels_like_c=h.get("apparent_temperature", [None] * len(h["time"]))[i],
-            dew_point_c=h.get("dewpoint_2m",        [None] * len(h["time"]))[i],
-            wind_direction_deg=h.get("wind_direction_10m", [None] * len(h["time"]))[i],
+            feels_like_c=h.get("apparent_temperature", [None] * n)[i],
+            dew_point_c=h.get("dewpoint_2m",           [None] * n)[i],
+            wind_direction_deg=h.get("wind_direction_10m",       [None] * n)[i],
+            precip_probability_pct=h.get("precipitation_probability", [None] * n)[i],
+            weather_code=h.get("weather_code", [None] * n)[i],
         ))
     return points
 
@@ -123,6 +128,7 @@ class OpenMeteoProvider(WeatherProvider):
         "?latitude={lat}&longitude={lon}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
+        ",precipitation_probability,weather_code"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
@@ -168,6 +174,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         "&past_days={past_days}&forecast_days=1"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
+        ",precipitation_probability,weather_code"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )

@@ -54,6 +54,7 @@ export default function App() {
   const [targets, setTargets] = useState(false)
   const [satellites, setSatellites] = useState(false)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
+  const [locating, setLocating] = useState(false)
 
   function toggleUnits(imp: boolean) {
     setImperial(imp)
@@ -63,7 +64,6 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<NightReport | null>(null)
-  // Track which optional sections were requested for the current report
   const [reportWeather, setReportWeather] = useState(false)
   const [reportTargets, setReportTargets] = useState(false)
   const [reportSatellites, setReportSatellites] = useState(false)
@@ -75,6 +75,108 @@ export default function App() {
     const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
     return [days > 7, days < 0 || days > 10]
   })()
+
+  function availabilityFor(d: string) {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const dd = new Date(d + 'T00:00:00')
+    const days = Math.round((dd.getTime() - today.getTime()) / 86_400_000)
+    return { wxUnavail: days > 7, satUnavail: days < 0 || days > 10 }
+  }
+
+  async function runQuery(q: NightQuery, wx: boolean, tg: boolean, sat: boolean) {
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await fetchNight(q)
+      setReport(r)
+      setReportWeather(wx)
+      setReportTargets(tg)
+      setReportSatellites(sat)
+      const p = new URLSearchParams()
+      if (q.location) p.set('q', q.location)
+      else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
+      p.set('date', q.date)
+      if (wx) p.set('weather', '1')
+      if (tg) p.set('targets', '1')
+      if (sat) p.set('satellites', '1')
+      history.replaceState(null, '', '?' + p.toString())
+    } catch (err) {
+      setReport(null)
+      setError(err instanceof ApiRequestError ? err.message : 'Something went wrong.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Restore query from URL params on first load and auto-submit
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const q = p.get('q')
+    const la = p.get('lat')
+    const lo = p.get('lon')
+    const d = p.get('date')
+    const wx = p.get('weather') === '1'
+    const tg = p.get('targets') === '1'
+    const sat = p.get('satellites') === '1'
+
+    if (!q && !(la && lo)) return
+
+    const targetDate = d || todayIso()
+    const { wxUnavail, satUnavail } = availabilityFor(targetDate)
+
+    if (d) setDate(d)
+    setWeather(wx)
+    setTargets(tg)
+    setSatellites(sat)
+
+    const query: NightQuery = {
+      date: targetDate,
+      weather: wx && !wxUnavail,
+      targets: tg,
+      satellites: sat && !satUnavail,
+    }
+    if (q) {
+      setPlace(q)
+      setMode('place')
+      query.location = q
+    } else {
+      setLat(la!)
+      setLon(lo!)
+      setMode('coords')
+      query.lat = Number(la)
+      query.lon = Number(lo)
+    }
+    runQuery(query, wx && !wxUnavail, tg, sat && !satUnavail)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function useMyLocation() {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.')
+      return
+    }
+    setLocating(true)
+    setError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const la = pos.coords.latitude.toFixed(5)
+        const lo = pos.coords.longitude.toFixed(5)
+        setLat(la)
+        setLon(lo)
+        setMode('coords')
+        setLocating(false)
+        const { wxUnavail, satUnavail } = availabilityFor(date)
+        runQuery(
+          { lat: Number(la), lon: Number(lo), date, weather: weather && !wxUnavail, targets, satellites: satellites && !satUnavail },
+          weather && !wxUnavail, targets, satellites && !satUnavail,
+        )
+      },
+      () => {
+        setLocating(false)
+        setError('Could not get your location. Check browser permissions.')
+      },
+      { timeout: 10000 },
+    )
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -102,18 +204,7 @@ export default function App() {
       q.lon = lo
     }
 
-    setLoading(true)
-    try {
-      setReport(await fetchNight(q))
-      setReportWeather(weather && !wxForecastUnavailable)
-      setReportTargets(targets)
-      setReportSatellites(satellites && !satUnavailable)
-    } catch (err) {
-      setReport(null)
-      setError(err instanceof ApiRequestError ? err.message : 'Something went wrong.')
-    } finally {
-      setLoading(false)
-    }
+    await runQuery(q, weather && !wxForecastUnavailable, targets, satellites && !satUnavailable)
   }
 
   return (
@@ -124,24 +215,34 @@ export default function App() {
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
-        <div className="mode-toggle" role="tablist" aria-label="Location input mode">
+        <div className="location-header">
+          <div className="mode-toggle" role="tablist" aria-label="Location input mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'place'}
+              className={mode === 'place' ? 'active' : ''}
+              onClick={() => setMode('place')}
+            >
+              Search a place
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'coords'}
+              className={mode === 'coords' ? 'active' : ''}
+              onClick={() => setMode('coords')}
+            >
+              Enter coordinates
+            </button>
+          </div>
           <button
             type="button"
-            role="tab"
-            aria-selected={mode === 'place'}
-            className={mode === 'place' ? 'active' : ''}
-            onClick={() => setMode('place')}
+            className="geo-btn"
+            onClick={useMyLocation}
+            disabled={locating || loading}
           >
-            Search a place
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'coords'}
-            className={mode === 'coords' ? 'active' : ''}
-            onClick={() => setMode('coords')}
-          >
-            Enter coordinates
+            {locating ? 'Locating…' : 'Use my location'}
           </button>
         </div>
 

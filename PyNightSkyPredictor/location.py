@@ -228,6 +228,16 @@ def timezone_for(lat: float, lon: float) -> ZoneInfo:
     return ZoneInfo(_tz_name_for(lat, lon))
 
 
+def reverse_geocode(lat: float, lon: float) -> str | None:
+    """Reverse-geocode (lat, lon) to a human-readable city/town name.
+
+    Returns "City, ST" for US locations, "City" elsewhere, or None if
+    the point is over water or the geocoder is unavailable.
+    """
+    from . import darksky
+    return darksky._settlement(lat, lon)
+
+
 def list_all() -> dict:
     """Return all saved/cached locations keyed by name."""
     return _load()
