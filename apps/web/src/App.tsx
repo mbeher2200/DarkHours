@@ -187,7 +187,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="masthead">
-        <h1>PyNightSky</h1>
+        <h1>DarkHours</h1>
         <p>Night-sky quality scoring for astrophotography planning.</p>
       </header>
 
