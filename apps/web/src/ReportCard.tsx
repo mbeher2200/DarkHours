@@ -104,7 +104,7 @@ function WeatherTable({ points, tz, imperial }: { points: WeatherPoint[]; tz: st
                 <td className="wx-num">
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                     <WmoIcon code={p.weather_code} />
-                    {rateConditions(p)}/10
+                    <span style={{ display: 'inline-block', minWidth: '2ch', textAlign: 'right' }}>{rateConditions(p)}</span>/10
                   </span>
                 </td>
                 <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
