@@ -44,7 +44,7 @@ function fmtPos(altDeg: number, azDeg: number): string {
 // Uses NASA Scientific Visualization Studio 1024×1024 phase images
 // (public domain, downloaded to /moon-phases/).
 
-function MoonPhaseSvg({ phaseName, size = 22 }: {
+function MoonPhaseSvg({ phaseName, size = 29 }: {
   phaseName: string
   illuminationPct?: number   // kept for API compat; image handles accuracy
   size?: number

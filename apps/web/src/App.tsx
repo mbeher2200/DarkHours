@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
+import { LocateFixed, Cloud, Star, Satellite } from 'lucide-react'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
 import { todayIso, defaultImperial } from './format'
 import ReportCard from './ReportCard'
@@ -15,13 +16,9 @@ function Tip({ text, children }: { text: string; children: React.ReactNode }) {
   useEffect(() => {
     if (!visible || !bubbleRef.current) return
     const rect = bubbleRef.current.getBoundingClientRect()
-    if (rect.left < 8) {
-      setNudge(8 - rect.left)
-    } else if (rect.right > window.innerWidth - 8) {
-      setNudge(window.innerWidth - 8 - rect.right)
-    } else {
-      setNudge(0)
-    }
+    if (rect.left < 8) setNudge(8 - rect.left)
+    else if (rect.right > window.innerWidth - 8) setNudge(window.innerWidth - 8 - rect.right)
+    else setNudge(0)
   }, [visible])
 
   return (
@@ -32,11 +29,7 @@ function Tip({ text, children }: { text: string; children: React.ReactNode }) {
     >
       {children}
       {visible && (
-        <span
-          ref={bubbleRef}
-          className="tip-bubble"
-          style={{ transform: `translateX(calc(-50% + ${nudge}px))` }}
-        >
+        <span ref={bubbleRef} className="tip-bubble" style={{ transform: `translateX(calc(-50% + ${nudge}px))` }}>
           {text}
         </span>
       )}
@@ -50,9 +43,6 @@ export default function App() {
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
   const [date, setDate] = useState(todayIso())
-  const [weather, setWeather] = useState(true)
-  const [targets, setTargets] = useState(false)
-  const [satellites, setSatellites] = useState(false)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
 
@@ -68,12 +58,12 @@ export default function App() {
   const [reportTargets, setReportTargets] = useState(false)
   const [reportSatellites, setReportSatellites] = useState(false)
 
-  const [wxForecastUnavailable, satUnavailable] = (() => {
-    if (!date) return [false, false]
+  const { wxForecastUnavailable, satUnavailable, isPastDate } = (() => {
+    if (!date) return { wxForecastUnavailable: false, satUnavailable: false, isPastDate: false }
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const d = new Date(date + 'T00:00:00')
     const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
-    return [days > 7, days < 0 || days > 10]
+    return { wxForecastUnavailable: days > 7, satUnavailable: days < 0 || days > 10, isPastDate: days < 0 }
   })()
 
   function availabilityFor(d: string) {
@@ -83,22 +73,19 @@ export default function App() {
     return { wxUnavail: days > 7, satUnavail: days < 0 || days > 10 }
   }
 
-  async function runQuery(q: NightQuery, wx: boolean, tg: boolean, sat: boolean) {
+  async function runQuery(q: NightQuery) {
     setLoading(true)
     setError(null)
     try {
       const r = await fetchNight(q)
       setReport(r)
-      setReportWeather(wx)
-      setReportTargets(tg)
-      setReportSatellites(sat)
+      setReportWeather(!!q.weather)
+      setReportTargets(!!q.targets)
+      setReportSatellites(!!q.satellites)
       const p = new URLSearchParams()
       if (q.location) p.set('q', q.location)
       else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
       if (q.date) p.set('date', q.date)
-      if (wx) p.set('weather', '1')
-      if (tg) p.set('targets', '1')
-      if (sat) p.set('satellites', '1')
       history.replaceState(null, '', '?' + p.toString())
     } catch (err) {
       setReport(null)
@@ -115,25 +102,18 @@ export default function App() {
     const la = p.get('lat')
     const lo = p.get('lon')
     const d = p.get('date')
-    const wx = p.get('weather') === '1'
-    const tg = p.get('targets') === '1'
-    const sat = p.get('satellites') === '1'
-
     if (!q && !(la && lo)) return
 
     const targetDate = d || todayIso()
     const { wxUnavail, satUnavail } = availabilityFor(targetDate)
 
     if (d) setDate(d)
-    setWeather(wx)
-    setTargets(tg)
-    setSatellites(sat)
 
     const query: NightQuery = {
       date: targetDate,
-      weather: wx && !wxUnavail,
-      targets: tg,
-      satellites: sat && !satUnavail,
+      weather: !wxUnavail,
+      targets: true,
+      satellites: !satUnavail,
     }
     if (q) {
       setPlace(q)
@@ -146,7 +126,7 @@ export default function App() {
       query.lat = Number(la)
       query.lon = Number(lo)
     }
-    runQuery(query, wx && !wxUnavail, tg, sat && !satUnavail)
+    runQuery(query)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function useMyLocation() {
@@ -165,10 +145,7 @@ export default function App() {
         setMode('coords')
         setLocating(false)
         const { wxUnavail, satUnavail } = availabilityFor(date)
-        runQuery(
-          { lat: Number(la), lon: Number(lo), date, weather: weather && !wxUnavail, targets, satellites: satellites && !satUnavail },
-          weather && !wxUnavail, targets, satellites && !satUnavail,
-        )
+        runQuery({ lat: Number(la), lon: Number(lo), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
       },
       () => {
         setLocating(false)
@@ -182,7 +159,7 @@ export default function App() {
     e.preventDefault()
     setError(null)
 
-    const q: NightQuery = { date, weather: weather && !wxForecastUnavailable, targets, satellites: satellites && !satUnavailable }
+    const q: NightQuery = { date, weather: !wxForecastUnavailable, targets: true, satellites: !satUnavailable }
     if (mode === 'place') {
       if (!place.trim()) {
         setError('Enter a place to search for.')
@@ -204,7 +181,7 @@ export default function App() {
       q.lon = lo
     }
 
-    await runQuery(q, weather && !wxForecastUnavailable, targets, satellites && !satUnavailable)
+    await runQuery(q)
   }
 
   return (
@@ -228,6 +205,15 @@ export default function App() {
             </button>
             <button
               type="button"
+              className="geo-btn"
+              onClick={useMyLocation}
+              disabled={locating || loading}
+            >
+              <LocateFixed size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
+              {locating ? 'Locating…' : 'Use my location'}
+            </button>
+            <button
+              type="button"
               role="tab"
               aria-selected={mode === 'coords'}
               className={mode === 'coords' ? 'active' : ''}
@@ -236,14 +222,6 @@ export default function App() {
               Enter coordinates
             </button>
           </div>
-          <button
-            type="button"
-            className="geo-btn"
-            onClick={useMyLocation}
-            disabled={locating || loading}
-          >
-            {locating ? 'Locating…' : 'Use my location'}
-          </button>
         </div>
 
         {mode === 'place' ? (
@@ -288,41 +266,39 @@ export default function App() {
           <input type="date" value={date} min="1900-01-01" max="2050-12-31" onChange={(e) => setDate(e.target.value)} />
         </label>
 
-        <fieldset className="toggles">
-          {wxForecastUnavailable ? (
-            <Tip text="Weather forecast unavailable beyond 7 days">
-              <label className="wx-unavailable">
-                <input type="checkbox" checked={false} disabled onChange={() => {}} />
+        <div className="scope-row">
+          <div className="scope-strip">
+            {wxForecastUnavailable ? (
+              <Tip text="Weather forecast unavailable beyond 7 days">
+                <span className="scope-pill unavail">
+                  <Cloud size={13} strokeWidth={2} />
+                  Weather
+                </span>
+              </Tip>
+            ) : (
+              <span className="scope-pill">
+                <Cloud size={13} strokeWidth={2} />
                 Weather
-              </label>
-            </Tip>
-          ) : (
-            <label>
-              <input type="checkbox" checked={weather} onChange={(e) => setWeather(e.target.checked)} />
-              Weather
-            </label>
-          )}
-          <label>
-            <input type="checkbox" checked={targets} onChange={(e) => setTargets(e.target.checked)} />
-            Visible targets
-          </label>
-          {satUnavailable ? (
-            <Tip text={
-              date && new Date(date + 'T00:00:00') < new Date(new Date().setHours(0, 0, 0, 0))
-                ? 'Satellite passes unavailable for past dates'
-                : 'TLE accuracy degrades beyond ~10 days — passes unreliable'
-            }>
-              <label className="wx-unavailable">
-                <input type="checkbox" checked={false} disabled onChange={() => {}} />
+              </span>
+            )}
+            <span className="scope-pill">
+              <Star size={13} strokeWidth={2} />
+              Targets
+            </span>
+            {satUnavailable ? (
+              <Tip text={isPastDate ? 'Satellite passes unavailable for past dates' : 'TLE accuracy degrades beyond ~10 days — passes unreliable'}>
+                <span className="scope-pill unavail">
+                  <Satellite size={13} strokeWidth={2} />
+                  Satellites
+                </span>
+              </Tip>
+            ) : (
+              <span className="scope-pill">
+                <Satellite size={13} strokeWidth={2} />
                 Satellites
-              </label>
-            </Tip>
-          ) : (
-            <label>
-              <input type="checkbox" checked={satellites} onChange={(e) => setSatellites(e.target.checked)} />
-              Satellites
-            </label>
-          )}
+              </span>
+            )}
+          </div>
           <div className="units-toggle" role="group" aria-label="Unit system">
             <button
               type="button"
@@ -335,7 +311,7 @@ export default function App() {
               onClick={() => toggleUnits(true)}
             >°F / mph</button>
           </div>
-        </fieldset>
+        </div>
 
         <button type="submit" className="submit" disabled={loading}>
           {loading ? 'Scoring…' : 'Score the night'}
