@@ -143,7 +143,7 @@ def assemble_night(
     # --- I/O kicked off immediately — independent of all Skyfield work ---
     # darksky (S3 raster) and weather (HTTP) need only lat/lon, which we have now.
     # They run concurrently with sky_events + moon + lunar_cycle on the main thread.
-    _wx_cache_key = f"wx|{lat:.2f}|{lon:.2f}|{target.isoformat()}"
+    _wx_cache_key = f"wx2|{lat:.2f}|{lon:.2f}|{target.isoformat()}"
     _wx_cached    = None
     _wx_exc       = None
     _wx_thread    = None
