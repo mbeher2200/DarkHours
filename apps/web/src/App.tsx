@@ -188,7 +188,7 @@ export default function App() {
     <div className="app">
       <header className="masthead">
         <h1>DarkHours</h1>
-        <p>Night-sky quality scoring for astrophotography planning.</p>
+        <p>Know every factor. Know the right night to shoot the stars.</p>
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
