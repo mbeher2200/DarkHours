@@ -65,6 +65,8 @@ export interface WeatherPoint {
   temperature_c: number | null
   dew_point_c: number | null
   feels_like_c: number | null
+  precip_probability_pct: number | null
+  weather_code: number | null
 }
 
 export interface MoonEclipse {
