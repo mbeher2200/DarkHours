@@ -212,15 +212,49 @@ class LambdaApiStack(Stack):
             header_behavior=cloudfront.OriginRequestHeaderBehavior.none(),
             cookie_behavior=cloudfront.OriginRequestCookieBehavior.none(),
         )
+
+        # Viewer-request function: reject anything that isn't a same-origin browser fetch.
+        # Browsers set Sec-Fetch-Site=same-origin automatically for SPA→API calls (same
+        # CloudFront domain). The header is browser-controlled — JS cannot override it —
+        # so requests from other websites arrive with "cross-site" and are blocked. Curl
+        # and scripts send no header at all and are also blocked. The 403 is returned
+        # before the request reaches the cache or Lambda. /healthz is excluded (open_cached
+        # below) so uptime monitors can probe it freely.
+        _sec_fetch_js = (
+            "function handler(event){"
+            "var h=event.request.headers['sec-fetch-site'];"
+            "if(!h||h.value!=='same-origin')"
+            "return{statusCode:403,statusDescription:'Forbidden'};"
+            "return event.request;}"
+        )
+        sec_fetch_fn = cloudfront.Function(
+            self, "SecFetchCheck",
+            code=cloudfront.FunctionCode.from_inline(_sec_fetch_js),
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
+        )
+        _sec_fetch = [cloudfront.FunctionAssociation(
+            event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function=sec_fetch_fn,
+        )]
+
         no_cache = cloudfront.BehaviorOptions(
             origin=origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
             origin_request_policy=fwd_qs,
+            function_associations=_sec_fetch,
         )
-        # Cached Lambda GETs (single-night /night, /healthz) keyed on the query string.
+        # /night: cached GETs keyed on the full query string, same-origin guard applied.
         api_cached = cloudfront.BehaviorOptions(
+            origin=origin,
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+            cache_policy=api_cache,
+            function_associations=_sec_fetch,
+        )
+        # /healthz: same cache policy, no guard so uptime monitors can reach it.
+        open_cached = cloudfront.BehaviorOptions(
             origin=origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
@@ -316,7 +350,7 @@ class LambdaApiStack(Stack):
             ),
             additional_behaviors={
                 "/night":    api_cached,
-                "/healthz":  api_cached,
+                "/healthz":  open_cached,
                 "/calendar": no_cache,
                 "/trip":     no_cache,
                 "/nearby":   no_cache,
