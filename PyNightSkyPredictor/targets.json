@@ -337,34 +337,13 @@
     "surface_brightness": 17.5,
     "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core"
   },
-  {
-    "name": "Mercury",
-    "type": "planet"
-  },
-  {
-    "name": "Venus",
-    "type": "planet"
-  },
-  {
-    "name": "Mars",
-    "type": "planet"
-  },
-  {
-    "name": "Jupiter",
-    "type": "planet"
-  },
-  {
-    "name": "Saturn",
-    "type": "planet"
-  },
-  {
-    "name": "Uranus",
-    "type": "planet"
-  },
-  {
-    "name": "Neptune",
-    "type": "planet"
-  },
+  {"name": "Mercury", "type": "planet", "min_elevation": 10},
+  {"name": "Venus",   "type": "planet", "min_elevation": 10},
+  {"name": "Mars",    "type": "planet", "min_elevation": 10},
+  {"name": "Jupiter", "type": "planet", "min_elevation": 10},
+  {"name": "Saturn",  "type": "planet", "min_elevation": 10},
+  {"name": "Uranus",  "type": "planet", "min_elevation": 10},
+  {"name": "Neptune", "type": "planet", "min_elevation": 10},
   {
     "name": "Quadrantids",
     "type": "meteor_shower",
