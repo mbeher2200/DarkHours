@@ -158,23 +158,7 @@ export default function App() {
   function shiftDay(delta: number) {
     const d = new Date(date + 'T00:00:00')
     d.setDate(d.getDate() + delta)
-    const newDate = d.toISOString().slice(0, 10)
-    setDate(newDate)
-    if (!report) return
-    const { wxUnavail, satUnavail } = availabilityFor(newDate)
-    const q: NightQuery = { date: newDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
-    if (mode === 'place') {
-      if (!place.trim()) return
-      q.location = place.trim()
-    } else {
-      const la = Number(lat)
-      const lo = Number(lon)
-      if (!lat || !lon || Number.isNaN(la) || Number.isNaN(lo)) return
-      if (la < -90 || la > 90 || lo < -180 || lo > 180) return
-      q.lat = la
-      q.lon = lo
-    }
-    runQuery(q)
+    setDate(d.toISOString().slice(0, 10))
   }
 
   async function onSubmit(e: FormEvent) {
