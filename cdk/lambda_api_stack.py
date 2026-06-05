@@ -34,7 +34,10 @@ from aws_cdk import (
     aws_logs as logs,
     aws_sns as sns,
     aws_sqs as sqs,
+    aws_certificatemanager as acm,
     aws_location as location,
+    aws_route53 as route53,
+    aws_route53_targets as route53_targets,
     aws_wafv2 as wafv2,
 )
 from constructs import Construct
@@ -337,11 +340,28 @@ class LambdaApiStack(Stack):
             ],
         )
 
+        # --- Custom domain: darkhours.app ---
+        # from_lookup queries Route 53 at synth time and caches in cdk.context.json.
+        # The ACM certificate uses DNS validation: CDK automatically creates the CNAME
+        # validation record in the hosted zone so no manual console steps are needed.
+        # CloudFront requires the cert to be in us-east-1 — this stack already is.
+        hosted_zone = route53.HostedZone.from_lookup(
+            self, "Zone",
+            domain_name="darkhours.app",
+        )
+        cert = acm.Certificate(
+            self, "Cert",
+            domain_name="darkhours.app",
+            validation=acm.CertificateValidation.from_dns(hosted_zone),
+        )
+
         dist = cloudfront.Distribution(
             self, "Cdn",
             comment="PyNightSky SPA + API (S3 default, Lambda for API paths)",
             default_root_object="index.html",
             web_acl_id=web_acl.attr_arn,
+            domain_names=["darkhours.app"],
+            certificate=cert,
             default_behavior=cloudfront.BehaviorOptions(
                 origin=spa_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -448,6 +468,16 @@ class LambdaApiStack(Stack):
             resource_arn=web_acl.attr_arn,
         )
 
+        # Route 53 A-alias: darkhours.app → CloudFront distribution (no TTL, free).
+        route53.ARecord(
+            self, "AliasRecord",
+            zone=hosted_zone,
+            target=route53.RecordTarget.from_alias(
+                route53_targets.CloudFrontTarget(dist)
+            ),
+        )
+
+        CfnOutput(self, "DomainUrl", value="https://darkhours.app")
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
