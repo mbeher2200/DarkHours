@@ -31,7 +31,7 @@ HUBBLE_NORAD_ID   = 20580
 TIANGONG_NORAD_ID = 48274
 
 TLE_TTL     = 6 * 3600   # exactly 6 h — Celestrak rate-limit compliance
-_USER_AGENT = "PyNightSkyPredictor/1.0 (open-source astronomical observation planner)"
+_USER_AGENT = "DarkHours/1.0 (open-source astronomical observation planner)"
 
 # Satellites tracked by --satellites, in display-priority order.
 # The display_name overrides whatever the TLE name line says.
