@@ -23,7 +23,7 @@ export function formatTime(iso: string | null, tz: string): string {
     const hour = parts.find(p => p.type === 'hour')?.value ?? '0'
     const min  = parts.find(p => p.type === 'minute')?.value ?? '00'
     const ampm = parts.find(p => p.type === 'dayPeriod')?.value ?? 'AM'
-    return `${hour.padStart(2, ' ')}:${min} ${ampm}`
+    return `${hour}:${min} ${ampm}`
   } catch {
     return '—'
   }
@@ -43,7 +43,7 @@ export function formatDayTime(iso: string | null, tz: string): string {
     const hour  = parts.find(p => p.type === 'hour')?.value ?? '0'
     const min   = parts.find(p => p.type === 'minute')?.value ?? '00'
     const ampm  = parts.find(p => p.type === 'dayPeriod')?.value ?? 'AM'
-    return `${month} ${day}, ${hour.padStart(2, ' ')}:${min} ${ampm}`
+    return `${month} ${day}, ${hour}:${min} ${ampm}`
   } catch {
     return '—'
   }
@@ -86,9 +86,33 @@ export function cardinal(az: number): string {
   return dirs[Math.round(az / 45) % 8]
 }
 
+// WMO weather interpretation code → short label
+const WMO_LABELS: Record<number, string> = {
+  0: 'Clear', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
+  45: 'Fog', 48: 'Rime Fog',
+  51: 'Lt. Drizzle', 53: 'Drizzle', 55: 'Dense Drizzle',
+  56: 'Lt. Frz. Drizzle', 57: 'Frz. Drizzle',
+  61: 'Light Rain', 63: 'Moderate Rain', 65: 'Heavy Rain',
+  66: 'Lt. Frz. Rain', 67: 'Frz. Rain',
+  71: 'Light Snow', 73: 'Moderate Snow', 75: 'Heavy Snow', 77: 'Snow Grains',
+  80: 'Lt. Showers', 81: 'Showers', 82: 'Heavy Showers',
+  85: 'Snow Showers', 86: 'Heavy Snow Showers',
+  95: 'Thunderstorm', 96: 'T-storm + Hail', 99: 'T-storm + Hail',
+}
+
+export function fmtWeatherCode(code: number | null, prob: number | null): string {
+  if (code == null) return '—'
+  const label = WMO_LABELS[code] ?? `Code ${code}`
+  // Show probability alongside precip-class codes (≥51)
+  if (prob != null && code >= 51) return `${label} (${prob}%)`
+  return label
+}
+
 // Port of weather.rate_conditions() — returns 1–10
 export function rateConditions(p: WeatherPoint): number {
-  if (p.precip_type && p.precip_type !== 'none') return 1
+  // WMO codes ≥51 are precipitation events; fall back to precip_type for non-Open-Meteo sources
+  if ((p.weather_code != null && p.weather_code >= 51) ||
+      (p.precip_type && p.precip_type !== 'none')) return 1
 
   const scores: Record<string, number>  = {}
   const weights: Record<string, number> = {}
