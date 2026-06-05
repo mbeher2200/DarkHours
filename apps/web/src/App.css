@@ -53,6 +53,65 @@
 .location-header .mode-toggle {
   flex: 1;
 }
+.history-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.history-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.history-btn:hover {
+  color: var(--text-h);
+  border-color: #7aa2ff;
+}
+.history-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  max-width: 340px;
+  background: #1e2235;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  overflow: hidden;
+}
+.history-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(35, 40, 67, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s, color 0.1s;
+}
+.history-item:last-child {
+  border-bottom: 0;
+}
+.history-item:hover {
+  background: rgba(122, 162, 255, 0.08);
+  color: var(--text-h);
+}
+
 .geo-btn {
   display: inline-flex;
   align-items: center;

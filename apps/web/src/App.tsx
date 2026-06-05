@@ -1,12 +1,30 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
 import { todayIso, defaultImperial } from './format'
 import ReportCard from './ReportCard'
 import type { NightReport } from './types'
 
 type Mode = 'place' | 'coords'
+
+interface HistoryEntry {
+  label: string
+  mode: Mode
+  location?: string
+  lat?: string
+  lon?: string
+}
+
+const HISTORY_KEY = 'search-history'
+const HISTORY_MAX = 8
+
+function loadHistory(): HistoryEntry[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
+}
+function saveHistory(entries: HistoryEntry[]) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries))
+}
 
 function Tip({ text, children }: { text: string; children: React.ReactNode }) {
   const [visible, setVisible] = useState(false)
@@ -45,6 +63,20 @@ export default function App() {
   const [date, setDate] = useState(todayIso())
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
+  const [searchHistory, setSearchHistory] = useState<HistoryEntry[]>(loadHistory)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!historyOpen) return
+    function onDown(e: MouseEvent) {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [historyOpen])
 
   function toggleUnits(imp: boolean) {
     setImperial(imp)
@@ -82,6 +114,14 @@ export default function App() {
       setReportWeather(!!q.weather)
       setReportTargets(!!q.targets)
       setReportSatellites(!!q.satellites)
+      const entry: HistoryEntry = q.location
+        ? { label: r.display_name, mode: 'place', location: q.location }
+        : { label: r.display_name, mode: 'coords', lat: String(q.lat), lon: String(q.lon) }
+      setSearchHistory(prev => {
+        const next = [entry, ...prev.filter(h => h.label !== entry.label)].slice(0, HISTORY_MAX)
+        saveHistory(next)
+        return next
+      })
       const p = new URLSearchParams()
       if (q.location) p.set('q', q.location)
       else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
@@ -228,6 +268,39 @@ export default function App() {
               Enter coordinates
             </button>
           </div>
+          {searchHistory.length > 0 && (
+            <div className="history-wrap" ref={historyRef}>
+              <button
+                type="button"
+                className="history-btn"
+                aria-label="Recent searches"
+                onClick={() => setHistoryOpen(o => !o)}
+              >
+                <Clock size={14} strokeWidth={2} />
+              </button>
+              {historyOpen && (
+                <div className="history-dropdown" role="listbox" aria-label="Recent searches">
+                  {searchHistory.map((h, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="history-item"
+                      role="option"
+                      aria-selected={false}
+                      onClick={() => {
+                        setMode(h.mode)
+                        if (h.mode === 'place') setPlace(h.location!)
+                        else { setLat(h.lat!); setLon(h.lon!) }
+                        setHistoryOpen(false)
+                      }}
+                    >
+                      {h.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {mode === 'place' ? (
