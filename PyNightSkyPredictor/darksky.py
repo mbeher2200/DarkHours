@@ -696,7 +696,7 @@ def _overpass_natural_areas_in_radius(
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
+            headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
         )
         with _http.urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read())
@@ -809,7 +809,7 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "PyNightSkyPredictor/1.0 (light-pollution-research)"},
+            headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
         )
         with _http.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
