@@ -460,10 +460,11 @@ function altAt(cutoffIso: string, w: TargetWindow): number {
   return Math.round(a0 + Math.max(0, Math.min(1, frac)) * (a1 - a0))
 }
 
-// Mirrors targets.is_prime(): min 40° peak alt, min 1h clean window,
-// falls back to dark-interval overlap when all windows are moon-interfered.
+// Mirrors targets.is_prime(): DSOs need ≥40° peak alt, planets ≥20°, all need ≥1h window.
+// Falls back to dark-interval overlap when all windows are moon-interfered.
 function isPrime(t: VisibleTarget, darkIntervals: [string, string][]): boolean {
-  const MIN_ALT = 40, MIN_HRS = 1.0
+  const MIN_ALT = 40, PLANET_MIN_ALT = 20, MIN_HRS = 1.0
+  const effAlt = t.type === 'planet' ? PLANET_MIN_ALT : MIN_ALT
   const clean = t.windows.filter(w => !w.moon_interference)
 
   if (clean.length === 0) {
@@ -474,7 +475,7 @@ function isPrime(t: VisibleTarget, darkIntervals: [string, string][]): boolean {
         const oS = Math.max(ws, new Date(ds).getTime())
         const oE = Math.min(we, new Date(de).getTime())
         if ((oE - oS) / 3_600_000 >= MIN_HRS) {
-          return t.type === 'milky_way' || (w.peak_alt_deg ?? 0) >= MIN_ALT
+          return t.type === 'milky_way' || (w.peak_alt_deg ?? 0) >= effAlt
         }
       }
     }
@@ -485,7 +486,7 @@ function isPrime(t: VisibleTarget, darkIntervals: [string, string][]): boolean {
   const durH = (new Date(best.end).getTime() - new Date(best.start).getTime()) / 3_600_000
   return t.type === 'milky_way'
     ? durH >= MIN_HRS
-    : (best.peak_alt_deg ?? 0) >= MIN_ALT && durH >= MIN_HRS
+    : (best.peak_alt_deg ?? 0) >= effAlt && durH >= MIN_HRS
 }
 
 // ── Meteor shower card ───────────────────────────────────────────────────────
@@ -973,7 +974,7 @@ export default function ReportCard({
                   <p className="sat-notice" style={{ paddingTop: 10 }}>
                     {r.dark_intervals.length === 0
                       ? 'No astronomical darkness this night — moon prevents dark-sky observing.'
-                      : 'No targets meet prime criteria (≥40° altitude, ≥1h dark window) this night.'}
+                      : 'No targets meet prime criteria (DSOs ≥40°, planets ≥20° peak altitude, ≥1h window) this night.'}
                   </p>
                 )}
               </>
