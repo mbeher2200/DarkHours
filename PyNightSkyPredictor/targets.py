@@ -32,6 +32,7 @@ DEFAULT_MIN_ELEVATION  = float(_c["min_elevation_deg"])
 DEFAULT_MOON_MIN_SEP   = float(_c["moon_min_separation_deg"])
 DEFAULT_MOON_MAX_ILLUM = float(_c["moon_max_illumination_pct"])
 SAMPLE_INTERVAL_MIN    = 10
+PLANET_PRIME_MIN_ALT   = 20  # planets are bright enough to be prime at lower altitudes
 
 _CATALOG_PATH = Path(__file__).parent / "targets.json"
 
@@ -566,14 +567,17 @@ def is_prime(target, min_peak_alt: float, min_window_hours: float,
                 if overlap_h >= min_window_hours:
                     if target.type == "milky_way":
                         return True
-                    return w.peak_alt_deg >= min_peak_alt
+                    eff_alt = PLANET_PRIME_MIN_ALT if target.type == "planet" else min_peak_alt
+                    return w.peak_alt_deg >= eff_alt
         return False
 
     best       = max(clean, key=lambda w: w.peak_alt_deg)
     duration_h = (best.end - best.start).total_seconds() / 3600
     if target.type == "milky_way":
         return duration_h >= min_window_hours
-    return best.peak_alt_deg >= min_peak_alt and duration_h >= min_window_hours
+    # Planets are bright enough to be prime at lower altitudes than DSOs.
+    effective_min_alt = PLANET_PRIME_MIN_ALT if target.type == "planet" else min_peak_alt
+    return best.peak_alt_deg >= effective_min_alt and duration_h >= min_window_hours
 
 
 # K&S model and sky-brightness constants live in moonlight.py.
