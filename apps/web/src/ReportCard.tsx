@@ -3,7 +3,7 @@ import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySu
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
-  scoreBand, scoreLabel, moonWashSeverity, moonUpAt, fmtWeatherCode,
+  scoreBand, scoreLabel, moonWashSeverity, moonUpAt,
 } from './format'
 import { fetchNearby, ApiRequestError } from './api'
 import {

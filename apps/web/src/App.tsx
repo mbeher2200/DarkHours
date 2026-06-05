@@ -95,7 +95,7 @@ export default function App() {
       const p = new URLSearchParams()
       if (q.location) p.set('q', q.location)
       else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
-      p.set('date', q.date)
+      if (q.date) p.set('date', q.date)
       if (wx) p.set('weather', '1')
       if (tg) p.set('targets', '1')
       if (sat) p.set('satellites', '1')
