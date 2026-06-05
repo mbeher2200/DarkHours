@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite } from 'lucide-react'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight } from 'lucide-react'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
 import { todayIso, defaultImperial } from './format'
 import ReportCard from './ReportCard'
@@ -153,6 +153,27 @@ export default function App() {
       },
       { timeout: 10000 },
     )
+  }
+
+  function shiftDay(delta: number) {
+    const d = new Date(date + 'T00:00:00')
+    d.setDate(d.getDate() + delta)
+    const newDate = d.toISOString().slice(0, 10)
+    setDate(newDate)
+    const { wxUnavail, satUnavail } = availabilityFor(newDate)
+    const q: NightQuery = { date: newDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
+    if (mode === 'place') {
+      if (!place.trim()) return
+      q.location = place.trim()
+    } else {
+      const la = Number(lat)
+      const lo = Number(lon)
+      if (!lat || !lon || Number.isNaN(la) || Number.isNaN(lo)) return
+      if (la < -90 || la > 90 || lo < -180 || lo > 180) return
+      q.lat = la
+      q.lon = lo
+    }
+    runQuery(q)
   }
 
   async function onSubmit(e: FormEvent) {
@@ -313,9 +334,17 @@ export default function App() {
           </div>
         </div>
 
-        <button type="submit" className="submit" disabled={loading}>
-          {loading ? 'Scoring…' : 'Score the night'}
-        </button>
+        <div className="submit-row">
+          <button type="button" className="day-nav" onClick={() => shiftDay(-1)} disabled={loading || locating} aria-label="Previous day">
+            <ChevronLeft size={18} strokeWidth={2.5} />
+          </button>
+          <button type="submit" className="submit" disabled={loading}>
+            {loading ? 'Scoring…' : 'Score the night'}
+          </button>
+          <button type="button" className="day-nav" onClick={() => shiftDay(1)} disabled={loading || locating} aria-label="Next day">
+            <ChevronRight size={18} strokeWidth={2.5} />
+          </button>
+        </div>
       </form>
 
       {error && <div className="card error">{error}</div>}

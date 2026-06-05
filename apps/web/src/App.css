@@ -194,6 +194,14 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
+.submit-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.submit-row .submit {
+  flex: 1;
+}
 .submit {
   padding: 13px;
   border: 0;
@@ -207,6 +215,27 @@
 .submit:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  flex-shrink: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: #0e1120;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.day-nav:hover:not(:disabled) {
+  color: var(--text-h);
+  border-color: #7aa2ff;
+}
+.day-nav:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ── report ───────────────────────────────────────────────── */
