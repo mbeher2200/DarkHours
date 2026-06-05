@@ -54,19 +54,14 @@
   flex: 1;
 }
 .geo-btn {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  padding: 0;
-  white-space: nowrap;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: color 0.15s;
 }
 .geo-btn:hover:not(:disabled) {
-  color: var(--accent);
+  color: var(--text-h);
 }
 .geo-btn:disabled {
   opacity: 0.5;
@@ -123,29 +118,36 @@
   gap: 12px;
 }
 
-.toggles {
+.scope-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  border: 0;
-  padding: 0;
-  margin: 0;
+  gap: 12px;
 }
-.toggles label {
+.scope-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.scope-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  color: var(--text);
-  cursor: pointer;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  transition: opacity 0.2s;
 }
-.toggles label.wx-unavailable {
-  opacity: 0.45;
-  cursor: not-allowed;
+.scope-pill.unavail {
+  opacity: 0.3;
+  text-decoration: line-through;
 }
-.toggles label.wx-unavailable input {
-  cursor: not-allowed;
+.scope-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.7;
 }
 .toggle-tip-wrap {
   position: relative;
