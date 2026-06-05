@@ -160,6 +160,7 @@ export default function App() {
     d.setDate(d.getDate() + delta)
     const newDate = d.toISOString().slice(0, 10)
     setDate(newDate)
+    if (!report) return
     const { wxUnavail, satUnavail } = availabilityFor(newDate)
     const q: NightQuery = { date: newDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
     if (mode === 'place') {
