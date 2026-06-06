@@ -833,8 +833,6 @@ export default function ReportCard({
       : `penumbral ${e.penumbral_magnitude?.toFixed(3)}`
     specialTags.push(`${kind} lunar eclipse at ${formatTime(e.time, tz)}  (mag ${mag})`)
   }
-  const moonStr = `${r.phase_name}  |  ${r.illumination_pct.toFixed(1)}% illuminated  |  ${distStr}`
-    + (specialTags.length ? `  ·  ${specialTags.join('  ·  ')}` : '')
   // Compact version for the score card: phase + illumination only
   const moonStrCard = `${r.phase_name}  ·  ${r.illumination_pct.toFixed(1)}% illuminated`
     + (specialTags.length ? `  ·  ${specialTags.join('  ·  ')}` : '')
