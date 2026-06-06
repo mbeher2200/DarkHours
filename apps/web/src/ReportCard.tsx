@@ -702,8 +702,6 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
 
   const placeStr = (p: NearbyPlace) =>
     p.name ?? `${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°`
-  const driveStr = (p: NearbyPlace) =>
-    p.drive_minutes != null ? `~${p.drive_minutes}m drive` : null
   const formatDriveTime = (minutes: number | null): string | null => {
     if (minutes == null) return null
     const hrs = Math.floor(minutes / 60)
@@ -721,7 +719,7 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         <p className="sat-notice">
           No significantly darker sky found within {fmtMi(radius_miles)}.
           {best_available && (
-            <> Closest darker spot: <span className={nearbyBortleClass(best_available.bortle_class)}>Bortle {best_available.bortle_class}</span>, {fmtMi(best_available.distance_miles)} {best_available.direction}{best_available.drive_minutes != null ? ` · ~${best_available.drive_minutes}m drive` : ''}{best_available.name ? ` (${best_available.name})` : ''}</>
+            <> Closest darker spot: <span className={nearbyBortleClass(best_available.bortle_class)}>Bortle {best_available.bortle_class}</span>, {fmtMi(best_available.distance_miles)} {best_available.direction}{formatDriveTime(best_available.drive_minutes) ? ` · ${formatDriveTime(best_available.drive_minutes)} drive` : ''}{best_available.name ? ` (${best_available.name})` : ''}</>
           )}
         </p>
       )}
@@ -742,12 +740,12 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
             <div className="nearby-highlights">
               <div className="nearby-highlight-row">
                 <span className="nearby-highlight-label">Nearest</span>
-                <span><span className={nearbyBortleClass(nearest.bortle_class)}>Bortle {nearest.bortle_class}</span>  ·  {fmtMi(nearest.distance_miles)} {nearest.direction}{driveStr(nearest) ? `  ·  ${driveStr(nearest)}` : ''}  ({placeStr(nearest)})</span>
+                <span><span className={nearbyBortleClass(nearest.bortle_class)}>Bortle {nearest.bortle_class}</span>  ·  {fmtMi(nearest.distance_miles)} {nearest.direction}{formatDriveTime(nearest.drive_minutes) ? `  ·  ${formatDriveTime(nearest.drive_minutes)} drive` : ''}  ({placeStr(nearest)})</span>
               </div>
               {showDarkest && (
                 <div className="nearby-highlight-row">
                   <span className="nearby-highlight-label">Darkest</span>
-                  <span><span className={nearbyBortleClass(darkest.bortle_class)}>Bortle {darkest.bortle_class}</span>  ·  {fmtMi(darkest.distance_miles)} {darkest.direction}{driveStr(darkest) ? `  ·  ${driveStr(darkest)}` : ''}  ({placeStr(darkest)})</span>
+                  <span><span className={nearbyBortleClass(darkest.bortle_class)}>Bortle {darkest.bortle_class}</span>  ·  {fmtMi(darkest.distance_miles)} {darkest.direction}{formatDriveTime(darkest.drive_minutes) ? `  ·  ${formatDriveTime(darkest.drive_minutes)} drive` : ''}  ({placeStr(darkest)})</span>
                 </div>
               )}
             </div>

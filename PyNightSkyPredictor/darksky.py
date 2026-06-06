@@ -214,6 +214,9 @@ class S3RasterSource:
         os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
         os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
         os.environ.setdefault("VSI_CACHE", "TRUE")
+        # --- Added these lines to optimize S3 COG performance ---
+        os.environ.setdefault("VSI_CACHE_SIZE", "52428800")
+        os.environ.setdefault("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "YES")
 
     @property
     def bucket(self) -> str:
@@ -603,27 +606,39 @@ def _bulk_bortle_lookup(coords: list) -> list:
     return results
 
 
+
+
 def _cluster_points(points: list, merge_miles: float = 8.0) -> list:
     """
     Greedy de-duplication: drop points within merge_miles of a darker/nearer one.
     Input points must have 'lat', 'lon', 'bortle_class', 'distance_miles'.
     Returns a reduced list of cluster representatives.
     """
+    # Sort: Darkest skies first, then closest distance
     sorted_pts = sorted(points, key=lambda p: (p["bortle_class"], p["distance_miles"]))
-    used       = set()
-    clusters   = []
+
+    used = set()
+    clusters = []
+
     for i, pt in enumerate(sorted_pts):
+        # If this point was absorbed by a better, nearby point, skip it
         if i in used:
             continue
+
+        # Keep this point as the best representative for its area
         clusters.append(pt)
-        for j, other in enumerate(sorted_pts):
-            if j != i and j not in used:
+
+        # Only check remaining points (j > i) to see if they fall within the merge radius
+        for j in range(i + 1, len(sorted_pts)):
+            if j not in used:
+                other = sorted_pts[j]
+
+                # If a lesser point is too close to our cluster center, mark it as used
                 if _haversine_miles(pt["lat"], pt["lon"],
                                     other["lat"], other["lon"]) <= merge_miles:
                     used.add(j)
-        used.add(i)
-    return clusters
 
+    return clusters
 
 def _tags_to_priority(tags: dict) -> int:
     """Return _AREA_PRIORITY int from an OSM element's tags dict."""
@@ -904,7 +919,7 @@ def _settlement(lat: float, lon: float) -> str | None:
     return _nominatim_settlement(lat, lon)
 
 
-def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
+def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     """
     Search for darker sky areas and nearby light domes within radius_miles of (lat, lon).
 
@@ -948,7 +963,8 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
     if origin_bortle <= 2:
         dark_threshold = 1   # Bortle 2 → require Bortle 1
     else:
-        dark_threshold = min(origin_bortle - 2, 5)
+        dark_threshold = min(origin_bortle - 2, 3) # Bortle 3 is the darkest we can reliably surface from a suburban origin (Bortle 5+)
+
 
     # Sample the grid
     sample_coords = _grid_sample_points(lat, lon, radius_miles)
@@ -988,35 +1004,53 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
         # guard ensures same-brightness neighbours never qualify — from a Bortle-9
         # origin the cap gives threshold 9 = origin, so nothing would fire anyway.
         # Min distance scales with origin brightness: dark-site observers want distant
-        # city glows on the horizon (15 mi); suburban observers want nearby urban cores (5 mi).
-        _dome_min_dist = 15 if origin_bortle <= 5 else 5
+        # city glows on the horizon (5 mi).
+        _dome_min_dist = 5
         if (bortle > origin_bortle
                 and bortle >= min(origin_bortle + 2, 9)
                 and dist >= _dome_min_dist):
             dome_candidates.append(pt)
 
-    _MAX_RESULTS = 6    # max dark-sky areas to name and display
-    _MAX_DOMES   = 4    # max light domes to name and display
+    _MAX_DARK_CANDIDATES = 50   # cap before clustering to keep runtime reasonable
+    _MAX_RESULTS = 10    # max dark-sky areas to name and display
+    _MAX_DOMES   = 10     # max light domes to name and display
 
-    # Sort and cap before naming — every returned entry will be named
-    dark_clusters = _cluster_points(dark_candidates)          if dark_candidates else []
-    dome_clusters = _cluster_points(dome_candidates, merge_miles=20) if dome_candidates else []
+    ## Sort and cap before naming — every returned entry will be named
+    ## dark_clusters = _cluster_points(dark_candidates)          if dark_candidates else []
+    # Calculate priority: Bortle 1/2 are "MUST HAVES" (boosted), 3+ are distance-based
+    for pt in dark_candidates:
+        if pt["bortle_class"] <= 2:
+            # Priotirize genuinely dark sites even if they're far away, but still give some weight to distance for tie-breaking and to prefer closer ones within the same Bortle class. The multiplier (0.25) is arbitrary but ensures that a Bortle 1 site 100 miles away (score=25) is still prioritized over a Bortle 3 site 5 miles away (score=5).
+            pt["priority_score"] = pt["distance_miles"] * (radius_miles *.25)
+        else:
+            # Higher classes are prioritized strictly by distance
+            pt["priority_score"] = pt["distance_miles"]
+
+    # Sort by the calculated score
+    dark_candidates.sort(key=lambda p: p["priority_score"])
+
+    # Cluster based on the new priority
+    dark_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
+    dome_clusters = _cluster_points(dome_candidates, merge_miles=1) if dome_candidates else []
+
+    # (This is inside find_nearby, after the loop that fills dome_candidates)
+
+    # --- INSERT DEBUG CODE HERE ---
+    print(f"DEBUG: Found {len(dark_candidates)} candidates out to {radius_miles} miles.")
+    if dark_candidates:
+            dist_sorted = sorted(dark_candidates, key=lambda p: p["distance_miles"])
+            print(f"DEBUG: Closest: {dist_sorted[0]['distance_miles']}mi, Furthest: {dist_sorted[-1]['distance_miles']}mi")
 
     # Cap selection: darkest-first so the genuinely dark areas always make it into
     # the result set regardless of how many mediocre-but-close candidates exist.
     # Within the same Bortle class, prefer closer.  The table display re-sorts by
     # distance, so the final order presented to the user is still nearest-first.
-    dark_clusters = sorted(dark_clusters, key=lambda p: (p["bortle_class"], p["distance_miles"]))[:_MAX_RESULTS]
+    # DO NOT cap dark_clusters yet. Just sort it so darkest/nearest are first.
+    dark_clusters = sorted(dark_clusters, key=lambda p: (p["bortle_class"], p["distance_miles"]))[:_MAX_DARK_CANDIDATES]
+
     dome_clusters = sorted(dome_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_DOMES]
 
     # ── Naming ─────────────────────────────────────────────────────────────
-    # On the AWS backend, Overpass is skipped entirely: AWS Location reverse-
-    # geocodes each cluster in parallel (~50 ms/call, no rate limit, DynamoDB-
-    # cached).  On the local backend, Overpass still runs (it returns richer
-    # park/forest names), with an 8 s join timeout so a slow Overpass server
-    # can't stall the whole function.  In both cases, final naming falls back
-    # to a thread-pool of _settlement() calls so results always have names.
-
     _OVERPASS_JOIN_TIMEOUT_S = 15.0
     _use_overpass = (ports.get_backend()._name != "aws")
 
@@ -1027,7 +1061,6 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
             all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
         )[0]
 
-    # Optionally launch Overpass area fetch in background (local backend only)
     natural_areas: list = []
 
     if _use_overpass:
@@ -1049,60 +1082,86 @@ def find_nearby(lat: float, lon: float, radius_miles: int = 60) -> dict | None:
             log.warning("Overpass join timed out after %ss; falling back to geocoding for cluster names",
                         _OVERPASS_JOIN_TIMEOUT_S)
 
-    # Name each cluster: try Overpass areas first (CPU, local only), then geocoding.
-    # Thread pool lets AWS Location calls execute in parallel (no rate limit).
-    all_to_name = dark_clusters + ([best_candidate] if best_candidate else [])
-
     def _name_one(c: dict) -> str | None:
         name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
         if not name:
             name = _settlement(c["lat"], c["lon"])
         return name
 
-    if all_to_name:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=min(len(all_to_name), 6)) as pool:
-            futures = {pool.submit(_name_one, c): c for c in all_to_name}
+
+    # 1. Name the best_candidate separately if it exists
+    if best_candidate:
+        name = _name_one(best_candidate)
+        best_candidate["name"] = None if name == _OVER_WATER else (name or f"{best_candidate['lat']:.2f}°, {best_candidate['lon']:.2f}°")
+        if best_candidate["name"] is not None:
+            best_available = best_candidate
+
+    valid_dark_clusters = []
+    #Sort dark_clusters by Bortle class and distance before naming, so the best candidates are named first and have a better chance of making it into the final results after deduplication and capping.
+    dark_clusters.sort(key=lambda p: (p["bortle_class"], p["distance_miles"]))
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # 2. Process in batches to drop ocean points without burning API calls
+    for i in range(0, len(dark_clusters), 30):
+        batch = dark_clusters[i : i + 30]
+        batch_results = []
+
+        with ThreadPoolExecutor(max_workers=min(len(batch), 6)) as pool:
+            futures = {pool.submit(_name_one, c): c for c in batch}
             for fut in as_completed(futures):
                 c = futures[fut]
                 name = fut.result()
-                if name == _OVER_WATER:
-                    c["name"] = None
-                else:
+
+                # Drop the ocean points right here
+                if name != _OVER_WATER:
                     c["name"] = name or f"{c['lat']:.2f}°, {c['lon']:.2f}°"
+                    batch_results.append(c)
 
-    # Drop clusters over ocean / large water bodies — they're dark only because
-    # no one lives there, not because they're useful observing sites.
-    dark_clusters = [c for c in dark_clusters if c.get("name") is not None]
+        valid_dark_clusters.extend(batch_results)
 
-    # Deduplicate dark_clusters by name: when multiple sample points resolve to the
-    # same named area, keep only the best representative (darkest Bortle, then best
-    # SQM, then closest) so the table doesn't repeat the same area four times.
+        # Stop fetching once we have enough valid land locations
+        if len(valid_dark_clusters) >= _MAX_RESULTS:
+            break
+
+    #DEBUGGING: Log how many candidates survived the naming phase before deduplication and final capping
+    print(f"DEBUG: Naming phase: {len(valid_dark_clusters)} candidates survived (of {len(dark_clusters)} initial clusters).")
+
+    # 3. Deduplicate valid land points by name
     seen: dict[str, dict] = {}
-    for c in dark_clusters:
+    for c in valid_dark_clusters:
         key = c["name"]
         prev = seen.get(key)
         if prev is None:
             seen[key] = c
         else:
-            # Prefer lower Bortle; break ties by higher SQM; then closer distance
             if (c["bortle_class"], -(c["sqm"] or 0), c["distance_miles"]) < \
                (prev["bortle_class"], -(prev["sqm"] or 0), prev["distance_miles"]):
                 seen[key] = c
-    dark_clusters = list(seen.values())
+
+    # 4. Apply the hard cap to the final, deduplicated land list
+    dark_clusters = list(seen.values())[:_MAX_RESULTS]
 
     if best_candidate is not None:
         best_available = best_candidate
 
-    # Drive-time annotation (AWS backend only; silently skipped locally)
+    # Drive-time annotation (AWS backend only)
     needs_drive = dark_clusters + ([best_available] if best_available else [])
     if ports.get_backend()._name == "aws":
         _aws_drive_times(lat, lon, needs_drive)
+
+        # --- NEW SORT LOGIC FOR AWS ---
+        # Sort by Drive Time first, then Bortle Class
+        needs_drive.sort(key=lambda c: (
+            c["drive_minutes"] if c["drive_minutes"] is not None else 999,
+            c["bortle_class"]
+        ))
+        # Re-assign back to dark_clusters (excluding the best_available)
+        dark_clusters = needs_drive[:len(dark_clusters)]
     else:
+        # Keep existing distance-based sort for local backend
         for c in needs_drive:
             c["drive_minutes"] = None
-    for c in dome_clusters:
-        c["drive_minutes"] = None
 
     return {
         "origin_bortle":  origin_bortle,
