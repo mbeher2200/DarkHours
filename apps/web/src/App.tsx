@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, type NightQuery } from './api'
 import { todayIso, defaultImperial } from './format'
 import ReportCard from './ReportCard'
+import DatePicker from './DatePicker'
 import type { NightReport } from './types'
 
 type Mode = 'place' | 'coords'
@@ -64,19 +65,10 @@ export default function App() {
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
   const [searchHistory, setSearchHistory] = useState<HistoryEntry[]>(loadHistory)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const historyRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!historyOpen) return
-    function onDown(e: MouseEvent) {
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [historyOpen])
+  const [placeDropdown, setPlaceDropdown] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const placeInputRef = useRef<HTMLInputElement>(null)
+  const dropdownItemRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   function toggleUnits(imp: boolean) {
     setImperial(imp)
@@ -129,7 +121,7 @@ export default function App() {
       history.replaceState(null, '', '?' + p.toString())
     } catch (err) {
       setReport(null)
-      setError(err instanceof ApiRequestError ? err.message : 'Something went wrong.')
+      setError(err instanceof ApiRequestError ? err.message : 'Could not reach the server. Check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -201,6 +193,13 @@ export default function App() {
     setDate(d.toISOString().slice(0, 10))
   }
 
+  function quickSearch(location: string) {
+    setMode('place')
+    setPlace(location)
+    const { wxUnavail, satUnavail } = availabilityFor(date)
+    runQuery({ location, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
@@ -233,8 +232,10 @@ export default function App() {
   return (
     <div className="app">
       <header className="masthead">
+
         <h1>DarkHours</h1>
-        <p>Know every factor. Know the right night to shoot the stars.</p>
+
+        <p>Know every factor before looking up.</p>
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
@@ -268,54 +269,135 @@ export default function App() {
               Enter coordinates
             </button>
           </div>
-          {searchHistory.length > 0 && (
-            <div className="history-wrap" ref={historyRef}>
-              <button
-                type="button"
-                className="history-btn"
-                aria-label="Recent searches"
-                onClick={() => setHistoryOpen(o => !o)}
-              >
-                <Clock size={14} strokeWidth={2} />
-              </button>
-              {historyOpen && (
-                <div className="history-dropdown" role="listbox" aria-label="Recent searches">
-                  {searchHistory.map((h, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className="history-item"
-                      role="option"
-                      aria-selected={false}
-                      onClick={() => {
-                        setMode(h.mode)
-                        if (h.mode === 'place') setPlace(h.location!)
-                        else { setLat(h.lat!); setLon(h.lon!) }
-                        setHistoryOpen(false)
-                      }}
-                    >
-                      {h.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
-        {mode === 'place' ? (
-          <label className="field">
-            <span>Place</span>
-            <input
-              type="text"
-              placeholder="e.g. Cherry Springs State Park"
-              value={place}
-              onChange={(e) => setPlace(e.target.value)}
-              maxLength={200}
-              autoFocus
-            />
-          </label>
-        ) : (
+        {mode === 'place' ? (() => {
+          const filteredHistory = searchHistory.filter(h =>
+            !place.trim() || h.label.toLowerCase().includes(place.toLowerCase().trim())
+          )
+          const showDropdown = placeDropdown && filteredHistory.length > 0
+          return (
+          <div
+            className="field place-field-wrap"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setPlaceDropdown(false)
+                setActiveIndex(-1)
+              }
+            }}
+          >
+            <label htmlFor="place-input" className="field-label">Place</label>
+            <div className="place-input-row">
+              <input
+                id="place-input"
+                ref={placeInputRef}
+                type="text"
+                placeholder="e.g. Cherry Springs State Park"
+                value={place}
+                onChange={(e) => { setPlace(e.target.value); setActiveIndex(-1) }}
+                onFocus={() => setPlaceDropdown(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown' && showDropdown) {
+                    e.preventDefault()
+                    setActiveIndex(0)
+                    dropdownItemRefs.current[0]?.focus()
+                  } else if (e.key === 'Escape') {
+                    setPlaceDropdown(false)
+                  }
+                }}
+                maxLength={200}
+                autoFocus
+                autoComplete="off"
+                role="combobox"
+                aria-expanded={showDropdown}
+                aria-haspopup="listbox"
+                aria-controls="place-history-listbox"
+                aria-autocomplete="list"
+                aria-activedescendant={activeIndex >= 0 ? `place-item-${activeIndex}` : undefined}
+                className={place ? 'has-clear' : ''}
+              />
+              {place && (
+                <button
+                  type="button"
+                  className="place-clear-btn"
+                  aria-label="Clear search"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setPlace('')
+                    setActiveIndex(-1)
+                    placeInputRef.current?.focus()
+                  }}
+                >
+                  <X size={13} strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+            {showDropdown && (
+              <div
+                id="place-history-listbox"
+                className="place-dropdown"
+                role="listbox"
+                aria-label="Recent searches"
+              >
+                {filteredHistory.map((h, i) => (
+                  <button
+                    key={i}
+                    id={`place-item-${i}`}
+                    ref={(el) => { dropdownItemRefs.current[i] = el }}
+                    type="button"
+                    className="place-dropdown-item"
+                    role="option"
+                    aria-selected={activeIndex === i}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setPlaceDropdown(false)
+                      setActiveIndex(-1)
+                      setMode(h.mode)
+                      if (h.mode === 'place') {
+                        setPlace(h.location!)
+                        const { wxUnavail, satUnavail } = availabilityFor(date)
+                        runQuery({ location: h.location!, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+                      } else {
+                        setLat(h.lat!)
+                        setLon(h.lon!)
+                        const { wxUnavail, satUnavail } = availabilityFor(date)
+                        runQuery({ lat: Number(h.lat), lon: Number(h.lon), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        const next = i + 1
+                        if (next < filteredHistory.length) {
+                          setActiveIndex(next)
+                          dropdownItemRefs.current[next]?.focus()
+                        }
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        if (i === 0) {
+                          setActiveIndex(-1)
+                          placeInputRef.current?.focus()
+                        } else {
+                          setActiveIndex(i - 1)
+                          dropdownItemRefs.current[i - 1]?.focus()
+                        }
+                      } else if (e.key === 'Escape') {
+                        setPlaceDropdown(false)
+                        setActiveIndex(-1)
+                        placeInputRef.current?.focus()
+                      }
+                    }}
+                  >
+                    <Clock size={12} strokeWidth={2} className="place-dropdown-icon" />
+                    <span className="place-dropdown-label">{h.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          )
+        })() : (
           <div className="coords">
             <label className="field">
               <span>Latitude</span>
@@ -340,10 +422,10 @@ export default function App() {
           </div>
         )}
 
-        <label className="field">
-          <span>Date</span>
-          <input type="date" value={date} min="1900-01-01" max="2050-12-31" onChange={(e) => setDate(e.target.value)} />
-        </label>
+        <div className="field">
+          <label htmlFor="dp-trigger" className="field-label">Date</label>
+          <DatePicker value={date} min="1900-01-01" max="2050-12-31" onChange={setDate} />
+        </div>
 
         <div className="scope-row">
           <div className="scope-strip">
@@ -365,7 +447,7 @@ export default function App() {
               Targets
             </span>
             {satUnavailable ? (
-              <Tip text={isPastDate ? 'Satellite passes unavailable for past dates' : 'TLE accuracy degrades beyond ~10 days — passes unreliable'}>
+              <Tip text={isPastDate ? 'Satellite passes unavailable for past dates' : 'TLE accuracy degrades beyond 10 days: passes unreliable'}>
                 <span className="scope-pill unavail">
                   <Satellite size={13} strokeWidth={2} />
                   Satellites
@@ -406,6 +488,53 @@ export default function App() {
       </form>
 
       {error && <div className="card error">{error}</div>}
+      {!!report && !loading && report.date !== date && (
+        <div className="stale-notice">
+          Date changed to {date}. Press "Score the night" to refresh.
+        </div>
+      )}
+      {!report && !loading && !error && (
+        <div className="card empty-state">
+          <div className="es-copy">
+            <p className="es-headline">Stop checking multiple websites.</p>
+            <p className="es-body">
+              DarkHours unifies Bortle, lunar, dark sky hours, and weather factors into a single night quality score. If your location doesn't hold up, find better skies within driving distance in seconds.
+            </p>
+          </div>
+
+          <div className="es-score-scale">
+            <div className="es-score-bar" />
+            <div className="es-score-labels">
+              <span>Poor</span>
+              <span>Fair</span>
+              <span>Good</span>
+              <span>Excellent</span>
+            </div>
+          </div>
+
+          <div className="es-divider" />
+
+          <div className="es-quickstart">
+            <span className="es-quickstart-label">Try an example location</span>
+            <div className="es-quickstart-btns">
+              {([
+                ['Sedona, AZ',         'Sedona, Arizona'],
+                ['Death Valley, CA',   'Death Valley, California'],
+                ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania'],
+              ] as [string, string][]).map(([label, query]) => (
+                <button
+                  key={query}
+                  type="button"
+                  className="es-qs-btn"
+                  onClick={() => quickSearch(query)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {report && !loading && (
         <ReportCard
           report={report}

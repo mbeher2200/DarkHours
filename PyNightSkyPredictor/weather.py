@@ -21,10 +21,12 @@ Fields a provider cannot supply should be left as None.
 import concurrent.futures as _futures
 import json
 import logging
+import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
 from . import _http
+from . import provider_health as _ph
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -142,9 +144,14 @@ class OpenMeteoProvider(WeatherProvider):
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            _ph.record("open_meteo", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+            raise RuntimeError(f"Open-Meteo request failed: {e}")
         except Exception as e:
+            _ph.record("open_meteo", "error", str(e)[:120])
             raise RuntimeError(f"Open-Meteo request failed: {e}")
 
+        _ph.record("open_meteo", "ok")
         h = data["hourly"]
         log.debug("Open-Meteo returned %d hourly points", len(h["time"]))
         return _parse_open_meteo_hourly(h)
@@ -284,9 +291,14 @@ class SevenTimerProvider(WeatherProvider):
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            _ph.record("seven_timer", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+            raise RuntimeError(f"7Timer request failed: {e}")
         except Exception as e:
+            _ph.record("seven_timer", "error", str(e)[:120])
             raise RuntimeError(f"7Timer request failed: {e}")
 
+        _ph.record("seven_timer", "ok")
         init_str = data["init"]
         init = datetime(
             int(init_str[0:4]), int(init_str[4:6]), int(init_str[6:8]),
