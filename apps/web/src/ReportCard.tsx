@@ -724,17 +724,45 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         </p>
       )}
 
-      {results.length > 0 && (() => {
+    {results.length > 0 && (() => {
         const hasDrive = results.some(p => p.drive_minutes != null)
-        const nearest = [...results].sort((a, b) =>
-          hasDrive
-            ? (a.drive_minutes ?? Infinity) - (b.drive_minutes ?? Infinity)
-            : a.distance_miles - b.distance_miles
-        )[0]
+
+        // 1. New Tiered Drive-Time Sort
+        const sortedByDriveTime = [...results].sort((a, b) => {
+          const bothHaveDrive = a.drive_minutes != null && b.drive_minutes != null;
+
+          // Group pristine skies (Bortle 1 & 2) at the top
+          const aIsTopTier = a.bortle_class <= 2;
+          const bIsTopTier = b.bortle_class <= 2;
+
+          if (aIsTopTier !== bIsTopTier) {
+            return aIsTopTier ? -1 : 1;
+          }
+
+          // Sort by drive time (or distance fallback) within tiers
+          if (bothHaveDrive) {
+            if (a.drive_minutes !== b.drive_minutes) {
+              return a.drive_minutes! - b.drive_minutes!;
+            }
+          } else {
+            if (a.distance_miles !== b.distance_miles) {
+              return a.distance_miles - b.distance_miles;
+            }
+          }
+
+          // Tie-breaker: Darkest sky
+          return a.bortle_class - b.bortle_class;
+        });
+
+        const nearest = sortedByDriveTime[0];
+
+        // 2. Keep darkest calculation as-is (strict Bortle-first sort)
         const darkest = [...results].sort((a, b) =>
           a.bortle_class !== b.bortle_class ? a.bortle_class - b.bortle_class : a.distance_miles - b.distance_miles
         )[0]
+
         const showDarkest = darkest !== nearest && darkest.bortle_class < nearest.bortle_class
+
         return (
           <>
             <div className="nearby-highlights">
