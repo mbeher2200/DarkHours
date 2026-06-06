@@ -823,7 +823,6 @@ export default function ReportCard({
   const tzZ = r.sunset ? tzAbbr(tz) : tz
 
   // Moon line
-  const distStr     = fmtDist(r.moon_distance_km, imperial)
   const specialTags = []
   if (r.moon_special) specialTags.push(`*** ${r.moon_special.charAt(0).toUpperCase() + r.moon_special.slice(1)} ***`)
   for (const e of r.moon_eclipses ?? []) {
