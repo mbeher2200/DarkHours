@@ -661,6 +661,18 @@ details summary {
   min-width: 52px;
   padding-top: 1px;
 }
+.nearby-bortle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.nearby-bortle.nearby-bortle-excellent { color: var(--excellent); }
+.nearby-bortle.nearby-bortle-good      { color: var(--good); }
+.nearby-bortle.nearby-bortle-fair      { color: var(--fair); }
+.nearby-bortle.nearby-bortle-poor      { color: var(--poor); }
+.wx-table td.nearby-bortle-excellent { color: var(--excellent); }
+.wx-table td.nearby-bortle-good      { color: var(--good); }
+.wx-table td.nearby-bortle-fair      { color: var(--fair); }
+.wx-table td.nearby-bortle-poor      { color: var(--poor); }
 .nearby-domes {
   font-size: 13px;
   display: flex;
@@ -834,7 +846,10 @@ details summary {
 .tg-table td.tg-sky.tg-sky-dark-sky     { color: var(--excellent); }
 .tg-table td.tg-sky.tg-sky-astro-night  { color: var(--good); }
 .tg-table td.tg-sky.tg-sky-twilight     { color: var(--fair); }
-.tg-table td.tg-sky.tg-sky-moon-wash    { color: var(--poor); }
+.tg-table td.tg-sky.tg-sky-moon-wash-minor    { color: var(--good); }
+.tg-table td.tg-sky.tg-sky-moon-wash-moderate { color: var(--fair); }
+.tg-table td.tg-sky.tg-sky-moon-wash-severe   { color: var(--poor); }
+.tg-table td.tg-sky.tg-sky-moon-wash          { color: var(--poor); }
 .wx-table td.wx-rating.wx-rating-excellent { color: var(--excellent); }
 .wx-table td.wx-rating.wx-rating-good      { color: var(--good); }
 .wx-table td.wx-rating.wx-rating-fair      { color: var(--fair); }
