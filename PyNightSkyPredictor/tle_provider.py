@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from . import cache as _cache
 from . import _http
+from . import provider_health as _ph
 
 log = logging.getLogger(__name__)
 
@@ -74,10 +75,13 @@ def _fetch_tle_raw(norad_id: int) -> str:
                 f"Celestrak returned fewer than 3 TLE lines for NORAD {norad_id}"
             )
         log.debug("Fetched fresh TLE for NORAD %d (%d bytes)", norad_id, len(text))
+        _ph.record("celestrak", "ok")
         return text
     except urllib.error.HTTPError as e:
+        _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
         raise RuntimeError(f"Celestrak HTTP {e.code} for NORAD {norad_id}") from e
     except urllib.error.URLError as e:
+        _ph.record("celestrak", "error", str(e.reason)[:120])
         raise RuntimeError(f"Celestrak unreachable: {e.reason}") from e
 
 

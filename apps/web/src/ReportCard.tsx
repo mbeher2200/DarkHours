@@ -44,7 +44,7 @@ function fmtPos(altDeg: number, azDeg: number): string {
 // Uses NASA Scientific Visualization Studio 1024×1024 phase images
 // (public domain, downloaded to /moon-phases/).
 
-function MoonPhaseSvg({ phaseName, size = 29 }: {
+function MoonPhaseSvg({ phaseName, size = 22 }: {
   phaseName: string
   illuminationPct?: number   // kept for API compat; image handles accuracy
   size?: number
@@ -101,7 +101,7 @@ function WeatherTable({ points, tz, imperial }: { points: WeatherPoint[]; tz: st
             {points.map((p, i) => (
               <tr key={i}>
                 <td className="wx-time">{formatTime(p.time, tz)}</td>
-                <td className="wx-num">
+                <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                     <WmoIcon code={p.weather_code} />
                     <span style={{ display: 'inline-block', minWidth: '2ch', textAlign: 'right' }}>{rateConditions(p)}</span>/10
@@ -170,18 +170,18 @@ function SatellitePasses({ report }: { report: NightReport }) {
 
   // Unavailability notices
   if (report.sat_network_error) {
-    return <p className="sat-notice">ISS data unavailable — could not reach Celestrak and no cached TLE exists.</p>
+    return <p className="sat-notice">Satellite data unavailable: could not reach Celestrak and no cached TLE exists.</p>
   }
   if (report.sat_stale) {
-    return <p className="sat-notice">Satellite pass predictions require a current TLE — historical dates are not supported.</p>
+    return <p className="sat-notice">Satellite pass predictions require a current TLE; historical dates are not supported.</p>
   }
   if (report.sat_future_stale) {
-    return <p className="sat-notice">ISS pass predictions longer than 7 days are highly inaccurate and TLE data cannot accurately predict this date.</p>
+    return <p className="sat-notice">Satellite pass predictions longer than 7 days are highly inaccurate and TLE data cannot accurately predict this date.</p>
   }
 
   const notes: string[] = []
-  if (report.sat_tle_stale)   notes.push('Note: Using cached TLE data (Celestrak unreachable) — pass times may be slightly off.')
-  if (report.sat_future_warn) notes.push('Note: Pass times are approximate — TLE accuracy is limited beyond ~3 days.')
+  if (report.sat_tle_stale)   notes.push('Note: Using cached TLE data (Celestrak unreachable). Pass times may be slightly off.')
+  if (report.sat_future_warn) notes.push('Note: Pass times are approximate. TLE accuracy degrades beyond 3 days.')
 
   const visible  = report.sat_passes.filter(p => p.in_sunlight && p.sky_dark)
   const twilight = report.sat_passes.filter(p => p.in_sunlight && !p.sky_dark)
@@ -194,7 +194,7 @@ function SatellitePasses({ report }: { report: NightReport }) {
 
   if (!hasAny) {
     const shadowMsg = shadow.length > 0
-      ? `${shadow.length} pass${shadow.length > 1 ? 'es' : ''} tonight but in Earth's shadow — not visible.`
+      ? `${shadow.length} pass${shadow.length > 1 ? 'es' : ''} tonight but in Earth's shadow: not visible.`
       : 'No visible satellite passes this night.'
     return (
       <>
@@ -281,8 +281,8 @@ function SatellitePasses({ report }: { report: NightReport }) {
 
       {(display.some(p => p.ends_in_shadow) || twilight.length > 0 || shadow.length > 0) && (
         <div className="sat-footnotes">
-          {display.some(p => p.ends_in_shadow) && <div>* Set alt &gt; 10° — satellite entered Earth's shadow before geometric set</div>}
-          {twilight.length > 0 && <div>† Pass during civil twilight — sky too bright to observe</div>}
+          {display.some(p => p.ends_in_shadow) && <div>* Set alt &gt; 10°: satellite entered Earth's shadow before geometric set</div>}
+          {twilight.length > 0 && <div>† Pass during civil twilight: sky too bright to observe</div>}
           {shadow.length > 0 && <div>+{shadow.length} pass{shadow.length > 1 ? 'es' : ''} in Earth's shadow (not visible)</div>}
         </div>
       )}
@@ -321,11 +321,11 @@ function MilkyWayCard({ summary, waypoints, report }: {
     <div className="mw-card">
       {/* Score row */}
       <div className="mw-score-row">
-        <span className="mw-score">{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
+        <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
         <div className="mw-sub-scores">
-          <span>Altitude {s.alt_score.toFixed(1)}/10</span>
-          <span>Coverage {s.cov_score.toFixed(1)}/10</span>
-          <span>Window {s.win_score.toFixed(1)}/10</span>
+          <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
+          <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
+          <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
           {s.moon_penalised && <span className="mw-moon-flag">· moon penalty</span>}
         </div>
       </div>
@@ -374,7 +374,7 @@ function MilkyWayCard({ summary, waypoints, report }: {
                   <th>Peak</th>
                   <th>Arch angle</th>
                   <th>Window</th>
-                  <th>Sky</th>
+                  <th className="tg-sky-col">Best Sky</th>
                 </tr>
               </thead>
               <tbody>
@@ -589,7 +589,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           <tr>
             <th>Target</th>
             <th>Best Viewing</th>
-            <th>Sky</th>
+            <th className="tg-sky-col">Best Sky</th>
             <th>Astro Window</th>
           </tr>
         </thead>
@@ -646,13 +646,19 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             const skyCls = sky.startsWith('Moon') ? 'tg-sky-moon-wash'
                          : `tg-sky-${sky.replace(' ', '-').toLowerCase()}`
             const moonNote = w.moon_interference && !sky.startsWith('Moon')
+            const moonIsUpAtPeak = peakForSky
+              ? moonUpAt(peakForSky, report.moonrise, report.moonset)
+              : false
+            const moonNoteText = moonNote
+              ? (moonIsUpAtPeak ? ' · moon up (minimal moon wash)' : ' · pre-moonrise')
+              : null
 
             return (
               <tr key={row.key}>
                 <td>{name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
                 <td className="wx-num">{bestView}</td>
                 <td className={`tg-sky ${skyCls}`}>
-                  {sky}{moonNote ? <span className="tg-moon-note"> · moon up</span> : null}
+                  {sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
                 </td>
                 <td className="wx-num">{winStr}</td>
               </tr>
@@ -676,7 +682,7 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
   if (origin_bortle <= 1) {
     return (
       <p className="sat-notice">
-        Already at Bortle {origin_bortle}{sqmStr} — you are at an optimal dark sky.
+        Already at Bortle {origin_bortle}{sqmStr}: you are at an optimal dark sky.
       </p>
     )
   }
@@ -810,6 +816,10 @@ export default function ReportCard({
   const tz  = r.tz_name
   const lp  = r.light_pollution
   const lps = lpString(lp)
+  // Short form for the dense score card — removes zone, source citation, keeps class + description
+  const shortLps = lp?.bortle_class != null
+    ? [`Bortle ${lp.bortle_class}`, lp.bortle_desc ?? null].filter(Boolean).join('  ·  ')
+    : lps
   const tzZ = r.sunset ? tzAbbr(tz) : tz
 
   // Moon line
@@ -824,6 +834,9 @@ export default function ReportCard({
     specialTags.push(`${kind} lunar eclipse at ${formatTime(e.time, tz)}  (mag ${mag})`)
   }
   const moonStr = `${r.phase_name}  |  ${r.illumination_pct.toFixed(1)}% illuminated  |  ${distStr}`
+    + (specialTags.length ? `  ·  ${specialTags.join('  ·  ')}` : '')
+  // Compact version for the score card: phase + illumination only
+  const moonStrCard = `${r.phase_name}  ·  ${r.illumination_pct.toFixed(1)}% illuminated`
     + (specialTags.length ? `  ·  ${specialTags.join('  ·  ')}` : '')
 
   // Dark sky hours line
@@ -841,21 +854,28 @@ export default function ReportCard({
   if (r.dark_cycle) {
     darkStr += `  ·  avg ${r.dark_cycle.mean_hours}h  ±${r.dark_cycle.stdev_hours}h over lunar cycle`
   }
+  // Compact version for the score card — tonight's window only, no cycle average
+  const darkStrCard = r.dark_intervals.length > 0
+    ? `${formatHm(r.dark_hours)}  (${r.dark_intervals.map(([s, e]) => `${formatTime(s, tz)} – ${formatTime(e, tz)}`).join(',  ')} ${tzZ})`
+    : darkStr
 
-  // Score components line
-  const compMap: Record<string, string> = { moon: 'Lunar', dark: 'Dark Hours', weather: 'Weather', bortle: 'Bortle' }
-  const compOrder = ['moon', 'dark', 'weather', 'bortle']
-  const compParts = compOrder
-    .filter(k => r.score_components[k as keyof typeof r.score_components] != null)
-    .map(k => `${compMap[k]} ${(r.score_components[k as keyof typeof r.score_components] as number).toFixed(1)}`)
-  const scoreLineDetail = compParts.length ? `  (${compParts.join('  ·  ')})` : ''
+  // Human-readable date
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  }).format(new Date(r.date + 'T00:00:00'))
+
+  const placePrimary = r.display_name.split(',')[0].trim()
+  const placeSecondary = r.display_name.includes(',')
+    ? r.display_name.split(',').slice(1).join(',').trim()
+    : null
 
   return (
     <section className="card report">
       <header className="report-head">
-        <h2 className="place">{r.display_name}</h2>
+        <h2 className="place">{placePrimary}</h2>
+        {placeSecondary && <p className="place-sub">{placeSecondary}</p>}
         <p className="when">
-          {r.date}  ·  {tzTitle(tz)}  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)
+          {formattedDate}  ·  {tzTitle(tz)}  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)
         </p>
       </header>
 
@@ -863,41 +883,61 @@ export default function ReportCard({
         <div className="overall-num">{r.score.toFixed(1)}</div>
         <div className="overall-meta">
           <div className="overall-label">{scoreLabel(r.score)}</div>
-          <div className="overall-sub">
-            Night Quality Score · out of 10{scoreLineDetail}
-          </div>
+          <div className="overall-sub">0–10 composite score</div>
         </div>
-      </div>
+          <div className="meta">
+        {shortLps && <MetaRow k="Light Pollution" v={shortLps} />}
 
-      <div className="bars">
-        {r.score_components.moon    != null && <ScoreBar label="Lunar"         value={r.score_components.moon} />}
-        {r.score_components.dark    != null && <ScoreBar label="Dark Hours"    value={r.score_components.dark} />}
-        {r.score_components.bortle  != null && <ScoreBar label="Bortle"        value={r.score_components.bortle} />}
-        {showWeather && r.score_components.weather != null && <ScoreBar label="Weather" value={r.score_components.weather} />}
-      </div>
-
-      <div className="meta">
-        {lps && <MetaRow k="Light Pollution" v={lps} />}
-        <MetaRow k="Moon" v={moonStr}
-          icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} />}
-        />
         {(r.active_showers?.length ?? 0) > 0 && (
           <MetaRow
             k="Meteor Showers"
             v={r.active_showers.map(s => `${s.name}  ·  ${s.note}  ·  ZHR ${s.zhr}`).join(',  ')}
           />
         )}
-        <MetaRow k="Clear Dark Sky" v={darkStr} />
+        <MetaRow k="Clear Dark Sky" v={darkStrCard} />
         {showWeather && r.weather_score != null && (
           <MetaRow
             k="Weather"
-            v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  [${r.wx_source}]` : ''}`}
+            v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  ·  ${r.wx_source}` : ''}`}
           />
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~7-day forecast horizon)" />}
         {showWeather && r.wx_no_data && <MetaRow k="Weather" v="No data  (not covered for this location/date)" />}
-        {showWeather && r.wx_error && !r.weather_points.length && <MetaRow k="Weather" v="Temporarily unavailable — weather providers are down" />}
+        {showWeather && r.wx_error && !r.weather_points.length && <MetaRow k="Weather" v="Temporarily unavailable: weather providers are down" />}
+        <MetaRow k="Lunar Conditions" v={moonStrCard}
+          icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={30} />}
+        />
+        </div>
       </div>
+
+      <div className="bars">
+        {r.score_components.bortle  != null && <ScoreBar label="Dark Sky Quality"      value={r.score_components.bortle} />}
+        {r.score_components.moon    != null && <ScoreBar label="Lunar Conditions"         value={r.score_components.moon} />}
+        {r.score_components.dark    != null && <ScoreBar label="Dark Sky Hours"    value={r.score_components.dark} />}
+        {showWeather && r.score_components.weather != null && <ScoreBar label="Weather" value={r.score_components.weather} />}
+      </div>
+
+
+        <details className="nearby-section" open>
+        <summary>Find nearby dark sky</summary>
+        <div className="nearby-body">
+          {nearbyState.phase === 'idle' && (
+            <div className="nearby-radius-toggle">
+              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
+              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
+            </div>
+          )}
+          {nearbyState.phase === 'loading' && (
+            <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
+          )}
+          {nearbyState.phase === 'error' && (
+            <p className="sat-notice">{nearbyState.message}</p>
+          )}
+          {nearbyState.phase === 'done' && (
+            <NearbyResults data={nearbyState.data} imperial={imperial} />
+          )}
+        </div>
+      </details>
 
       {r.events.length > 0 && (
         <details className="events" open>
@@ -992,26 +1032,7 @@ export default function ReportCard({
         </details>
       )}
 
-      <details className="nearby-section" open={nearbyState.phase !== 'idle'}>
-        <summary>Find nearby dark sky</summary>
-        <div className="nearby-body">
-          {nearbyState.phase === 'idle' && (
-            <div className="nearby-radius-toggle">
-              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
-              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
-            </div>
-          )}
-          {nearbyState.phase === 'loading' && (
-            <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
-          )}
-          {nearbyState.phase === 'error' && (
-            <p className="sat-notice">{nearbyState.message}</p>
-          )}
-          {nearbyState.phase === 'done' && (
-            <NearbyResults data={nearbyState.data} imperial={imperial} />
-          )}
-        </div>
-      </details>
+
     </section>
   )
 }

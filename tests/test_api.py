@@ -24,9 +24,40 @@ requires_rasters = pytest.mark.skipif(
     not _have_rasters, reason="local VIIRS/Falchi rasters not present")
 
 
-def test_healthz():
+def test_healthz(monkeypatch):
+    from PyNightSkyPredictor import provider_health as _ph
+    monkeypatch.setattr(main_mod, "_check_cache_health",
+                        lambda: {"status": "ok", "backend": "local"})
+    monkeypatch.setattr(_ph, "snapshot", lambda: {})
     r = client.get("/healthz")
-    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert "cache" in body["checks"]
+
+
+def test_healthz_cache_error_returns_503(monkeypatch):
+    from PyNightSkyPredictor import provider_health as _ph
+    monkeypatch.setattr(main_mod, "_check_cache_health",
+                        lambda: {"status": "error", "detail": "DynamoDB unreachable"})
+    monkeypatch.setattr(_ph, "snapshot", lambda: {})
+    r = client.get("/healthz")
+    assert r.status_code == 503
+    assert r.json()["status"] == "error"
+
+
+def test_healthz_rate_limit_returns_degraded(monkeypatch):
+    from PyNightSkyPredictor import provider_health as _ph
+    monkeypatch.setattr(main_mod, "_check_cache_health",
+                        lambda: {"status": "ok", "backend": "local"})
+    monkeypatch.setattr(_ph, "snapshot",
+                        lambda: {"open_meteo": {"status": "degraded",
+                                                "detail": "rate limited (HTTP 429)"}})
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["open_meteo"]["status"] == "degraded"
 
 
 def test_night_requires_location_or_coords():

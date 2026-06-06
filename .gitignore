@@ -11,6 +11,8 @@ Predictor/
 
 # Local editor and tool settings
 .claude/
+.impeccable/
+.github/skills/
 
 # macOS
 .DS_Store
@@ -50,3 +52,4 @@ postman/*.postman_environment.json
 
 # CDK warmer Lambda staging dir (built at synth)
 cdk/.warmer_build/
+PRODUCT.md

@@ -17,7 +17,9 @@ from . import ports
 
 log = logging.getLogger(__name__)
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimited
+
+from . import provider_health as _ph
 from timezonefinder import TimezoneFinder
 
 CACHE_FILE = Path.home() / ".pynightsky-predictor" / "locations.json"
@@ -115,10 +117,17 @@ def _geocode_via_nominatim(name: str, query: str) -> dict | None:
     try:
         geolocator = Nominatim(user_agent=USER_AGENT)
         result = geolocator.geocode(query, timeout=10)
+        _ph.record("nominatim", "ok")
+    except GeocoderRateLimited as e:
+        _ph.record("nominatim", "degraded", "rate limited")
+        log.error("Nominatim geocode rate limited for %r", name, extra={"service": "nominatim"})
+        raise RuntimeError(f"Geocoding rate limited for {name!r}. Try again later.")
     except GeocoderTimedOut:
+        _ph.record("nominatim", "error", "timed out")
         log.error("Nominatim geocode timed out for %r", name, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding timed out for {name!r}. Check your connection.")
     except GeocoderServiceError as e:
+        _ph.record("nominatim", "error", str(e)[:120])
         log.error("Nominatim geocode service error: %s", e, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding service error: {e}")
 
