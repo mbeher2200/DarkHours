@@ -394,18 +394,8 @@ def lookup(lat: float, lon: float) -> dict | None:
     if luminance is None:
         return None   # both sources failed — don't cache (may be a transient error)
 
-    if luminance == 0.0:
-        result = {
-            "sqm":            None,
-            "bortle_class":   None,
-            "bortle_desc":    None,
-            "lp_zone":        None,
-            "below_detection": True,
-            "source":         "Falchi 2016",
-        }
-        _bortle_mem_cache[_cache_key] = result
-        return result
-
+    # luminance == 0.0 means below the sensor detection floor (natural sky),
+    # not missing data. luminance_to_sqm handles 0.0 → _SQM_NATURAL correctly.
     scaled = luminance * _FALCHI_SCALE
     sqm = luminance_to_sqm(scaled)
     bortle_cls, bortle_d = sqm_to_bortle(sqm)

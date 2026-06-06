@@ -14,6 +14,7 @@ _configure_logging()
 import calendar as _cal
 import logging
 import os
+import shutil
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -126,6 +127,46 @@ _NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
 _NEARBY_RADIUS_MAX = 120            # 10 of 11 sample rings; good density up to ~2.5h drive
 
 
+# ── health check helpers ──────────────────────────────────────────────────────
+
+_CACHE_CHECK_TTL = 60   # reuse cache round-trip result this long (seconds)
+_cache_check_state: dict = {"ts": 0.0, "result": {}}
+
+
+def _check_cache_health() -> dict:
+    """Round-trip the active cache backend. For the local backend, also checks disk space.
+    Result is cached for _CACHE_CHECK_TTL seconds so rapid health polls don't hammer DynamoDB."""
+    now = time.monotonic()
+    if now - _cache_check_state["ts"] < _CACHE_CHECK_TTL:
+        return _cache_check_state["result"]
+    try:
+        from PyNightSkyPredictor import ports as _p
+        from PyNightSkyPredictor.cache import _CACHE_DIR
+        backend = _p.get_backend()
+        cache = backend.cache
+        cache.set("__health_probe__", 1, ttl_seconds=120)
+        if cache.get("__health_probe__") != 1:
+            result: dict = {"status": "error", "backend": backend._name,
+                            "detail": "read-back mismatch after set"}
+        else:
+            result = {"status": "ok", "backend": backend._name}
+            if backend._name == "local":
+                probe_path = _CACHE_DIR if _CACHE_DIR.exists() else _CACHE_DIR.parent
+                disk = shutil.disk_usage(probe_path)
+                free_pct = disk.free / disk.total * 100
+                result["disk_free_pct"] = round(free_pct, 1)
+                if free_pct < 5:
+                    result.update(status="error",
+                                  detail=f"disk nearly full ({free_pct:.0f}% free)")
+                elif free_pct < 15:
+                    result.update(status="degraded",
+                                  detail=f"low disk space ({free_pct:.0f}% free)")
+    except Exception as e:
+        result = {"status": "error", "detail": str(e)[:200]}
+    _cache_check_state.update(ts=now, result=result)
+    return result
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _parse_date(s: str | None, field: str = "date") -> date:
@@ -188,8 +229,22 @@ async def warmup():
 
 @app.get("/healthz")
 def healthz():
-    """Liveness probe for App Runner — no AWS calls, always fast."""
-    return {"status": "ok"}
+    """Readiness probe: cache connectivity and observed 3rd-party provider status.
+
+    Provider states reflect real call outcomes — no synthetic outbound probes.
+    A provider is absent from the response until the first request has been made.
+
+    HTTP 503 when overall == error; 200 for ok or degraded.
+    """
+    from PyNightSkyPredictor import provider_health as _ph
+    checks = {"cache": _check_cache_health(), **_ph.snapshot()}
+    statuses = {c.get("status") for c in checks.values()}
+    overall = ("error"    if "error"    in statuses else
+               "degraded" if "degraded" in statuses else "ok")
+    return JSONResponse(
+        status_code=503 if overall == "error" else 200,
+        content={"status": overall, "checks": checks},
+    )
 
 
 @app.get("/night")
