@@ -692,14 +692,6 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
   // Convert stored miles to the active unit system
   const fmtMi = (mi: number) => fmtDist(mi * 1.60934, imperial)
 
-  if (origin_bortle <= 1) {
-    return (
-      <p className="sat-notice">
-        Already at Bortle {origin_bortle}{sqmStr}: you are at an optimal dark sky.
-      </p>
-    )
-  }
-
   const placeStr = (p: NearbyPlace) =>
     p.name ?? `${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°`
   const formatDriveTime = (minutes: number | null): string | null => {
@@ -715,7 +707,15 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         Origin: <span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtMi(radius_miles)} radius
       </p>
 
-      {results.length === 0 && (
+      {/* 1. Show optimal sky message if Bortle 1 */}
+      {origin_bortle <= 1 && (
+        <p className="sat-notice">
+          Already at Bortle {origin_bortle}{sqmStr}: you are at an optimal dark sky.
+        </p>
+      )}
+
+      {/* 2. Show empty state only if > Bortle 1 and no results */}
+      {origin_bortle > 1 && results.length === 0 && (
         <p className="sat-notice">
           No significantly darker sky found within {fmtMi(radius_miles)}.
           {best_available && (
@@ -724,10 +724,11 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         </p>
       )}
 
-    {results.length > 0 && (() => {
+      {/* 3. Show the table only if > Bortle 1 and we have results */}
+      {origin_bortle > 1 && results.length > 0 && (() => {
         const hasDrive = results.some(p => p.drive_minutes != null)
 
-        // 1. New Tiered Drive-Time Sort
+        // New Tiered Drive-Time Sort
         const sortedByDriveTime = [...results].sort((a, b) => {
           const bothHaveDrive = a.drive_minutes != null && b.drive_minutes != null;
 
@@ -756,7 +757,7 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
 
         const nearest = sortedByDriveTime[0];
 
-        // 2. Keep darkest calculation as-is (strict Bortle-first sort)
+        // Keep darkest calculation as-is (strict Bortle-first sort)
         const darkest = [...results].sort((a, b) =>
           a.bortle_class !== b.bortle_class ? a.bortle_class - b.bortle_class : a.distance_miles - b.distance_miles
         )[0]
@@ -809,6 +810,7 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         )
       })()}
 
+      {/* 4. ALWAYS show domes if they exist, regardless of origin Bortle */}
       {light_domes.length > 0 && (
         <div className="nearby-domes">
           <div className="nearby-domes-label">Light domes</div>
