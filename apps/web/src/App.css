@@ -42,8 +42,6 @@
   background: rgba(248, 113, 113, 0.08);
 }
 
-
-
 /* ── query form ───────────────────────────────────────────── */
 .query {
   display: flex;
@@ -397,6 +395,7 @@
 
 .overall {
   display: flex;
+  flex-wrap: wrap; /* FIXED: Allows the meta block to wrap under the score */
   align-items: center;
   gap: 20px;
   padding: 22px 24px;
@@ -404,7 +403,7 @@
   border: 1px solid var(--card-border);
 }
 .overall-num {
-  font-size: 72px;
+  font-size: 64px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.03em;
@@ -426,7 +425,7 @@
 }
 /* Give meta block all remaining space so values don't wrap */
 .overall .meta {
-  flex: 1;
+  flex: 1 1 260px; /* FIXED: Trigger wrapping if the available width drops below 260px */
   min-width: 0;
 }
 /* Tighter label column inside the score card */
@@ -511,8 +510,11 @@
 .meta {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
+  padding-bottom: 8px;
   font-size: 13px;
+  width: 100%;
 }
 .meta-row {
   display: flex;
@@ -1256,17 +1258,20 @@ details summary {
   .masthead h1 {
     font-size: 2rem;
   }
+
   /* Score card: tighter padding, flex-start so long sub-text doesn't mis-align number */
   .overall {
     padding: 14px 16px;
     gap: 14px;
     align-items: flex-start;
+    flex-direction: column;
+    width: 100%;
   }
   .overall-num {
     font-size: 3.5rem;
   }
   .overall-label {
-    font-size: 1.125rem;
+    font-size: 1rem;
     margin-top: 2px;
   }
   /* Bar chart: tighter columns */
@@ -1275,6 +1280,14 @@ details summary {
   }
   /* Meta key labels: narrower minimum */
   .meta-k {
-    min-width: 100px;
+    min-width: 0px;
+  }
+  .meta-row {
+    flex-direction: column;
+    align-items: flex-start; /* CRITICAL: Flushes text back to the left edge */
+    gap: 4px; /* Tightens the space between the label and value */
+  }
+  .meta-v {
+    padding-left: 0; /* Ensures the value text aligns perfectly under the label */
   }
 }
