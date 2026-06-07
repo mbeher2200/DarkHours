@@ -426,7 +426,7 @@ _DIRS_16 = [
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
 ]
 
-_SAMPLE_RINGS_MILES = [5, 10, 15, 20, 30, 45, 60, 80, 100, 120, 150]
+_SAMPLE_RINGS_MILES = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90, 100, 110, 120, 150]
 _MAX_SEARCH_RADIUS  = 150   # beyond this the Overpass query grows unreliable and driving isn't practical
 _SAMPLE_BEARINGS    = [i * 22.5 for i in range(16)]
 
@@ -516,16 +516,23 @@ def _grid_sample_points(lat: float, lon: float, radius_miles: float) -> list:
         rings.append(int(radius_miles))
 
     lat_per_mi = 1.0 / 69.0
-    # Guard against cos(90°) = 0 at poles
     lon_per_mi = 1.0 / max(69.0 * math.cos(math.radians(lat)), 0.01)
 
     points = []
     for dist_mi in rings:
-        for bearing_deg in _SAMPLE_BEARINGS:
+        # Dynamically increase spoke count for distant rings to prevent
+        # megacities from slipping between the cracks of the grid.
+        if dist_mi >= 80:
+            bearings = [i * 11.25 for i in range(32)]  # 32 spokes
+        else:
+            bearings = _SAMPLE_BEARINGS                # 16 spokes
+
+        for bearing_deg in bearings:
             brad = math.radians(bearing_deg)
             plat = lat + math.cos(brad) * dist_mi * lat_per_mi
             plon = lon + math.sin(brad) * dist_mi * lon_per_mi
             points.append((plat, plon))
+
     return points
 
 
@@ -947,42 +954,28 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     origin_bortle = origin_info.get("bortle_class") or 5
     origin_sqm    = origin_info.get("sqm")
 
-    # Already optimal — nothing to search for
-    if origin_bortle <= 1:
-        return {
-            "origin_bortle": origin_bortle,
-            "origin_sqm":    origin_sqm,
-            "radius_miles":  radius_miles,
-            "results":       [],
-            "light_domes":   [],
-            "has_dark_sky":  True,
-            "best_available": None,
-        }
-
     # Dark threshold: need to be meaningfully darker than origin
     if origin_bortle <= 2:
         dark_threshold = 1   # Bortle 2 → require Bortle 1
     else:
         dark_threshold = min(origin_bortle - 2, 3) # Bortle 3 is the darkest we can reliably surface from a suburban origin (Bortle 5+)
 
-
-    # Sample the grid
-    sample_coords = _grid_sample_points(lat, lon, radius_miles)
+# Force the geographic grid out to 150 miles to catch distant megacities,
+    # regardless of whether the user clicked the 60 or 120-mile UI button.
+    dome_search_radius = max(radius_miles, 150)
+    sample_coords = _grid_sample_points(lat, lon, dome_search_radius)
     bulk          = _bulk_bortle_lookup(sample_coords)
 
-    # Absolute floor: a result must be genuinely dark, not just a forested island
-    # in a suburban metro whose VIIRS reading is low because there are no street-
-    # lights inside its perimeter.  Bortle 4 = Rural/suburban transition — the
-    # faintest the Milky Way becomes perceptible to the naked eye.
-    _ABS_DARK_FLOOR = 4
+    _ABS_DARK_FLOOR = 3
 
-    all_darker      = []   # any point darker than origin (for best_available fallback)
-    dark_candidates = []   # meets dark_threshold AND absolute floor
-    dome_candidates = []   # bright city glows (Bortle 7+, ≥15 mi away)
+    all_darker      = []
+    dark_candidates = []
+    dome_candidates = []
 
     for (plat, plon), info in zip(sample_coords, bulk):
         if info is None:
             continue
+
         bortle = info["bortle_class"]
         sqm    = info["sqm"]
         dist   = _haversine_miles(lat, lon, plat, plon)
@@ -994,22 +987,35 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             "direction": direc,
             "name": None,
         }
-        if bortle < origin_bortle:
-            all_darker.append(pt)
-        if bortle <= dark_threshold and bortle <= _ABS_DARK_FLOOR:
-            dark_candidates.append(pt)
-        # Light domes: areas strictly brighter than the origin AND at least 2 Bortle
-        # classes above it.  The +2 threshold is capped at 9 so Bortle-8 origins can
-        # surface Bortle-9 domes (10 doesn't exist).  The "bortle > origin_bortle"
-        # guard ensures same-brightness neighbours never qualify — from a Bortle-9
-        # origin the cap gives threshold 9 = origin, so nothing would fire anyway.
-        # Min distance scales with origin brightness: dark-site observers want distant
-        # city glows on the horizon (5 mi).
+
+        # Dark skies check: strictly enforce the user's requested driving radius
+        if dist <= radius_miles and origin_bortle > 1:
+            if bortle < origin_bortle:
+                all_darker.append(pt)
+            if bortle <= dark_threshold and bortle <= _ABS_DARK_FLOOR:
+                dark_candidates.append(pt)
+
+        # Light dome logic: Min distance is 5 miles
         _dome_min_dist = 5
         if (bortle > origin_bortle
-                and bortle >= min(origin_bortle + 2, 9)
+                and bortle >= min(origin_bortle + 2, 10)
                 and dist >= _dome_min_dist):
-            dome_candidates.append(pt)
+
+            # Tier 1: Megacities (Bortle 8-9). Massive scattering, visible up to 150 miles.
+            if bortle >= 8 and dist <= 150:
+                dome_candidates.append(pt)
+
+            # Tier 2: Major Cities (Bortle 7). Strong skyglow, visible up to ~60 miles.
+            elif bortle == 7 and dist <= 60:
+                dome_candidates.append(pt)
+
+            # Tier 3: Large Towns/Suburbs (Bortle 5-6). Localized glow, drops off past ~40 miles.
+            elif bortle >= 5 and dist <= 40:
+                dome_candidates.append(pt)
+
+            # Tier 4: Small Towns (Bortle 3-4). Minor glow, matters out to ~20 miles.
+            elif bortle < 5 and dist <= 20:
+                dome_candidates.append(pt)
 
     _MAX_DARK_CANDIDATES = 50   # cap before clustering to keep runtime reasonable
     _MAX_RESULTS = 10    # max dark-sky areas to name and display
@@ -1031,15 +1037,16 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
 
     # Cluster based on the new priority
     dark_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
-    dome_clusters = _cluster_points(dome_candidates, merge_miles=1) if dome_candidates else []
 
+    # Geographically thin light domes (15-mile radius) to group sprawling cities together.
+    # Sorted by highest Bortle first so the bright core of the city anchors the cluster.
+    sorted_domes = sorted(dome_candidates, key=lambda p: (-p["bortle_class"], p["distance_miles"]))
+    dome_clusters = []
+    for pt in sorted_domes:
+        # Only keep this point if it's not within 15 miles of a worse/equal dome we already kept
+        if not any(_haversine_miles(pt["lat"], pt["lon"], kept["lat"], kept["lon"]) <= 15 for kept in dome_clusters):
+            dome_clusters.append(pt)
     # (This is inside find_nearby, after the loop that fills dome_candidates)
-
-    # --- INSERT DEBUG CODE HERE ---
-    print(f"DEBUG: Found {len(dark_candidates)} candidates out to {radius_miles} miles.")
-    if dark_candidates:
-            dist_sorted = sorted(dark_candidates, key=lambda p: p["distance_miles"])
-            print(f"DEBUG: Closest: {dist_sorted[0]['distance_miles']}mi, Furthest: {dist_sorted[-1]['distance_miles']}mi")
 
     # Cap selection: darkest-first so the genuinely dark areas always make it into
     # the result set regardless of how many mediocre-but-close candidates exist.
@@ -1048,7 +1055,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     # DO NOT cap dark_clusters yet. Just sort it so darkest/nearest are first.
     dark_clusters = sorted(dark_clusters, key=lambda p: (p["bortle_class"], p["distance_miles"]))[:_MAX_DARK_CANDIDATES]
 
-    dome_clusters = sorted(dome_clusters, key=lambda p: (p["distance_miles"], p["bortle_class"]))[:_MAX_DOMES]
+    dome_clusters = sorted( dome_clusters, key=lambda p: (-p["bortle_class"], p["distance_miles"]))[:_MAX_DOMES]
 
     # ── Naming ─────────────────────────────────────────────────────────────
     _OVERPASS_JOIN_TIMEOUT_S = 15.0
@@ -1163,12 +1170,13 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         for c in needs_drive:
             c["drive_minutes"] = None
 
+    # --- CHANGED: has_dark_sky logic ---
     return {
         "origin_bortle":  origin_bortle,
         "origin_sqm":     origin_sqm,
         "radius_miles":   radius_miles,
         "results":        dark_clusters,
         "light_domes":    dome_clusters,
-        "has_dark_sky":   any(c["bortle_class"] <= 3 for c in dark_clusters),
+        "has_dark_sky":   origin_bortle <= 3 or any(c["bortle_class"] <= 3 for c in dark_clusters),
         "best_available": best_available,
     }
