@@ -4,12 +4,6 @@ from unittest.mock import patch
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _no_padus(monkeypatch):
-    """Prevent real PADUS data from interfering with _settlement mock tests."""
-    monkeypatch.setattr("PyNightSkyPredictor.darksky._padus_cache", [])
-
-
 def _make_candidates(n: int, distance_start: float = 0.0) -> list:
     return [
         {"lat": float(i), "lon": 0.0, "distance_miles": distance_start + float(i)}
