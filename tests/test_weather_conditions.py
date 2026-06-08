@@ -39,9 +39,9 @@ def _wp(**kwargs) -> WeatherPoint:
 # ---------------------------------------------------------------------------
 
 class TestRateConditions:
-    def test_no_data_returns_five(self):
-        """All fields None → fallback 'no data' sentinel = 5."""
-        assert rate_conditions(_wp()) == 5
+    def test_no_data_returns_ten(self):
+        """All fields None → assumes base score 1.0 with no limiters = 10."""
+        assert rate_conditions(_wp()) == 10
 
     def test_result_is_int(self):
         assert isinstance(rate_conditions(_wp(cloud_cover_pct=50)), int)
@@ -73,7 +73,7 @@ class TestRateConditions:
         """precip_type='none' is treated as clear — not precipitation."""
         assert rate_conditions(_wp(cloud_cover_pct=0, precip_type="none")) > 1
 
-    # --- Cloud cover: max(0, 1 - (cloud/100)^0.7) ---
+    # --- Cloud cover (Limiter): max(0.0, 1.0 - (cloud/100.0)^1.5) ---
 
     def test_clear_sky_beats_overcast(self):
         clear = rate_conditions(_wp(cloud_cover_pct=0))
@@ -81,7 +81,7 @@ class TestRateConditions:
         assert clear > overcast
 
     def test_overcast_yields_minimum_score(self):
-        """100% cloud cover produces score at the minimum (1)."""
+        """100% cloud cover produces a 0.0 multiplier, leading to the minimum score (1)."""
         assert rate_conditions(_wp(cloud_cover_pct=100)) == 1
 
     def test_cloud_score_monotone_decreasing(self):
@@ -89,51 +89,51 @@ class TestRateConditions:
         assert scores == sorted(scores, reverse=True)
 
     def test_only_cloud_cover_yields_ten(self):
-        """Perfect cloud cover with no other data → score = 10."""
+        """Perfect cloud cover with no other data → multiplier 1.0 * base 1.0 = 10."""
         p = _wp(cloud_cover_pct=0)
         assert rate_conditions(p) == 10
 
-    # --- Seeing: max(0, (3.0 - arcsec) / 2.6) ---
+    # --- Seeing (Base Quality): max(0.0, min(1.0, (4.0 - arcsec) / 3.0)) ---
 
     def test_best_seeing_and_average_seeing_give_same_score(self):
-        """Both 0.4" and 0.1" saturate the formula — same score."""
+        """Both 0.4" and 0.1" saturate the top of the formula — same score."""
         s_best = rate_conditions(_wp(seeing_arcsec=0.4))
         s_better = rate_conditions(_wp(seeing_arcsec=0.1))
         assert s_best == s_better
 
     def test_good_seeing_beats_poor_seeing(self):
         good = rate_conditions(_wp(seeing_arcsec=0.5, cloud_cover_pct=0))
-        poor = rate_conditions(_wp(seeing_arcsec=2.8, cloud_cover_pct=0))
+        poor = rate_conditions(_wp(seeing_arcsec=3.8, cloud_cover_pct=0))
         assert good > poor
 
-    # --- Wind: max(0, 1 - ms/12) ---
+    # --- Wind (Limiter): max(0.0, 1.0 - (ms/17.0)^2) ---
 
     def test_calm_wind_beats_strong_wind(self):
         calm = rate_conditions(_wp(wind_speed_ms=0.0))
         strong = rate_conditions(_wp(wind_speed_ms=10.0))
         assert calm > strong
 
-    def test_wind_above_12ms_clamped_to_same_as_12ms(self):
-        """Wind component saturates at 0 for ≥ 12 m/s."""
-        s12 = rate_conditions(_wp(wind_speed_ms=12.0))
-        s20 = rate_conditions(_wp(wind_speed_ms=20.0))
-        assert s12 == s20
+    def test_wind_above_17ms_clamped_to_same_as_17ms(self):
+        """Wind limiter drops to 0 at 17 m/s and doesn't go below."""
+        s17 = rate_conditions(_wp(wind_speed_ms=17.0))
+        s25 = rate_conditions(_wp(wind_speed_ms=25.0))
+        assert s17 == s25
 
-    # --- Humidity: max(0, 1 - max(0, RH-50)/40) ---
+    # --- Humidity (Base Quality): max(0.0, 1.0 - max(0.0, RH-50)/50) ---
 
     def test_humidity_below_50_has_no_penalty(self):
-        """≤ 50% RH → no dew risk, full humidity score."""
+        """≤ 50% RH → no dew risk, full humidity base quality."""
         s30 = rate_conditions(_wp(humidity_pct=30))
         s50 = rate_conditions(_wp(humidity_pct=50))
         assert s30 == s50
 
     def test_humidity_90_reduces_score(self):
-        """90% RH → component = max(0, 1 - 40/40) = 0."""
+        """90% RH drops the base quality significantly (1.0 - 40/50 = 0.2)."""
         low_rh = rate_conditions(_wp(humidity_pct=50, cloud_cover_pct=0))
         high_rh = rate_conditions(_wp(humidity_pct=90, cloud_cover_pct=0))
         assert low_rh > high_rh
 
-    # --- Transparency ---
+    # --- Transparency (Limiter) ---
 
     def test_transparency_ranking(self):
         scores = [
@@ -142,7 +142,7 @@ class TestRateConditions:
         ]
         assert scores == sorted(scores, reverse=True)
 
-    # --- Weight redistribution ---
+    # --- Overall Limiter & Quality integration ---
 
     def test_missing_seeing_does_not_crash(self):
         p = _wp(cloud_cover_pct=0, seeing_arcsec=None)
@@ -161,10 +161,10 @@ class TestRateConditions:
     def test_all_worst_fields_give_one(self):
         p = _wp(
             cloud_cover_pct=100,
-            seeing_arcsec=3.0,
+            seeing_arcsec=4.0,
             transparency="Poor",
-            wind_speed_ms=12.0,
-            humidity_pct=90,
+            wind_speed_ms=17.0,
+            humidity_pct=100,
         )
         assert rate_conditions(p) == 1
 
