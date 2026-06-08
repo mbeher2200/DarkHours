@@ -746,7 +746,7 @@ def _overpass_natural_areas_in_radius(
 # containment matching (the rectangle includes towns, private land, gaps).
 # Wilderness areas and monuments are 5–20 miles wide and are reliable.
 # Only trust bbox containment when the bbox is compact enough.
-_MAX_BBOX_MILES = 30.0
+_MAX_BBOX_MILES = 45.0
 
 
 def _bbox_width_miles(area: dict) -> float:
@@ -815,7 +815,7 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
 
     params = urllib.parse.urlencode({
         "lat": f"{lat:.4f}", "lon": f"{lon:.4f}",
-        "format": "json", "zoom": "10", "addressdetails": "1",
+        "format": "json", "zoom": "16", "addressdetails": "1",
     })
     url = f"{_NOMINATIM_URL}?{params}"
     try:

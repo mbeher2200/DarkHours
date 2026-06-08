@@ -354,55 +354,63 @@ def _merge_7timer(points: list, seven: list) -> list:
 # Conditions rating
 # ---------------------------------------------------------------------------
 
-def rate_conditions(p: WeatherPoint) -> int:
+def rate_conditions(p: 'WeatherPoint') -> int:
     """
     Rate sky conditions for astrophotography from 1 (unusable) to 10 (perfect).
 
-    Weights (normalised automatically when a field is unavailable):
-      cloud cover  50%  — gates everything; heavy cloud = low ceiling on score
-      seeing       20%  — atmospheric steadiness (populated when 7Timer available)
-      transparency 15%  — sky clarity / extinction (populated when 7Timer available)
-      wind         10%  — vibration, tracking, and turbulence
-      humidity      5%  — transparency and dew risk
-
-    Precipitation of any kind caps the score at 1.
-
-    When seeing and transparency are None (Open-Meteo without 7Timer blend),
-    their combined 35% redistributes to the remaining factors.
+    Uses a multiplicative limiting-factor model for dealbreakers (clouds, wind, transparency)
+    and an additive quality model for atmospheric steadiness (seeing, humidity).
     """
-    if p.precip_type and p.precip_type not in ("none", None):
+    # Precipitation is an immediate hard gate
+    if p.precip_type and p.precip_type.lower() not in ("none", "", None):
         return 1
 
-    scores  = {}
-    weights = {}
+    # --- 1. THE LIMITERS (Multiplicative Penalties) ---
+    # These factors act as heavy gates. A score of 0.0 here ruins the whole night.
+    limiters = []
 
     if p.cloud_cover_pct is not None:
-        c = p.cloud_cover_pct / 100
-        scores["cloud"]  = max(0.0, 1 - c ** 0.7)
-        weights["cloud"] = 0.50
-
-    if p.seeing_arcsec is not None:
-        scores["seeing"]  = max(0.0, (3.0 - p.seeing_arcsec) / 2.6)
-        weights["seeing"] = 0.20
-
-    if p.transparency is not None:
-        scores["transp"]  = {"Excellent": 1.0, "Good": 0.75, "Fair": 0.4, "Poor": 0.1}.get(p.transparency, 0.5)
-        weights["transp"] = 0.15
+        # Non-linear drop-off using a 1.5 power curve.
+        # e.g., 50% clouds = 0.65 multiplier. 70% clouds = 0.41. 100% = 0.0.
+        cloud_score = max(0.0, 1.0 - (p.cloud_cover_pct / 100.0) ** 1.5)
+        limiters.append(cloud_score)
 
     if p.wind_speed_ms is not None:
-        scores["wind"]  = max(0.0, 1 - p.wind_speed_ms / 12)
-        weights["wind"] = 0.10
+        # Wind force scales with velocity squared (dynamic pressure).
+        # We cap it at 17 m/s (~38 mph), which makes extreeme conditions.
+        wind_score = max(0.0, 1.0 - (p.wind_speed_ms / 17.0) ** 2)
+        limiters.append(wind_score)
+
+    if p.transparency is not None:
+        # Poor transparency acts as a strong blocker for faint targets.
+        transp_score = {"Excellent": 1.0, "Good": 0.8, "Fair": 0.4, "Poor": 0.1}.get(p.transparency, 0.5)
+        limiters.append(transp_score)
+
+    # --- 2. THE QUALITY FACTORS (Additive Base) ---
+    # These determine the overall "goodness" of the night if the limiters allow it.
+    base_factors = []
+
+    if p.seeing_arcsec is not None:
+        # Roughly linear scaling: 1.0" or less is excellent, 4.0" is poor.
+        seeing_score = max(0.0, min(1.0, (4.0 - p.seeing_arcsec) / 3.0))
+        base_factors.append(seeing_score)
 
     if p.humidity_pct is not None:
-        scores["humid"]  = max(0.0, 1 - max(0, p.humidity_pct - 50) / 40)
-        weights["humid"] = 0.05
+        # Penalizes high humidity due to dew/fog risk. Starts dropping linearly after 50%.
+        humid_score = max(0.0, 1.0 - max(0.0, p.humidity_pct - 50.0) / 50.0)
+        base_factors.append(humid_score)
 
-    if not scores:
-        return 5  # no data
+    # Calculate base quality (average of seeing and humidity)
+    # If neither is provided, assume perfect base conditions (1.0) before applying limiters.
+    base_score = sum(base_factors) / len(base_factors) if base_factors else 1.0
 
-    total_weight = sum(weights[k] for k in scores)
-    weighted_sum = sum(scores[k] * weights[k] for k in scores) / total_weight
-    return max(1, min(10, round(weighted_sum * 10)))
+    # Apply limiters multiplicatively
+    final_score = base_score
+    for limiter in limiters:
+        final_score *= limiter
+
+    # Scale to 1-10 range and round safely
+    return max(1, min(10, round(final_score * 10)))
 
 
 # ---------------------------------------------------------------------------
