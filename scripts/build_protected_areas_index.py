@@ -31,23 +31,21 @@ _FEE_URL = (
     "https://services.arcgis.com/v01gqwM5QqNysAAi/arcgis/rest/services"
     "/PADUS_Management_Areas/FeatureServer/0/query"
 )
-_DES_URL = None  # single combined layer — no separate designation fetch needed
 
 # Minimum size to include (acres). Filters out tiny urban parks and trail corridors.
 _MIN_ACRES = 500  # ~0.78 sq mi; field name in PADUS 4.1 is GIS_AcreD (double)
 
 # Des_Tp values to skip entirely (private, easements, tribal, trail corridors).
-# We only want named public-land areas where people might observe.
 _SKIP_DES_TP = {
     "AGRE", "CONE", "FORE", "OTHE", "PAGR", "PCON", "PFOR", "PHCA",
     "POTH", "PPRK", "PRAN", "PREC", "RANE", "RECE", "UNKE",
     "TRIBL",               # Tribal lands — sovereign, don't label
     "NT", "WSR",           # Trail/river corridors — linear, not dark-sky sites
     "PROC",                # Proclamation boundary (planning overlay, not managed)
-    "UNK", "LOTH", "FOTH", "SOTH", "FOTH",  # unknowns
+    "UNK", "LOTH", "FOTH", "SOTH",  # unknowns
 }
 
-# designation type code → priority (lower = better label for dark-sky purposes)
+# designation type code -> priority (lower = better label for dark-sky purposes)
 _DES_PRIORITY = {
     # 0 = wilderness-grade (most specific, darkest intent)
     "WA":   0,  "WSA":  0,  "SW":   0,
@@ -78,7 +76,7 @@ def _bbox(geom: dict) -> tuple | None:
     raw = geom.get("coordinates", [])
 
     if gtype == "Point":
-        return None  # points have no bbox
+        return None
     elif gtype == "Polygon":
         coords_flat = raw[0] if raw else []
     elif gtype == "MultiPolygon":
@@ -96,43 +94,67 @@ def _bbox(geom: dict) -> tuple | None:
     return min(lons), min(lats), max(lons), max(lats)
 
 
+def _fetch_features_by_ids(url: str, oids: list[int]) -> list[dict]:
+    """Fetch a batch of features by object ID. Returns raw GeoJSON feature list."""
+    params = {
+        "objectIds":         ",".join(str(i) for i in oids),
+        "outFields":         "Unit_Nm,Des_Tp,Mang_Name,GIS_AcreD",
+        "returnGeometry":    "true",
+        "outSR":             "4326",
+        "geometryPrecision": "4",
+        "f":                 "geojson",
+    }
+    for attempt in range(4):
+        try:
+            resp = requests.get(url, params=params, timeout=120)
+            resp.raise_for_status()
+            return resp.json().get("features", [])
+        except (requests.RequestException, ValueError) as e:
+            wait = 5 * (attempt + 1)
+            print(f"\n  retry {attempt+1}/3: {e} — waiting {wait}s", file=sys.stderr)
+            time.sleep(wait)
+    return []
+
+
 def _fetch_layer(url: str, label: str) -> list[dict]:
-    """Paginated fetch from an ESRI FeatureServer layer. Returns list of area dicts."""
-    areas: list[dict] = []
-    offset = 0
-    page = 200   # small pages keep response bodies under ~4 MB, preventing mid-stream drops
+    """Fetch all matching features via OID-based chunking. Returns list of area dicts.
 
+    resultOffset-based pagination hits a service-level cap (~10k records).
+    Fetching all OIDs first (no geometry = no cap) then requesting features in
+    small batches bypasses this limit entirely.
+    """
     print(f"Fetching {label}...")
-    while True:
-        params = {
-            "where":                f"GIS_AcreD>{_MIN_ACRES}",
-            "outFields":            "Unit_Nm,Des_Tp,Mang_Name,GIS_AcreD",
-            "returnGeometry":       "true",
-            "outSR":                "4326",
-            "geometryPrecision":    "4",     # 4 decimal places ≈ 11m — enough for bbox
-            "resultOffset":         str(offset),
-            "resultRecordCount":    str(page),
-            "f":                    "geojson",
-        }
-        fc = None
-        for attempt in range(4):
-            try:
-                resp = requests.get(url, params=params, timeout=120)
-                resp.raise_for_status()
-                fc = resp.json()
-                break
-            except (requests.RequestException, ValueError) as e:
-                wait = 5 * (attempt + 1)
-                print(f"\n  retry {attempt+1}/3 (offset {offset}): {e} — waiting {wait}s", file=sys.stderr)
-                time.sleep(wait)
-        if fc is None:
-            print(f"\nERROR: gave up at offset {offset}", file=sys.stderr)
-            break
 
-        features = fc.get("features", [])
-        exceeded = (fc.get("properties") or {}).get("exceededTransferLimit", False)
-        if not features:
+    # Step 1: get all matching object IDs (no geometry, no pagination cap)
+    id_resp = None
+    for attempt in range(4):
+        try:
+            r = requests.get(url, params={
+                "where":         f"GIS_AcreD>{_MIN_ACRES}",
+                "returnIdsOnly": "true",
+                "f":             "json",
+            }, timeout=60)
+            r.raise_for_status()
+            id_resp = r.json()
             break
+        except (requests.RequestException, ValueError) as e:
+            time.sleep(5 * (attempt + 1))
+    if id_resp is None:
+        print("ERROR: could not fetch object IDs", file=sys.stderr)
+        return []
+
+    all_oids = id_resp.get("objectIds") or []
+    print(f"  {len(all_oids):,} matching object IDs")
+
+    # Step 2: fetch features in chunks of 100
+    chunk = 100
+    areas: list[dict] = []
+    fetched = 0
+
+    for i in range(0, len(all_oids), chunk):
+        batch = all_oids[i: i + chunk]
+        features = _fetch_features_by_ids(url, batch)
+        fetched += len(features)
 
         for feat in features:
             props = feat.get("properties") or feat.get("attributes") or {}
@@ -161,19 +183,15 @@ def _fetch_layer(url: str, label: str) -> list[dict]:
                 "maxlon":   round(maxlon, 4),
             })
 
-        print(f"  {offset + len(features):,} features retrieved...", end="\r")
+        print(f"  {fetched:,}/{len(all_oids):,} fetched, {len(areas):,} kept...", end="\r")
+        time.sleep(0.2)
 
-        if not exceeded:
-            break   # server says this is the last page
-        offset += page
-        time.sleep(0.3)   # be polite to the public API
-
-    print(f"  {len(areas):,} named areas from {label}        ")
+    print(f"  {len(areas):,} named areas from {label}                    ")
     return areas
 
 
 def _dedup(areas: list[dict]) -> list[dict]:
-    """Remove exact-duplicate (name, bbox) entries that appear in both layers."""
+    """Remove exact-duplicate (name, bbox) entries."""
     seen: set[tuple] = set()
     out: list[dict] = []
     for a in areas:
@@ -189,15 +207,13 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_areas = _dedup(_fetch_layer(_FEE_URL, "PADUS 4.1 Management Areas"))
-
-    # Sort so wilderness areas come first (stable, predictable output)
     all_areas.sort(key=lambda a: (a["priority"], a["name"]))
 
     with gzip.open(out_path, "wt", encoding="utf-8") as f:
         json.dump(all_areas, f, separators=(",", ":"))
 
     size_kb = out_path.stat().st_size / 1024
-    print(f"\nWrote {len(all_areas):,} areas → {out_path}  ({size_kb:.0f} KB compressed)")
+    print(f"\nWrote {len(all_areas):,} areas -> {out_path}  ({size_kb:.0f} KB compressed)")
 
 
 if __name__ == "__main__":
