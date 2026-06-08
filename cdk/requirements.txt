@@ -1,3 +1,3 @@
 # Python CDK app dependencies (the `cdk` CLI itself is the Node toolkit).
-aws-cdk-lib==2.257.0
+aws-cdk-lib==2.258.0
 constructs==10.6.0
