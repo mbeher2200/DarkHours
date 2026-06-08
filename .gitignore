@@ -35,6 +35,9 @@ tools/lp_db/
 !.env.example
 *.pem
 
+# Local dev convenience script
+dev.sh
+
 # Geospatial rasters — large source/generated COGs live outside the repo
 # (the bundled de421.bsp ephemeris is .bsp, intentionally NOT matched here)
 *.tif
