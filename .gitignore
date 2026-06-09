@@ -43,6 +43,12 @@ dev.sh
 *.tif
 *.tiff
 
+# PADUS raw geodatabase and metadata (too large to distribute; run build_padus_index.py to regenerate)
+Temp/
+
+# Generated spatial index artefacts (derived from PADUS; do not distribute)
+cache/
+
 # AWS CDK infrastructure build artefacts (added ahead of M4)
 cdk.out/
 .cdk.staging/

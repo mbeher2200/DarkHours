@@ -14,12 +14,12 @@ The Night Quality Score (1–10) combines:
 
 Beyond the score:
 * Per-target imaging windows clipped by K&S moonlight interference
-* Nearest dark sky areas named from OpenStreetMap, plus light domes on the horizon
+* Nearest dark sky areas — pre-filtered against USGS PAD-US public lands, named from OpenStreetMap, plus light domes on the horizon
 * Monthly night scoring calendar
 * Multi-location trip comparison across a date range
 * Historical weather analysis back to 1940 via ERA5 reanalysis
 
-Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, and Celestrak.
+Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, Celestrak, and USGS PAD-US.
 
 The two CLI scripts are:
 
@@ -390,6 +390,38 @@ External datasets are downloaded on first use and stored in `~/.pynightsky-predi
 The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
 
 All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) for full attribution.
+
+### Offline Spatial Index (PADUS)
+
+The DarkHours Lambda uses a pre-built H3 spatial index (`cache/darkhours_padus_h3.parquet`) as a fast first-pass filter before calling Overpass. This file is **not distributed** in the repository — it must be generated once locally.
+
+**1. Download the source geodatabase**
+
+Download the PAD-US 4.1 Combined Feature Class Geodatabase from USGS ScienceBase (~700 MB):
+
+> https://www.sciencebase.gov/catalog/item/652d4fc5d34e44db0e2ee45e
+
+Unzip it into the project `Temp/` directory:
+
+```
+Temp/
+└── PADUS4_1Geodatabase/
+    └── PADUS4_1Geodatabase.gdb/
+```
+
+**2. Install build dependencies**
+
+```bash
+pip install -r requirements-build.txt
+```
+
+**3. Run the build script**
+
+```bash
+python scripts/build_padus_index.py
+```
+
+Output: `cache/darkhours_padus_h3.parquet` (~10 MB). Both `Temp/` and `cache/` are gitignored.
 
 ### Configuration
 
