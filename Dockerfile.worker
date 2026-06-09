@@ -25,6 +25,7 @@ RUN pip install -r requirements-worker.txt
 # App code — includes PyNightSkyPredictor/de421.bsp (ephemeris) which plan_trip needs.
 COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
+COPY cache/darkhours_padus_h3.parquet ./cache/darkhours_padus_h3.parquet
 
 # Drop root (Lambda fs is read-only except /tmp, for any user).
 ENV HOME=/tmp

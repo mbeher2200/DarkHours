@@ -63,6 +63,13 @@ except ImportError:
     )
     _HAS_SCIPY = False
 
+_HAS_H3 = False
+try:
+    import h3 as _h3_lib
+    _HAS_H3 = True
+except ImportError:
+    log.warning("h3 not installed; PAD-US Tier-1 spatial filter disabled.")
+
 # ---------------------------------------------------------------------------
 # Data-source constants
 # ---------------------------------------------------------------------------
@@ -453,6 +460,11 @@ _OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
 _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
 _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
+
+# PAD-US H3 spatial index — module-level lazy-load cache
+_PADUS_H3_FILENAME = "darkhours_padus_h3.parquet"
+_PADUS_UNAVAILABLE = object()   # singleton: tried to load, file missing or unreadable
+_padus_h3_cache: "dict | object | None" = None  # None = not yet attempted
 _OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests
 _NOMINATIM_SLEEP = 1.1               # minimum seconds between Nominatim requests
 
@@ -803,6 +815,14 @@ def _extract_dark_sky_candidates(
             viirs_zero & (bortle_arr == 0), falchi_bortle, bortle_arr
         )
 
+    # Combined SQM array: mirrors bortle_arr source selection.
+    # VIIRS-measured pixels use sqm_viirs; Falchi-filled pixels use sqm_falchi;
+    # pristine sky pixels (both sources zero) have NaN → stored as None.
+    if falchi_array is not None:
+        sqm_arr = np.where(viirs_array > 0, sqm_viirs, sqm_falchi)
+    else:
+        sqm_arr = sqm_viirs
+
     # ── Vectorised haversine distance ─────────────────────────────────────────
     dlat = np.radians(lat_grid - origin_lat)
     dlon = np.radians(lon_grid - origin_lon)
@@ -859,11 +879,12 @@ def _extract_dark_sky_candidates(
 
     candidates = []
     for r, c in zip(best_rows, best_cols):
+        _sqm = float(sqm_arr[r, c])
         candidates.append({
             "lat":            float(lat_grid[r, c]),
             "lon":            float(lon_grid[r, c]),
             "bortle_class":   int(bortle_arr[r, c]),
-            "sqm":            None,
+            "sqm":            None if np.isnan(_sqm) else _sqm,
             "distance_miles": round(float(dist_array[r, c]), 1),
             "direction":      _bearing_label(
                                   origin_lat, origin_lon,
@@ -1178,36 +1199,172 @@ def _settlement(lat: float, lon: float) -> str | None:
     return _nominatim_settlement(lat, lon)
 
 
+# ---------------------------------------------------------------------------
+# PAD-US H3 spatial index helpers
+# ---------------------------------------------------------------------------
+
+def _padus_h3_path() -> "Path | None":
+    """Resolve the H3 parquet path, trying env override → repo layout → Lambda layout."""
+    env_override = os.environ.get("PYNIGHTSKY_PADUS_H3_PATH")
+    if env_override:
+        p = Path(env_override)
+        return p if p.exists() else None
+    for candidate in (
+        Path(__file__).parent.parent / "cache" / _PADUS_H3_FILENAME,
+        Path("/app/cache") / _PADUS_H3_FILENAME,
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_padus_h3_index() -> "dict[str, tuple[str, bool]] | None":
+    """Lazy-load the PAD-US H3 index once per process; return cached dict thereafter.
+
+    Returns None (and caches that failure) if h3 is not installed, the parquet
+    file is missing, or the read fails — callers degrade gracefully to Tier 2/3.
+    """
+    global _padus_h3_cache
+    if _padus_h3_cache is _PADUS_UNAVAILABLE:
+        return None
+    if _padus_h3_cache is not None:
+        return _padus_h3_cache  # type: ignore[return-value]
+
+    if not _HAS_H3:
+        _padus_h3_cache = _PADUS_UNAVAILABLE
+        return None
+
+    path = _padus_h3_path()
+    if path is None:
+        log.debug("PAD-US H3 parquet not found; Tier-1 spatial filter disabled.")
+        _padus_h3_cache = _PADUS_UNAVAILABLE
+        return None
+
+    try:
+        import pyarrow.parquet as pq
+        tbl = pq.read_table(str(path), columns=["h3_cell", "Unit_Nm", "is_blacklisted"])
+        cells      = tbl.column("h3_cell").to_pylist()
+        unit_names = tbl.column("Unit_Nm").to_pylist()
+        blacklists = tbl.column("is_blacklisted").to_pylist()
+        _padus_h3_cache = dict(zip(cells, zip(unit_names, blacklists)))
+        log.debug("PAD-US H3 index loaded: %d cells.", len(_padus_h3_cache))
+    except Exception as exc:
+        log.debug("PAD-US H3 index load failed: %s", exc)
+        _padus_h3_cache = _PADUS_UNAVAILABLE
+        return None
+
+    return _padus_h3_cache  # type: ignore[return-value]
+
+
+def _padus_h3_lookup(
+    lat: float,
+    lon: float,
+    index: "dict[str, tuple[str, bool]]",
+) -> "tuple[str, bool] | None":
+    """Return (Unit_Nm, is_blacklisted) for the H3 cell at (lat, lon), or None."""
+    cell = _h3_lib.latlng_to_cell(lat, lon, 7)
+    return index.get(cell)
+
+
+def _is_good_padus_name(unit_nm: "str | None") -> bool:
+    """Return True if unit_nm is a meaningful display name for a PAD-US unit.
+
+    Rejects None/empty strings, raw short codes (< 5 chars), names containing
+    'unknown', and pure numeric legacy IDs.
+    """
+    if not unit_nm or not unit_nm.strip():
+        return False
+    nm = unit_nm.strip()
+    if len(nm) < 5:
+        return False
+    nml = nm.lower()
+    if "unknown" in nml:
+        return False
+    if "unnamed" in nml:
+        return False
+    if "office" in nml:
+        return False
+    if nm.isdigit():
+        return False
+    return True
+
+
+def _is_in_us(lat: float, lon: float) -> bool:
+    """Return True if (lat, lon) falls within the US bounding box (incl. AK, HI)."""
+    return (18.0 <= lat <= 72.0) and (-180.0 <= lon <= -66.0)
+
+
 def _jit_geocode_candidates(
     candidates: list,
     max_results: int,
     natural_areas: list | None = None,
+    *,
+    padus_index: "dict | None" = None,
+    exclude: "set[str] | None" = None,
 ) -> list:
-    """Reverse-geocode candidates one-at-a-time, dedup by name, stop at max_results.
+    """Reverse-geocode candidates one-at-a-time using a three-tier strategy.
 
-    Tries Overpass natural-area name first (free local lookup when natural_areas
-    is provided), falling back to _settlement() only when no area matches.
+    Tier 1 — PAD-US H3 spatial index (when padus_index is not None):
+      Blacklisted cell      → candidate discarded (military/tribal/restricted).
+      Non-blacklisted + good Unit_Nm → name used; Overpass and _settlement() skipped.
+      Non-blacklisted + junk Unit_Nm → PAD-US-verified; falls to Tier 3 for naming.
+      No PAD-US cell hit    → falls to Tier 2.
+      Exception             → logged; candidate treated as a PAD-US miss.
+
+    Tier 2 — Overpass natural areas (for naming only, not gating):
+      Only reached when PAD-US had no polygon hit (padus_verified still False).
+      Skipped entirely when PAD-US found a polygon (the land is already verified).
+      Match found   → use Overpass area name directly.
+      No match      → fall through to Tier 3 (never discard on Overpass miss).
+
+    Tier 3 — Reverse geocoder (_settlement):
+      Called when name is still None after Tier 1/2.
+      _OVER_WATER → candidate discarded. None → coordinate fallback used.
+
+    Dedup by name: each unique name appears at most once regardless of distance.
+    max_results cap unchanged.
     """
-    seen_keys: set[tuple] = set()
+    seen_keys: set[str] = set(exclude) if exclude else set()
     dark_clusters: list = []
     for c in candidates:
-        name = None
-        if natural_areas:
-            name = _best_area_name_for_cluster(c["lat"], c["lon"], natural_areas)
-        if not name:
-            name = _settlement(c["lat"], c["lon"])
-        if name == _OVER_WATER:
+        lat, lon = c["lat"], c["lon"]
+        name: str | None = None
+        padus_verified = False
+
+        # ── Tier 1: PAD-US H3 spatial index ──────────────────────────────────
+        if padus_index is not None:
+            try:
+                hit = _padus_h3_lookup(lat, lon, padus_index)
+                if hit is not None:
+                    unit_nm, is_blacklisted = hit
+                    if is_blacklisted:
+                        continue  # hard stop: military/tribal/restricted land
+                    padus_verified = True
+                    if _is_good_padus_name(unit_nm):
+                        name = unit_nm  # optimal hit: skip all network calls
+            except Exception as exc:
+                log.debug("PAD-US H3 lookup failed (%.4f, %.4f): %s", lat, lon, exc)
+                # treat as miss → fall through to Tier 2
+
+        # ── Tier 2: Overpass natural areas (naming only, not gating) ─────────
+        # Reached only when PAD-US had no hit (padus_verified still False).
+        # Skipped entirely when PAD-US found a polygon (land already verified).
+        # No match → fall through to Tier 3; never discard on Overpass miss.
+        if name is None and not padus_verified and natural_areas:
+            name = _best_area_name_for_cluster(lat, lon, natural_areas)
+
+        # ── Tier 3: Reverse geocoder ──────────────────────────────────────────
+        if name is None:
+            name = _settlement(lat, lon)
+            if name == _OVER_WATER:
+                continue
+            if not name:
+                name = f"{lat:.2f}°, {lon:.2f}°"
+
+        # ── Dedup and accumulate ──────────────────────────────────────────────
+        if name in seen_keys:
             continue
-        if not name:
-            name = f"{c['lat']:.2f}°, {c['lon']:.2f}°"
-        # Bucket by ~40-mile bands: county-level names (e.g. "Coconino, AZ") cover
-        # huge areas and can legitimately appear at multiple distances.  Without
-        # bucketing, the first nearby cluster consumes the name and all distant ones
-        # with the same county name are silently dropped.
-        key = (name, int(c["distance_miles"] // 40))
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
+        seen_keys.add(name)
         c["name"] = name
         dark_clusters.append(c)
         if len(dark_clusters) == max_results:
@@ -1352,6 +1509,20 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
         )[0]
 
+    # Resolve the origin's settlement name so it can be excluded from results —
+    # there is no point surfacing a dark candidate named after the city you're in.
+    _origin_settlement = _settlement(lat, lon)
+    _exclude = (
+        {_origin_settlement}
+        if _origin_settlement and _origin_settlement != _OVER_WATER
+        else set()
+    )
+
+    # Load PAD-US H3 index once per search (US searches only — PAD-US is US-only data).
+    # Candidates are already land-filtered by _extract_dark_sky_candidates(_glm.is_land()),
+    # so the PAD-US check here is the first spatial tier, not a water filter.
+    _padus_index = _load_padus_h3_index() if _is_in_us(lat, lon) else None
+
     # Fetch Overpass natural areas in background while dome naming runs.
     # One network call covers the entire search radius; all cluster matching
     # is then done locally with no further API calls for areas it covers.
@@ -1384,7 +1555,15 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             best_available = best_candidate
 
     # 2. JIT: geocode and deduplicate dark candidates, stop at _MAX_RESULTS
-    dark_clusters = _jit_geocode_candidates(dark_candidates, _MAX_RESULTS, natural_areas)
+    # Pass natural_areas=None (not []) when Overpass is disabled so the Tier 2 discard
+    # gate is bypassed — an empty list would incorrectly discard all non-PAD-US candidates
+    # on the AWS backend where Overpass is not used.
+    dark_clusters = _jit_geocode_candidates(
+        dark_candidates, _MAX_RESULTS,
+        natural_areas if _use_overpass else None,
+        padus_index=_padus_index,
+        exclude=_exclude,
+    )
 
     if best_candidate is not None:
         best_available = best_candidate

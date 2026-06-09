@@ -1,0 +1,8 @@
+# Offline data-build dependencies — not needed for Lambda runtime or local CLI use.
+# Required only to run scripts/build_padus_index.py.
+#
+# Install: pip install -r requirements-build.txt
+geopandas
+pyarrow
+fiona
+h3
