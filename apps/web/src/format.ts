@@ -108,43 +108,35 @@ export function fmtWeatherCode(code: number | null, prob: number | null): string
   return label
 }
 
-// Port of weather.rate_conditions() — returns 1–10
+// Port of weather.rate_conditions() — multiplicative limiter model — returns 1–10
 export function rateConditions(p: WeatherPoint): number {
   // WMO codes ≥51 are precipitation events; fall back to precip_type for non-Open-Meteo sources
   if ((p.weather_code != null && p.weather_code >= 51) ||
       (p.precip_type && p.precip_type !== 'none')) return 1
 
-  const scores: Record<string, number>  = {}
-  const weights: Record<string, number> = {}
-
-  if (p.cloud_cover_pct != null) {
-    scores.cloud  = Math.max(0, 1 - Math.pow(p.cloud_cover_pct / 100, 0.7))
-    weights.cloud = 0.50
-  }
-  if (p.seeing_arcsec != null) {
-    scores.seeing  = Math.max(0, (3.0 - p.seeing_arcsec) / 2.6)
-    weights.seeing = 0.20
-  }
+  // Limiters: multiplicative penalties (cloud, wind, transparency)
+  const limiters: number[] = []
+  if (p.cloud_cover_pct != null)
+    limiters.push(Math.max(0, 1 - Math.pow(p.cloud_cover_pct / 100, 1.5)))
+  if (p.wind_speed_ms != null)
+    limiters.push(Math.max(0, 1 - Math.pow(p.wind_speed_ms / 17, 2)))
   if (p.transparency != null) {
-    const tmap: Record<string, number> = { Excellent: 1.0, Good: 0.75, Fair: 0.4, Poor: 0.1 }
-    scores.transp  = tmap[p.transparency] ?? 0.5
-    weights.transp = 0.15
-  }
-  if (p.wind_speed_ms != null) {
-    scores.wind  = Math.max(0, 1 - p.wind_speed_ms / 12)
-    weights.wind = 0.10
-  }
-  if (p.humidity_pct != null) {
-    scores.humid  = Math.max(0, 1 - Math.max(0, p.humidity_pct - 50) / 40)
-    weights.humid = 0.05
+    const tmap: Record<string, number> = { Excellent: 1.0, Good: 0.8, Fair: 0.4, Poor: 0.1 }
+    limiters.push(tmap[p.transparency] ?? 0.5)
   }
 
-  const keys = Object.keys(scores)
-  if (!keys.length) return 5
+  // Quality base: average of seeing and humidity (additive)
+  const base: number[] = []
+  if (p.seeing_arcsec != null)
+    base.push(Math.max(0, Math.min(1, (4.0 - p.seeing_arcsec) / 3.0)))
+  if (p.humidity_pct != null)
+    base.push(Math.max(0, 1 - Math.max(0, p.humidity_pct - 50) / 50))
 
-  const totalW   = keys.reduce((s, k) => s + weights[k], 0)
-  const weighted = keys.reduce((s, k) => s + scores[k] * weights[k], 0) / totalW
-  return Math.max(1, Math.min(10, Math.round(weighted * 10)))
+  if (!limiters.length && !base.length) return 10
+
+  const baseScore = base.length ? base.reduce((s, v) => s + v, 0) / base.length : 1.0
+  const final = limiters.reduce((s, v) => s * v, baseScore)
+  return Math.max(1, Math.min(10, Math.round(final * 10)))
 }
 
 // Temperature formatting (mirrors FormatCtx.temp)
