@@ -1500,7 +1500,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                     "name":           None,
                 })
 
-    dome_clusters = sorted(dome_clusters, key=lambda p: (-p["bortle_class"], p["distance_miles"]))[:_MAX_DOMES]
+    # Take 2× the display limit so dedup has buffer to fill _MAX_DOMES unique names.
+    dome_clusters = sorted(dome_clusters, key=lambda p: (-p["bortle_class"], p["distance_miles"]))[:_MAX_DOMES * 2]
 
     # ── Naming ─────────────────────────────────────────────────────────────
     _OVERPASS_JOIN_TIMEOUT_S = 15.0
@@ -1555,6 +1556,16 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     for dome in dome_clusters:
         dome_name = _settlement(dome["lat"], dome["lon"])
         dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
+
+    # Deduplicate by name; list is sorted by (bortle desc, distance asc) so we keep
+    # the nearest occurrence of each city name.
+    _seen_dome_names: set[str] = set()
+    _deduped_domes: list = []
+    for dome in dome_clusters:
+        if dome["name"] not in _seen_dome_names:
+            _seen_dome_names.add(dome["name"])
+            _deduped_domes.append(dome)
+    dome_clusters = _deduped_domes[:_MAX_DOMES]
 
     if _use_overpass:
         areas_thread.join(timeout=_OVERPASS_JOIN_TIMEOUT_S)
