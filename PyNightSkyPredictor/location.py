@@ -143,11 +143,11 @@ def _geocode_via_nominatim(name: str, query: str) -> dict | None:
 
 def _geocode_via_aws(name: str, query: str) -> dict | None:
     """Forward-geocode using AWS Location Service (aws backend only)."""
-    import boto3
+    from . import darksky  # reuse the process-wide pooled 'location' client
     index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
     log.debug("Cache miss for '%s', geocoding via AWS Location (query: '%s')...", name, query)
     try:
-        client = boto3.client("location")
+        client = darksky._location()
         resp = client.search_place_index_for_text(
             IndexName=index_name,
             Text=query,

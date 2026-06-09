@@ -254,12 +254,41 @@ class DynamoCache:
         return count
 
 
+# ── Hit/miss instrumentation ────────────────────────────────────────────────
+# A single global counter on the module-level get() chokepoint. Two int adds per
+# lookup — negligible always-on cost — so profilers (see darksky.find_nearby) can
+# attribute time to cache misses without threading a stats object through callers.
+# A non-None return counts as a hit; None (missing OR expired) counts as a miss.
+
+class _CacheStats:
+    __slots__ = ("hits", "misses")
+
+    def __init__(self):
+        self.hits = 0
+        self.misses = 0
+
+    def reset(self) -> None:
+        self.hits = 0
+        self.misses = 0
+
+    def snapshot(self) -> tuple[int, int]:
+        return self.hits, self.misses
+
+
+stats = _CacheStats()
+
+
 # ── Module-level API (delegates to the active backend) ──────────────────────
 # Callers use cache.get(...) / cache.set(...) etc.; these thin wrappers keep that
 # surface stable while the underlying store is backend-selected via ports.
 
 def get(key: str):
-    return ports.get_backend().cache.get(key)
+    value = ports.get_backend().cache.get(key)
+    if value is None:
+        stats.misses += 1
+    else:
+        stats.hits += 1
+    return value
 
 
 def get_stale(key: str):
