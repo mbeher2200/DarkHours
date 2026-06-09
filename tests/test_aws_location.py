@@ -10,6 +10,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_location_client():
+    """darksky caches one process-wide boto3 'location' client; drop it between tests
+    so each test's patched boto3.client is the one actually used."""
+    import PyNightSkyPredictor.darksky as _darksky
+    _darksky._reset_location_client()
+    yield
+    _darksky._reset_location_client()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _aws_env(monkeypatch):
