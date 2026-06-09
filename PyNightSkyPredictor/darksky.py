@@ -1176,15 +1176,27 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
     sub_region = place.get("SubRegion", "")
     region = place.get("Region", "")
 
-    # AWS Location returns full country names, not ISO codes; extract state abbreviation
-    # from the label for US addresses which follow "City, ST, USA" format.
-    name = municipality or sub_region
+    # Walk label backwards to find the 2-char US state code; the element immediately
+    # before it is the authoritative city name.  This avoids neighbourhood artifacts
+    # where Municipality can be a district ("Brickell") rather than the city ("Miami").
+    # label forms: "City, ST, USA" / "District, City, ST, USA" / "Street, City, ST, USA"
+    parts = [p.strip() for p in label.split(",")]
     state_abbr = ""
-    if name and label:
-        parts = [p.strip() for p in label.split(",")]
-        # label: "City, ST, USA" or "City, Region, Country"
-        if len(parts) >= 3 and len(parts[-2]) == 2:
-            state_abbr = parts[-2]
+    city_from_label = ""
+    for i in range(len(parts) - 1, 0, -1):
+        part = parts[i]
+        if len(part) == 2 and part.isalpha() and part.isupper():
+            state_abbr = part
+            candidate = parts[i - 1]
+            # Skip if street number (starts with digit); fall back to municipality/sub_region
+            if candidate and not candidate[0].isdigit():
+                city_from_label = candidate
+            break
+
+    # Preference: city extracted from label > Municipality > SubRegion (strip county suffix)
+    name = city_from_label or municipality
+    if not name and sub_region:
+        name = sub_region.replace(" County", "").replace(" Parish", "").strip()
 
     result = f"{name}, {state_abbr}" if (name and state_abbr) else name or ""
 
@@ -1196,6 +1208,13 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
         return None
 
     cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
+    # Side-cache sub_region-derived city for origin exclusion (same key as Nominatim
+    # county cache) so _get_nominatim_county_city() works on both backends.
+    if sub_region and state_abbr and name:
+        _sr = sub_region.replace(" County", "").replace(" Parish", "").strip()
+        if _sr and _sr != name:
+            cache.set(f"nominatim_county|{lat:.3f}|{lon:.3f}",
+                      f"{_sr}, {state_abbr}", ttl_seconds=_GEO_CACHE_TTL)
     return result
 
 
@@ -1530,10 +1549,12 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _exclude: set[str] = set()
     if _origin_settlement and _origin_settlement != _OVER_WATER:
         _exclude.add(_origin_settlement)
-        if _use_overpass:
-            _county_city = _get_nominatim_county_city(lat, lon)
-            if _county_city:
-                _exclude.add(_county_city)
+        # Add sub-region/county-derived city to catch mismatches where the origin
+        # reverse-geocodes to a different granularity than nearby candidates.
+        # _settlement() side-populates nominatim_county|... for both backends.
+        _county_city = _get_nominatim_county_city(lat, lon)
+        if _county_city:
+            _exclude.add(_county_city)
 
     # Load PAD-US H3 index once per search (US searches only — PAD-US is US-only data).
     # Candidates are already land-filtered by _extract_dark_sky_candidates(_glm.is_land()),
