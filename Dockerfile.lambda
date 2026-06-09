@@ -13,7 +13,8 @@ ENV PYTHONUNBUFFERED=1 \
     AWS_LWA_READINESS_CHECK_PATH=/healthz \
     PYNIGHTSKY_BACKEND=local
 
-RUN dnf install -y python3.13 python3.13-pip \
+RUN dnf upgrade -y \
+    && dnf install -y python3.13 python3.13-pip \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 RUN python3.13 -m venv /venv
