@@ -27,6 +27,11 @@ This project was developed with substantial assistance from:
 - **Overpass API**: OpenStreetMap query API used to fetch named protected and natural areas (national parks, wilderness areas, nature reserves) for the `--show-nearby` feature
   - https://overpass-api.de/
   - Data © OpenStreetMap contributors, licensed under ODbL
+- **PAD-US 4.1 (Protected Areas Database of the United States)**: U.S. Geological Survey (USGS) national inventory of protected and conserved lands, used to build the DarkHours public-lands spatial index (`darkhours_padus_h3.parquet`)
+  - Published by: U.S. Geological Survey Gap Analysis Project
+  - Version: 4.1 (2023)
+  - https://www.sciencebase.gov/catalog/item/652d4fc5d34e44db0e2ee45e
+  - License: Public Domain (U.S. Government work — no restrictions on use)
 
 ### Astronomical Data
 - **JPL Ephemeris (DE421)**: NASA Jet Propulsion Laboratory
@@ -40,6 +45,10 @@ This project was developed with substantial assistance from:
 - **geopy** - Geocoding library (MIT License)
 - **timezonefinder** - Timezone lookups (MIT License)
 - **rasterio** - GeoTIFF raster I/O (BSD License)
+- **geopandas** - Geospatial data processing (BSD License) — build-time only
+- **h3** - Uber H3 hexagonal spatial indexing (Apache 2.0) — build-time only
+- **fiona** - OGR/GDAL vector I/O (BSD License) — build-time only
+- **pyarrow** - Apache Arrow columnar format / Parquet I/O (Apache 2.0) — build-time only
 
 ## License
 
