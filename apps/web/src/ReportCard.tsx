@@ -707,25 +707,28 @@ function NearbyResults({ data, imperial }: { data: NearbyResult; imperial: boole
         Origin: <span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtMi(radius_miles)} radius
       </p>
 
-      {/* 1. Show optimal sky message if Bortle 1 */}
-      {origin_bortle <= 1 && (
+      {/* 1. Note when already at Bortle 1 — results still shown below */}
+      {origin_bortle <= 1 && results.length > 0 && (
         <p className="sat-notice">
-          Already at Bortle {origin_bortle}{sqmStr}: you are at an optimal dark sky.
+          Already at Bortle {origin_bortle}{sqmStr} — showing other Bortle 1 sites within {fmtMi(radius_miles)}.
         </p>
       )}
 
-      {/* 2. Show empty state only if > Bortle 1 and no results */}
-      {origin_bortle > 1 && results.length === 0 && (
+      {/* 2. Empty state */}
+      {results.length === 0 && (
         <p className="sat-notice">
-          No significantly darker sky found within {fmtMi(radius_miles)}.
-          {best_available && (
+          {origin_bortle <= 1
+            ? `No other Bortle 1 sites found within ${fmtMi(radius_miles)}.`
+            : `No significantly darker sky found within ${fmtMi(radius_miles)}.`
+          }
+          {best_available && origin_bortle > 1 && (
             <> Closest darker spot: <span className={nearbyBortleClass(best_available.bortle_class)}>Bortle {best_available.bortle_class}</span>, {fmtMi(best_available.distance_miles)} {best_available.direction}{formatDriveTime(best_available.drive_minutes) ? ` · ${formatDriveTime(best_available.drive_minutes)} drive` : ''}{best_available.name ? ` (${best_available.name})` : ''}</>
           )}
         </p>
       )}
 
-      {/* 3. Show the table only if > Bortle 1 and we have results */}
-      {origin_bortle > 1 && results.length > 0 && (() => {
+      {/* 3. Results table */}
+      {results.length > 0 && (() => {
         const hasDrive = results.some(p => p.drive_minutes != null)
 
         // New Tiered Drive-Time Sort
