@@ -1128,6 +1128,13 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
         return None
 
     cache.set(cache_key, result, ttl_seconds=_GEO_CACHE_TTL)
+    # Side-cache county-derived city name so find_nearby() can broaden origin exclusions
+    # without a second API call.  e.g. origin=Culver City → also exclude "Los Angeles, CA".
+    if county_raw and state_abbr and name:
+        _cc = county_raw.replace(" County", "").replace(" Parish", "").strip()
+        if _cc and _cc != name:
+            cache.set(f"nominatim_county|{lat:.3f}|{lon:.3f}",
+                      f"{_cc}, {state_abbr}", ttl_seconds=_GEO_CACHE_TTL)
     return result
 
 
@@ -1197,6 +1204,11 @@ def _settlement(lat: float, lon: float) -> str | None:
     if ports.get_backend()._name == "aws":
         return _aws_location_settlement(lat, lon)
     return _nominatim_settlement(lat, lon)
+
+
+def _get_nominatim_county_city(lat: float, lon: float) -> "str | None":
+    """Return the county-derived city name cached by _nominatim_settlement(), or None."""
+    return cache.get(f"nominatim_county|{lat:.3f}|{lon:.3f}") or None
 
 
 # ---------------------------------------------------------------------------
@@ -1511,12 +1523,16 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
 
     # Resolve the origin's settlement name so it can be excluded from results —
     # there is no point surfacing a dark candidate named after the city you're in.
+    # Also exclude the county's principal city (e.g. "Los Angeles, CA" when searching
+    # from Culver City), populated as a free side-effect of _nominatim_settlement().
     _origin_settlement = _settlement(lat, lon)
-    _exclude = (
-        {_origin_settlement}
-        if _origin_settlement and _origin_settlement != _OVER_WATER
-        else set()
-    )
+    _exclude: set[str] = set()
+    if _origin_settlement and _origin_settlement != _OVER_WATER:
+        _exclude.add(_origin_settlement)
+        if _use_overpass:
+            _county_city = _get_nominatim_county_city(lat, lon)
+            if _county_city:
+                _exclude.add(_county_city)
 
     # Load PAD-US H3 index once per search (US searches only — PAD-US is US-only data).
     # Candidates are already land-filtered by _extract_dark_sky_candidates(_glm.is_land()),
