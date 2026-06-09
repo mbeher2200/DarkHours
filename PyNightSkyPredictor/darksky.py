@@ -24,6 +24,7 @@ SQM conversions
   Falchi : SQM = 22.08 − 2.5 × log10((La+0.252)/0.252)  (La in mcd/m²)
 """
 
+import contextlib
 import io
 import json
 import logging
@@ -31,6 +32,7 @@ import math
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import urllib.request
 import zipfile
@@ -456,6 +458,18 @@ _DIRS_16 = [
 
 _MAX_SEARCH_RADIUS  = 150   # beyond this the Overpass query grows unreliable and driving isn't practical
 
+# Tier-3 (Nominatim) spatial pre-dedup radius. A dark candidate within this many
+# miles of an already-named result is skipped without a network probe, because
+# adjacent dark pixels reverse-geocode to the same settlement. Matches the
+# long-standing _cluster_points default so it never collapses sites further apart
+# than the clustering stage already treats as distinct.
+_NAME_DEDUP_MILES = 8.0
+
+# Main public Overpass instance. The overpass.private.coffee mirror was tried but
+# is unreachable (connections hang to timeout); other community mirrors
+# (kumi.systems, openstreetmap.ru, mail.ru) also failed to respond, while
+# overpass-api.de answers the areas-in-radius query reliably (~7-8 s). Respect its
+# usage policy via the self-throttle below.
 _OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
 _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
 _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
@@ -465,7 +479,7 @@ _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
 _PADUS_H3_FILENAME = "darkhours_padus_h3.parquet"
 _PADUS_UNAVAILABLE = object()   # singleton: tried to load, file missing or unreadable
 _padus_h3_cache: "dict | object | None" = None  # None = not yet attempted
-_OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests
+_OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests (overpass-api.de policy)
 _NOMINATIM_SLEEP = 1.1               # minimum seconds between Nominatim requests
 
 # Thread-safe rate-limit state
@@ -484,6 +498,49 @@ _AREA_PRIORITY = {
 }
 
 
+# Reverse-geocode fan-out width for backends with no per-second policy (AWS Location).
+# Each find_nearby on the aws backend issues at most this many concurrent geocode
+# calls; keep it modest so aggregate TPS across concurrent worker Lambdas stays under
+# the SearchPlaceIndexForPosition service quota (default ~50 req/s, raisable).
+_GEOCODE_MAX_WORKERS = int(os.environ.get("PYNIGHTSKY_GEOCODE_WORKERS", "8"))
+
+# Shared boto3 'location' client (built once per process, reused across calls and
+# threads). Rebuilding it per call reloads the service model and discards the HTTP
+# connection pool — paying a fresh TLS handshake every request. botocore low-level
+# clients are thread-safe for calls, so a single pooled client backs the parallel
+# reverse-geocode fan-out. Double-checked locking guards the one-time construction.
+_location_client = None
+_location_client_lock = threading.Lock()
+
+
+def _location():
+    """Return the process-wide AWS Location client, building it lazily once."""
+    global _location_client
+    if _location_client is None:
+        with _location_client_lock:
+            if _location_client is None:
+                import boto3
+                from botocore.config import Config
+                region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+                _location_client = boto3.client(
+                    "location",
+                    region_name=region,
+                    # Pool ≥ fan-out width so parallel calls don't queue on connections;
+                    # adaptive retries absorb ThrottlingException near the TPS quota.
+                    config=Config(
+                        max_pool_connections=max(_GEOCODE_MAX_WORKERS + 2, 10),
+                        retries={"max_attempts": 5, "mode": "adaptive"},
+                    ),
+                )
+    return _location_client
+
+
+def _reset_location_client() -> None:
+    """Drop the cached AWS Location client (used by tests, mirrors ports.reset_backend)."""
+    global _location_client
+    _location_client = None
+
+
 def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> None:
     """Annotate each cluster dict with drive_minutes (int | None) via AWS Location route matrix.
 
@@ -492,10 +549,9 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     """
     if not clusters:
         return
-    import boto3
     calc_name = os.environ.get("PYNIGHTSKY_ROUTE_CALCULATOR", "pynightsky-route-calculator")
     try:
-        client = boto3.client("location")
+        client = _location()
         resp = client.calculate_route_matrix(
             CalculatorName=calc_name,
             DeparturePositions=[[origin_lon, origin_lat]],
@@ -1146,8 +1202,6 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
     _OVER_WATER sentinel / None.  Results are cached identically so the
     two implementations are interchangeable.
     """
-    import boto3
-
     cache_key = f"nominatim_rev|{lat:.3f}|{lon:.3f}"   # reuse same cache namespace
     cached = cache.get(cache_key)
     if cached is not None:
@@ -1155,7 +1209,7 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
 
     index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
     try:
-        client = boto3.client("location")
+        client = _location()
         resp = client.search_place_index_for_position(
             IndexName=index_name,
             Position=[lon, lat],        # AWS expects [lon, lat]
@@ -1325,6 +1379,79 @@ def _is_in_us(lat: float, lon: float) -> bool:
     return (18.0 <= lat <= 72.0) and (-180.0 <= lon <= -66.0)
 
 
+def _offline_tier_name(
+    c: dict,
+    padus_index: "dict | None",
+    natural_areas: "list | None",
+) -> "tuple[str, str | None]":
+    """Resolve the offline naming tiers (1 PAD-US, 2 Overpass) for one candidate.
+
+    Returns one of:
+      ("discard", None) — PAD-US blacklisted cell (military/tribal/restricted land).
+      ("name", str)     — named by PAD-US (good Unit_Nm) or an Overpass area match.
+      ("tier3", None)   — needs the network reverse-geocoder (Tier 3).
+
+    No I/O beyond the in-memory PAD-US index and Overpass area list, so it is cheap
+    to call twice (prefetch planning + the main loop).
+    """
+    lat, lon = c["lat"], c["lon"]
+    padus_verified = False
+    if padus_index is not None:
+        try:
+            hit = _padus_h3_lookup(lat, lon, padus_index)
+            if hit is not None:
+                unit_nm, is_blacklisted = hit
+                if is_blacklisted:
+                    return ("discard", None)  # hard stop: restricted land
+                padus_verified = True
+                if _is_good_padus_name(unit_nm):
+                    return ("name", unit_nm)  # optimal hit: no network needed
+        except Exception as exc:
+            log.debug("PAD-US H3 lookup failed (%.4f, %.4f): %s", lat, lon, exc)
+            # treat as miss → fall through to Tier 2
+    # Tier 2 only when PAD-US had no polygon hit; never discard on an Overpass miss.
+    if not padus_verified and natural_areas:
+        nm = _best_area_name_for_cluster(lat, lon, natural_areas)
+        if nm:
+            return ("name", nm)
+    return ("tier3", None)
+
+
+def _parallel_prefetch_settlements(
+    candidates: list,
+    padus_index: "dict | None",
+    natural_areas: "list | None",
+) -> dict:
+    """Concurrently reverse-geocode the spatially-distinct Tier-3 candidates.
+
+    Used only on backends with no per-second policy (AWS Location). Candidates that
+    Tiers 1-2 already name or discard are excluded; the remainder are clustered at
+    _NAME_DEDUP_MILES so only one representative per ~8 mi area is fetched (mirroring
+    the serial path's spatial dedup), and those reps are geocoded in parallel.
+
+    Returns {(round(lat,3), round(lon,3)): settlement_result}, where the value is
+    whatever _settlement returned (a name / "" / None / _OVER_WATER). The main loop
+    reads names from this map instead of issuing the calls serially.
+    """
+    need = [c for c in candidates
+            if _offline_tier_name(c, padus_index, natural_areas)[0] == "tier3"]
+    if not need:
+        return {}
+    reps = _cluster_points(need, merge_miles=_NAME_DEDUP_MILES)
+    out: dict = {}
+    workers = min(_GEOCODE_MAX_WORKERS, len(reps))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_settlement, c["lat"], c["lon"]): c for c in reps}
+        for fut in futures:
+            c = futures[fut]
+            try:
+                out[(round(c["lat"], 3), round(c["lon"], 3))] = fut.result()
+            except Exception as exc:
+                log.debug("parallel settlement failed (%.4f, %.4f): %s",
+                          c["lat"], c["lon"], exc)
+    return out
+
+
 def _jit_geocode_candidates(
     candidates: list,
     max_results: int,
@@ -1333,60 +1460,60 @@ def _jit_geocode_candidates(
     padus_index: "dict | None" = None,
     exclude: "set[str] | None" = None,
 ) -> list:
-    """Reverse-geocode candidates one-at-a-time using a three-tier strategy.
+    """Reverse-geocode candidates with a three-tier naming strategy.
 
     Tier 1 — PAD-US H3 spatial index (when padus_index is not None):
       Blacklisted cell      → candidate discarded (military/tribal/restricted).
       Non-blacklisted + good Unit_Nm → name used; Overpass and _settlement() skipped.
       Non-blacklisted + junk Unit_Nm → PAD-US-verified; falls to Tier 3 for naming.
       No PAD-US cell hit    → falls to Tier 2.
-      Exception             → logged; candidate treated as a PAD-US miss.
 
-    Tier 2 — Overpass natural areas (for naming only, not gating):
-      Only reached when PAD-US had no polygon hit (padus_verified still False).
-      Skipped entirely when PAD-US found a polygon (the land is already verified).
-      Match found   → use Overpass area name directly.
-      No match      → fall through to Tier 3 (never discard on Overpass miss).
+    Tier 2 — Overpass natural areas (naming only, not gating):
+      Reached only when PAD-US had no polygon hit. Match → use the area name;
+      no match → fall through to Tier 3 (never discard on an Overpass miss).
 
     Tier 3 — Reverse geocoder (_settlement):
-      Called when name is still None after Tier 1/2.
-      _OVER_WATER → candidate discarded. None → coordinate fallback used.
+      Reached when Tiers 1-2 produced no name. _OVER_WATER → candidate discarded;
+      None → coordinate fallback used.
 
-    Dedup by name: each unique name appears at most once regardless of distance.
-    max_results cap unchanged.
+    Concurrency: the public Nominatim instance (local backend) forbids parallel/bulk
+    access, so it keeps the lazy serial path. On the aws backend (AWS Location, no
+    per-second policy) the Tier-3 calls are prefetched in parallel up front and the
+    loop reads names from memory — see _parallel_prefetch_settlements.
+
+    Dedup: each unique name appears at most once. Tier-3 candidates also get a spatial
+    pre-dedup (see _NAME_DEDUP_MILES) that skips a candidate adjacent to an
+    already-named result. max_results cap unchanged.
     """
     seen_keys: set[str] = set(exclude) if exclude else set()
     dark_clusters: list = []
+    kept_coords: list[tuple[float, float]] = []   # (lat, lon) of accepted results
+
+    # On backends with no per-second policy (AWS Location), fetch the Tier-3 names
+    # concurrently so the loop below resolves them from memory instead of one serial
+    # network round-trip per candidate. Empty on the local/Nominatim backend.
+    prefetch = (_parallel_prefetch_settlements(candidates, padus_index, natural_areas)
+                if ports.get_backend()._name == "aws" else {})
+
     for c in candidates:
         lat, lon = c["lat"], c["lon"]
-        name: str | None = None
-        padus_verified = False
+        kind, name = _offline_tier_name(c, padus_index, natural_areas)
+        if kind == "discard":
+            continue  # PAD-US blacklist: military/tribal/restricted land
 
-        # ── Tier 1: PAD-US H3 spatial index ──────────────────────────────────
-        if padus_index is not None:
-            try:
-                hit = _padus_h3_lookup(lat, lon, padus_index)
-                if hit is not None:
-                    unit_nm, is_blacklisted = hit
-                    if is_blacklisted:
-                        continue  # hard stop: military/tribal/restricted land
-                    padus_verified = True
-                    if _is_good_padus_name(unit_nm):
-                        name = unit_nm  # optimal hit: skip all network calls
-            except Exception as exc:
-                log.debug("PAD-US H3 lookup failed (%.4f, %.4f): %s", lat, lon, exc)
-                # treat as miss → fall through to Tier 2
-
-        # ── Tier 2: Overpass natural areas (naming only, not gating) ─────────
-        # Reached only when PAD-US had no hit (padus_verified still False).
-        # Skipped entirely when PAD-US found a polygon (land already verified).
-        # No match → fall through to Tier 3; never discard on Overpass miss.
-        if name is None and not padus_verified and natural_areas:
-            name = _best_area_name_for_cluster(lat, lon, natural_areas)
-
-        # ── Tier 3: Reverse geocoder ──────────────────────────────────────────
-        if name is None:
-            name = _settlement(lat, lon)
+        if kind == "tier3":
+            # Spatial pre-dedup: skip when within _NAME_DEDUP_MILES of an already-kept
+            # result — adjacent dark pixels reverse-geocode to the same settlement, so
+            # probing them only yields a duplicate name. Profiling a Phoenix search
+            # found 36 of 43 probes were such duplicates (median 5.3 mi from their kept
+            # twin), the single largest contributor to find_nearby latency.
+            if any(_haversine_miles(lat, lon, klat, klon) <= _NAME_DEDUP_MILES
+                   for klat, klon in kept_coords):
+                continue
+            key = (round(lat, 3), round(lon, 3))
+            # Prefetched on aws; otherwise (local, or a non-representative pixel whose
+            # rep was dropped) fall back to a single direct call.
+            name = prefetch[key] if key in prefetch else _settlement(lat, lon)
             if name == _OVER_WATER:
                 continue
             if not name:
@@ -1398,9 +1525,59 @@ def _jit_geocode_candidates(
         seen_keys.add(name)
         c["name"] = name
         dark_clusters.append(c)
+        kept_coords.append((lat, lon))
         if len(dark_clusters) == max_results:
             break
     return dark_clusters
+
+
+# ---------------------------------------------------------------------------
+# find_nearby profiling (opt-in via PYNIGHTSKY_PROFILE=1)
+# ---------------------------------------------------------------------------
+# find_nearby has three very different cost centres — disk-bound raster window
+# reads, CPU-bound numpy/scipy passes, and network-bound reverse-geocoding whose
+# cost is dominated by cache misses (each Nominatim miss waits _NOMINATIM_SLEEP).
+# The profiler attributes wall-clock time to each phase and pairs it with the
+# cache hit/miss delta so a slow run can be diagnosed as "cold cache" vs "slow
+# I/O" vs "CPU". Disabled by default → the phase() context manager is a no-op.
+
+_PROFILE = os.environ.get("PYNIGHTSKY_PROFILE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+class _Profiler:
+    """Accumulate per-phase wall-clock timings. Near-zero cost when disabled."""
+
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self.timings: list[tuple[str, float]] = []
+        self._cache_start = (0, 0)
+        if enabled:
+            self._cache_start = cache.stats.snapshot()
+
+    @contextlib.contextmanager
+    def phase(self, name: str):
+        if not self.enabled:
+            yield
+            return
+        h0, m0 = cache.stats.snapshot()
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            dt = (time.perf_counter() - t0) * 1000.0
+            h1, m1 = cache.stats.snapshot()
+            self.timings.append((name, dt))
+            log.info("[profile] %-26s %8.1f ms  (cache +%dh/+%dm)",
+                     name, dt, h1 - h0, m1 - m0)
+
+    def report(self) -> None:
+        if not self.enabled:
+            return
+        total = sum(dt for _, dt in self.timings)
+        h, m = cache.stats.snapshot()
+        dh, dm = h - self._cache_start[0], m - self._cache_start[1]
+        log.info("[profile] %-26s %8.1f ms  (cache %dh/%dm this call)",
+                 "TOTAL (sum of phases)", total, dh, dm)
 
 
 def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
@@ -1424,7 +1601,9 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
 
     Returns None if light pollution data is unavailable (rasterio not installed).
     """
-    origin_info = lookup(lat, lon)
+    prof = _Profiler(_PROFILE)
+    with prof.phase("origin lookup"):
+        origin_info = lookup(lat, lon)
     if origin_info is None:
         return None
 
@@ -1447,18 +1626,21 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _min_lon, _max_lon = lon - _deg_lon, lon + _deg_lon
 
     # ── Single window read per raster dataset ─────────────────────────────────
-    viirs_arr  = _load_raster_window("viirs",  _min_lat, _max_lat, _min_lon, _max_lon)
-    falchi_arr = _load_raster_window(
-        "falchi", _min_lat, _max_lat, _min_lon, _max_lon,
-        out_shape=viirs_arr.shape if viirs_arr is not None else None,
-    )
+    with prof.phase("viirs window read"):
+        viirs_arr  = _load_raster_window("viirs",  _min_lat, _max_lat, _min_lon, _max_lon)
+    with prof.phase("falchi window read"):
+        falchi_arr = _load_raster_window(
+            "falchi", _min_lat, _max_lat, _min_lon, _max_lon,
+            out_shape=viirs_arr.shape if viirs_arr is not None else None,
+        )
 
     # ── Dark-sky candidates (pure numpy, no scipy required) ───────────────────
-    dark_candidates = _extract_dark_sky_candidates(
-        viirs_arr, falchi_arr,
-        _min_lat, _max_lat, _min_lon, _max_lon,
-        lat, lon, radius_miles, dark_threshold,
-    )
+    with prof.phase("extract dark candidates"):
+        dark_candidates = _extract_dark_sky_candidates(
+            viirs_arr, falchi_arr,
+            _min_lat, _max_lat, _min_lon, _max_lon,
+            lat, lon, radius_miles, dark_threshold,
+        )
 
     # all_darker: any pixel darker than origin — used only for best_available
     # when no proper dark clusters are found.  Computed lazily to avoid
@@ -1471,53 +1653,55 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _N_BANDS     = 6     # distance bands used in both extract and cluster selection
 
     # Calculate priority: Bortle 1/2 are "MUST HAVES" (boosted), 3+ are distance-based
-    for pt in dark_candidates:
-        if pt["bortle_class"] <= 2:
-            pt["priority_score"] = pt["distance_miles"] * (radius_miles * 0.25)
-        else:
-            pt["priority_score"] = pt["distance_miles"]
+    with prof.phase("cluster + band select"):
+        for pt in dark_candidates:
+            if pt["bortle_class"] <= 2:
+                pt["priority_score"] = pt["distance_miles"] * (radius_miles * 0.25)
+            else:
+                pt["priority_score"] = pt["distance_miles"]
 
-    dark_candidates.sort(key=lambda p: p["priority_score"])
+        dark_candidates.sort(key=lambda p: p["priority_score"])
 
-    # Cluster spatially (pure CPU) to collapse adjacent pixels into geographic areas.
-    # Then select clusters via stratified distance sampling: take up to _PER_BAND
-    # clusters per distance band (darkest/nearest first within each band).
-    # Without stratification, a nearest-first cap silently drops all distant
-    # dark areas when the entire search radius is one Bortle class (e.g. Bortle 1).
-    _per_band    = max(1, _MAX_DARK_CANDIDATES // _N_BANDS)
-    _band_width  = radius_miles / _N_BANDS
-    all_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
-    selected: list = []
-    for _band in range(_N_BANDS):
-        _lo, _hi = _band * _band_width, (_band + 1) * _band_width
-        _band_clusters = sorted(
-            [c for c in all_clusters if _lo <= c["distance_miles"] < _hi],
-            key=lambda c: (c["bortle_class"], c["distance_miles"]),
-        )[:_per_band]
-        selected.extend(_band_clusters)
-    dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
+        # Cluster spatially (pure CPU) to collapse adjacent pixels into geographic areas.
+        # Then select clusters via stratified distance sampling: take up to _PER_BAND
+        # clusters per distance band (darkest/nearest first within each band).
+        # Without stratification, a nearest-first cap silently drops all distant
+        # dark areas when the entire search radius is one Bortle class (e.g. Bortle 1).
+        _per_band    = max(1, _MAX_DARK_CANDIDATES // _N_BANDS)
+        _band_width  = radius_miles / _N_BANDS
+        all_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
+        selected: list = []
+        for _band in range(_N_BANDS):
+            _lo, _hi = _band * _band_width, (_band + 1) * _band_width
+            _band_clusters = sorted(
+                [c for c in all_clusters if _lo <= c["distance_miles"] < _hi],
+                key=lambda c: (c["bortle_class"], c["distance_miles"]),
+            )[:_per_band]
+            selected.extend(_band_clusters)
+        dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
 
     # ── Light dome candidates (scipy blob detection on the same viirs_arr) ─────
     dome_clusters = []
-    if _HAS_SCIPY and viirs_arr is not None:
-        raw_domes = _find_light_domes_from_array(
-            viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
-            tier_min_bortle=8,
-        )
-        for dlat, dlon, dbortle in raw_domes:
-            dist  = _haversine_miles(lat, lon, dlat, dlon)
-            if dist < 5:
-                continue
-            if dbortle > origin_bortle and dbortle >= min(origin_bortle + 2, 10):
-                dome_clusters.append({
-                    "lat":            dlat,
-                    "lon":            dlon,
-                    "bortle_class":   dbortle,
-                    "sqm":            None,
-                    "distance_miles": round(dist, 1),
-                    "direction":      _bearing_label(lat, lon, dlat, dlon),
-                    "name":           None,
-                })
+    with prof.phase("light dome detection"):
+        if _HAS_SCIPY and viirs_arr is not None:
+            raw_domes = _find_light_domes_from_array(
+                viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
+                tier_min_bortle=8,
+            )
+            for dlat, dlon, dbortle in raw_domes:
+                dist  = _haversine_miles(lat, lon, dlat, dlon)
+                if dist < 5:
+                    continue
+                if dbortle > origin_bortle and dbortle >= min(origin_bortle + 2, 10):
+                    dome_clusters.append({
+                        "lat":            dlat,
+                        "lon":            dlon,
+                        "bortle_class":   dbortle,
+                        "sqm":            None,
+                        "distance_miles": round(dist, 1),
+                        "direction":      _bearing_label(lat, lon, dlat, dlon),
+                        "name":           None,
+                    })
 
     # Take 2× the display limit so dedup has buffer to fill _MAX_DOMES unique names.
     dome_clusters = sorted(dome_clusters, key=lambda p: (-p["bortle_class"], p["distance_miles"]))[:_MAX_DOMES * 2]
@@ -1528,38 +1712,41 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
 
     best_available = None
     best_candidate = None
-    if not dark_candidates and origin_bortle > 1:
-        # Lazy: only run the second numpy pass when there are no proper dark clusters.
-        # Uses a looser threshold (anything darker than origin) to find a fallback.
-        all_darker = _extract_dark_sky_candidates(
-            viirs_arr, falchi_arr,
-            _min_lat, _max_lat, _min_lon, _max_lon,
-            lat, lon, radius_miles, dark_threshold=origin_bortle - 1,
-        )
-    if all_darker:
-        best_candidate = sorted(
-            all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
-        )[0]
+    with prof.phase("best-available numpy pass"):
+        if not dark_candidates and origin_bortle > 1:
+            # Lazy: only run the second numpy pass when there are no proper dark clusters.
+            # Uses a looser threshold (anything darker than origin) to find a fallback.
+            all_darker = _extract_dark_sky_candidates(
+                viirs_arr, falchi_arr,
+                _min_lat, _max_lat, _min_lon, _max_lon,
+                lat, lon, radius_miles, dark_threshold=origin_bortle - 1,
+            )
+        if all_darker:
+            best_candidate = sorted(
+                all_darker, key=lambda p: (p["bortle_class"], p["distance_miles"])
+            )[0]
 
     # Resolve the origin's settlement name so it can be excluded from results —
     # there is no point surfacing a dark candidate named after the city you're in.
     # Also exclude the county's principal city (e.g. "Los Angeles, CA" when searching
     # from Culver City), populated as a free side-effect of _nominatim_settlement().
-    _origin_settlement = _settlement(lat, lon)
-    _exclude: set[str] = set()
-    if _origin_settlement and _origin_settlement != _OVER_WATER:
-        _exclude.add(_origin_settlement)
-        # Add sub-region/county-derived city to catch mismatches where the origin
-        # reverse-geocodes to a different granularity than nearby candidates.
-        # _settlement() side-populates nominatim_county|... for both backends.
-        _county_city = _get_nominatim_county_city(lat, lon)
-        if _county_city:
-            _exclude.add(_county_city)
+    with prof.phase("origin settlement"):
+        _origin_settlement = _settlement(lat, lon)
+        _exclude: set[str] = set()
+        if _origin_settlement and _origin_settlement != _OVER_WATER:
+            _exclude.add(_origin_settlement)
+            # Add sub-region/county-derived city to catch mismatches where the origin
+            # reverse-geocodes to a different granularity than nearby candidates.
+            # _settlement() side-populates nominatim_county|... for both backends.
+            _county_city = _get_nominatim_county_city(lat, lon)
+            if _county_city:
+                _exclude.add(_county_city)
 
     # Load PAD-US H3 index once per search (US searches only — PAD-US is US-only data).
     # Candidates are already land-filtered by _extract_dark_sky_candidates(_glm.is_land()),
     # so the PAD-US check here is the first spatial tier, not a water filter.
-    _padus_index = _load_padus_h3_index() if _is_in_us(lat, lon) else None
+    with prof.phase("padus index load"):
+        _padus_index = _load_padus_h3_index() if _is_in_us(lat, lon) else None
 
     # Fetch Overpass natural areas in background while dome naming runs.
     # One network call covers the entire search radius; all cluster matching
@@ -1574,64 +1761,71 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         areas_thread.start()
 
     # Name light domes (main thread — gives Overpass time to complete)
-    for dome in dome_clusters:
-        dome_name = _settlement(dome["lat"], dome["lon"])
-        dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
+    with prof.phase("dome naming (geocode)"):
+        for dome in dome_clusters:
+            dome_name = _settlement(dome["lat"], dome["lon"])
+            dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
 
-    # Deduplicate by name; list is sorted by (bortle desc, distance asc) so we keep
-    # the nearest occurrence of each city name.
-    _seen_dome_names: set[str] = set()
-    _deduped_domes: list = []
-    for dome in dome_clusters:
-        if dome["name"] not in _seen_dome_names:
-            _seen_dome_names.add(dome["name"])
-            _deduped_domes.append(dome)
-    dome_clusters = _deduped_domes[:_MAX_DOMES]
+        # Deduplicate by name; list is sorted by (bortle desc, distance asc) so we keep
+        # the nearest occurrence of each city name.
+        _seen_dome_names: set[str] = set()
+        _deduped_domes: list = []
+        for dome in dome_clusters:
+            if dome["name"] not in _seen_dome_names:
+                _seen_dome_names.add(dome["name"])
+                _deduped_domes.append(dome)
+        dome_clusters = _deduped_domes[:_MAX_DOMES]
 
     if _use_overpass:
-        areas_thread.join(timeout=_OVERPASS_JOIN_TIMEOUT_S)
-        if areas_thread.is_alive():
-            log.warning("Overpass join timed out after %ss; falling back to geocoding only",
-                        _OVERPASS_JOIN_TIMEOUT_S)
+        with prof.phase("overpass join (net)"):
+            areas_thread.join(timeout=_OVERPASS_JOIN_TIMEOUT_S)
+            if areas_thread.is_alive():
+                log.warning("Overpass join timed out after %ss; falling back to geocoding only",
+                            _OVERPASS_JOIN_TIMEOUT_S)
 
     # 1. Name the best_candidate separately if it exists
     if best_candidate:
-        name = _best_area_name_for_cluster(best_candidate["lat"], best_candidate["lon"], natural_areas) or \
-               _settlement(best_candidate["lat"], best_candidate["lon"])
-        best_candidate["name"] = None if name == _OVER_WATER else (name or f"{best_candidate['lat']:.2f}°, {best_candidate['lon']:.2f}°")
-        if best_candidate["name"] is not None:
-            best_available = best_candidate
+        with prof.phase("best-candidate naming"):
+            name = _best_area_name_for_cluster(best_candidate["lat"], best_candidate["lon"], natural_areas) or \
+                   _settlement(best_candidate["lat"], best_candidate["lon"])
+            best_candidate["name"] = None if name == _OVER_WATER else (name or f"{best_candidate['lat']:.2f}°, {best_candidate['lon']:.2f}°")
+            if best_candidate["name"] is not None:
+                best_available = best_candidate
 
     # 2. JIT: geocode and deduplicate dark candidates, stop at _MAX_RESULTS
     # Pass natural_areas=None (not []) when Overpass is disabled so the Tier 2 discard
     # gate is bypassed — an empty list would incorrectly discard all non-PAD-US candidates
     # on the AWS backend where Overpass is not used.
-    dark_clusters = _jit_geocode_candidates(
-        dark_candidates, _MAX_RESULTS,
-        natural_areas if _use_overpass else None,
-        padus_index=_padus_index,
-        exclude=_exclude,
-    )
+    with prof.phase("jit geocode candidates"):
+        dark_clusters = _jit_geocode_candidates(
+            dark_candidates, _MAX_RESULTS,
+            natural_areas if _use_overpass else None,
+            padus_index=_padus_index,
+            exclude=_exclude,
+        )
 
     if best_candidate is not None:
         best_available = best_candidate
 
     # Drive-time annotation (AWS backend only)
-    needs_drive = dark_clusters + ([best_available] if best_available else [])
-    if ports.get_backend()._name == "aws":
-        _aws_drive_times(lat, lon, needs_drive)
+    with prof.phase("drive times (aws)"):
+        needs_drive = dark_clusters + ([best_available] if best_available else [])
+        if ports.get_backend()._name == "aws":
+            _aws_drive_times(lat, lon, needs_drive)
 
-        # Sky quality first; drive time is only a tie-breaker for identical bortle_class
-        needs_drive.sort(key=lambda c: (
-            c["bortle_class"],
-            c["drive_minutes"] if c["drive_minutes"] is not None else 999,
-        ))
-        # Re-assign back to dark_clusters (excluding the best_available)
-        dark_clusters = needs_drive[:len(dark_clusters)]
-    else:
-        # Keep existing distance-based sort for local backend
-        for c in needs_drive:
-            c["drive_minutes"] = None
+            # Sky quality first; drive time is only a tie-breaker for identical bortle_class
+            needs_drive.sort(key=lambda c: (
+                c["bortle_class"],
+                c["drive_minutes"] if c["drive_minutes"] is not None else 999,
+            ))
+            # Re-assign back to dark_clusters (excluding the best_available)
+            dark_clusters = needs_drive[:len(dark_clusters)]
+        else:
+            # Keep existing distance-based sort for local backend
+            for c in needs_drive:
+                c["drive_minutes"] = None
+
+    prof.report()
 
     # --- CHANGED: has_dark_sky logic ---
     return {
