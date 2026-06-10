@@ -277,12 +277,20 @@ class _CacheStats:
 
 stats = _CacheStats()
 
+# Diagnostic bypass: when PYNIGHTSKY_NO_CACHE is set, every get() misses and every
+# set() is a no-op — the engine runs as if the cache were permanently empty (and
+# touches no backing store). Used for uncached profiling runs; off in normal operation.
+_NO_CACHE = os.environ.get("PYNIGHTSKY_NO_CACHE", "").strip().lower() in ("1", "true", "yes", "on")
+
 
 # ── Module-level API (delegates to the active backend) ──────────────────────
 # Callers use cache.get(...) / cache.set(...) etc.; these thin wrappers keep that
 # surface stable while the underlying store is backend-selected via ports.
 
 def get(key: str):
+    if _NO_CACHE:
+        stats.misses += 1
+        return None
     value = ports.get_backend().cache.get(key)
     if value is None:
         stats.misses += 1
@@ -296,6 +304,8 @@ def get_stale(key: str):
 
 
 def set(key: str, value, ttl_seconds: int | None = None) -> None:
+    if _NO_CACHE:
+        return
     ports.get_backend().cache.set(key, value, ttl_seconds)
 
 
