@@ -104,8 +104,50 @@ Live connectivity for every provider is covered by `tests/test_provider_smoke.py
 7. Request an AWS Location TPS quota increase before scaling parallel geocode widely
    (~50 req/s account default; adaptive retries already cushion bursts).
 
+## Benchmark log
+
+One variable at a time; numbers kept for later reference.
+
+### Tier 1 · Item 2 — PAD-US index: dict build → columnar uint64 + binary search (2026-06-09)
+
+The cold load built a ~1.37M-entry Python dict from string-keyed parquet
+(`to_pylist` ×3 → `dict(zip(...))`). Replaced with a sorted `uint64` cell array +
+parallel name/blacklist arrays, looked up via `np.searchsorted`; names stay in Arrow
+and are materialised only on a hit. Parquet regenerated to uint64-sorted (build +
+`scripts/migrate_padus_uint64.py`).
+
+Local benchmark (`scripts/bench_padus_load.py`, 5 cold iters, M-series laptop):
+
+| Metric | Before (dict) | After (columnar) |
+|---|---:|---:|
+| Index load, median | **1787.7 ms** | **53.7 ms** (~33× faster) |
+| Index load, min | 1645.0 ms | 52.5 ms |
+| Lookup | 0.85 µs/pt | 2.54 µs/pt (≈0.3 ms total per search — negligible) |
+| Parquet size | 10.6 MB | 3.5 MB |
+| Correctness | — | 0 mismatches over 50,006 checks ✅ |
+
+**In-region confirmation** (throwaway worker, x86_64/2 GB — same config as the baseline,
+so only the index-load variable changed). Cold `padus index load`, 4 samples:
+
+| Cold sample | padus index load |
+|---|---:|
+| 1 — first-ever container | 17178 ms (one-time Lambda image lazy-load tax) |
+| 2 | 463.8 ms |
+| 3 | 454.9 ms |
+| 4 | 424.4 ms |
+
+Steady cold-container load **≈ 450 ms, down from the baseline 15–24 s (~35×)** — matches
+the laptop ratio. The first container after a fresh image deploy still pays a one-time
+~17 s image-load tax (Lambda fetches/decompresses layers on first touch; the old build
+paid this *plus* its dict build). Residual fix for that tax if ever needed: provisioned
+concurrency. Tests: 390 passed. This likely makes Tier 2 item 3 (regional subset) unnecessary.
+
+Not yet benchmarked: Item 1 (memory bump) — deferred (single-threaded load already has
+≥1 vCPU at 2 GB, so it won't help this phase; revisit for Init + dome detection).
+
 ## Reproduce
 
+- `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against` for correctness).
 - `scripts/profile_find_nearby.py` — per-phase profile across cities (warm + `--cold`).
 - `scripts/diag_geocode_waste.py` — classify reverse-geocode probes (kept/duplicate/water).
 - `scripts/profile_parallel_geocode.py` — offline serial-vs-parallel A/B (stubbed latency).

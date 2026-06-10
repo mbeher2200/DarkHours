@@ -149,9 +149,16 @@ def build_index() -> None:
     print(f"  {len(df):,} unique H3 cells after deduplication")
     print(f"  Blacklisted cells: {int(df['is_blacklisted'].sum()):,}  |  Viable: {int((~df['is_blacklisted']).sum()):,}")
 
+    # --- Encode H3 cells as sorted uint64 ---
+    # The runtime loader (darksky._load_padus_h3_index) reads h3_cell as a numpy
+    # uint64 array and binary-searches it, so store cells as uint64 sorted ascending
+    # — avoids a ~1.4M-object Python dict build on every Lambda cold start.
+    df["h3_cell"] = df["h3_cell"].map(h3.str_to_int).astype("uint64")
+    df = df.sort_values("h3_cell").reset_index(drop=True)
+
     # --- Write output ---
     os.makedirs(OUT_DIR, exist_ok=True)
-    df.to_parquet(OUT_FILE, engine="pyarrow", compression="snappy", index=False)
+    df.to_parquet(OUT_FILE, engine="pyarrow", compression="zstd", index=False)
     size_mb = os.path.getsize(OUT_FILE) / (1024 * 1024)
     print(f"\n  Saved → {OUT_FILE}  ({size_mb:.1f} MB)")
     print(f"  Columns: {df.columns.tolist()}")

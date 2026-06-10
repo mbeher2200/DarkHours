@@ -1303,11 +1303,28 @@ def _padus_h3_path() -> "Path | None":
     return None
 
 
-def _load_padus_h3_index() -> "dict[str, tuple[str, bool]] | None":
-    """Lazy-load the PAD-US H3 index once per process; return cached dict thereafter.
+class _PadusIndex:
+    """Columnar PAD-US H3 index: a sorted uint64 cell array plus parallel name and
+    blacklist arrays. Replaces a ~1.4M-entry Python dict — the dict build dominated
+    worker cold starts (~1.8 s locally, 5-24 s on Lambda's throttled vCPU). Lookups
+    binary-search the cell array (see _padus_h3_lookup); names stay as an Arrow array
+    and are materialised one element at a time, only on a hit."""
 
-    Returns None (and caches that failure) if h3 is not installed, the parquet
-    file is missing, or the read fails — callers degrade gracefully to Tier 2/3.
+    __slots__ = ("cells", "names", "blacklist")
+
+    def __init__(self, cells, names, blacklist):
+        self.cells = cells          # np.ndarray[uint64], ascending
+        self.names = names          # pyarrow Array (large_string), aligned to cells
+        self.blacklist = blacklist  # np.ndarray[bool], aligned to cells
+
+
+def _load_padus_h3_index() -> "_PadusIndex | None":
+    """Lazy-load the PAD-US H3 index once per process; return the cached index after.
+
+    The index is columnar (see _PadusIndex), so loading is a parquet read into numpy
+    arrays rather than a ~1.4M-object Python dict build. Returns None (and caches that
+    failure) if h3/numpy/pyarrow is unavailable, the parquet is missing, or the read
+    fails — callers degrade gracefully to Tier 2/3.
     """
     global _padus_h3_cache
     if _padus_h3_cache is _PADUS_UNAVAILABLE:
@@ -1326,13 +1343,23 @@ def _load_padus_h3_index() -> "dict[str, tuple[str, bool]] | None":
         return None
 
     try:
+        import numpy as np
         import pyarrow.parquet as pq
         tbl = pq.read_table(str(path), columns=["h3_cell", "Unit_Nm", "is_blacklisted"])
-        cells      = tbl.column("h3_cell").to_pylist()
-        unit_names = tbl.column("Unit_Nm").to_pylist()
-        blacklists = tbl.column("is_blacklisted").to_pylist()
-        _padus_h3_cache = dict(zip(cells, zip(unit_names, blacklists)))
-        log.debug("PAD-US H3 index loaded: %d cells.", len(_padus_h3_cache))
+        cells     = tbl.column("h3_cell").to_numpy(zero_copy_only=False).astype(np.uint64, copy=False)
+        names     = tbl.column("Unit_Nm")
+        blacklist = tbl.column("is_blacklisted").to_numpy(zero_copy_only=False)
+        # The parquet is written sorted by cell (build + migrate scripts), so
+        # np.searchsorted is valid. Guard cheaply (~ms) and sort if it ever isn't.
+        if cells.size and not bool(np.all(cells[:-1] <= cells[1:])):
+            import pyarrow as pa
+            order     = np.argsort(cells, kind="stable")
+            cells     = cells[order]
+            names     = names.take(pa.array(order))
+            blacklist = blacklist[order]
+        names = names.combine_chunks()   # single Arrow array → O(1) indexing on a hit
+        _padus_h3_cache = _PadusIndex(cells, names, blacklist)
+        log.debug("PAD-US H3 index loaded: %d cells (columnar).", cells.size)
     except Exception as exc:
         log.debug("PAD-US H3 index load failed: %s", exc)
         _padus_h3_cache = _PADUS_UNAVAILABLE
@@ -1344,11 +1371,20 @@ def _load_padus_h3_index() -> "dict[str, tuple[str, bool]] | None":
 def _padus_h3_lookup(
     lat: float,
     lon: float,
-    index: "dict[str, tuple[str, bool]]",
+    index: "_PadusIndex",
 ) -> "tuple[str, bool] | None":
-    """Return (Unit_Nm, is_blacklisted) for the H3 cell at (lat, lon), or None."""
-    cell = _h3_lib.latlng_to_cell(lat, lon, 7)
-    return index.get(cell)
+    """Return (Unit_Nm, is_blacklisted) for the H3 cell at (lat, lon), or None.
+
+    Binary-searches the sorted uint64 cell array; the name is materialised from the
+    Arrow array only on a hit.
+    """
+    import numpy as np
+    cell  = _h3_lib.str_to_int(_h3_lib.latlng_to_cell(lat, lon, 7))
+    cells = index.cells
+    i = int(np.searchsorted(cells, np.uint64(cell)))
+    if i < cells.size and cells[i] == cell:
+        return (index.names[i].as_py(), bool(index.blacklist[i]))
+    return None
 
 
 def _is_good_padus_name(unit_nm: "str | None") -> bool:
