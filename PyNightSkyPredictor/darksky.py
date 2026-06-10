@@ -1645,6 +1645,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     Returns None if light pollution data is unavailable (rasterio not installed).
     """
     prof = _Profiler(_PROFILE)
+    _funnel: dict = {}   # candidate counts per stage (logged at end when profiling)
     with prof.phase("origin lookup"):
         origin_info = lookup(lat, lon)
     if origin_info is None:
@@ -1684,6 +1685,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             _min_lat, _max_lat, _min_lon, _max_lon,
             lat, lon, radius_miles, dark_threshold,
         )
+    _funnel["extract_raw"] = len(dark_candidates)
 
     # all_darker: any pixel darker than origin — used only for best_available
     # when no proper dark clusters are found.  Computed lazily to avoid
@@ -1713,6 +1715,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         _per_band    = max(1, _MAX_DARK_CANDIDATES // _N_BANDS)
         _band_width  = radius_miles / _N_BANDS
         all_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
+        _funnel["clusters"] = len(all_clusters)
         selected: list = []
         for _band in range(_N_BANDS):
             _lo, _hi = _band * _band_width, (_band + 1) * _band_width
@@ -1722,15 +1725,23 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             )[:_per_band]
             selected.extend(_band_clusters)
         dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
+        _funnel["band_selected"] = len(dark_candidates)
 
     # ── Light dome candidates (scipy blob detection on the same viirs_arr) ─────
+    # A dome must be brighter than the origin by >=2 Bortle classes (dbortle >
+    # origin_bortle and >= min(origin_bortle+2, 10)). The brightest possible blob is
+    # Bortle 9, so for an origin already at Bortle 8-9 no dome can ever qualify —
+    # skip detection AND naming entirely (output is unchanged: it was always empty).
     dome_clusters = []
+    _funnel["domes_raw"] = 0
+    _dome_search = origin_bortle <= 7
     with prof.phase("light dome detection"):
-        if _HAS_SCIPY and viirs_arr is not None:
+        if _HAS_SCIPY and viirs_arr is not None and _dome_search:
             raw_domes = _find_light_domes_from_array(
                 viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
                 tier_min_bortle=8,
             )
+            _funnel["domes_raw"] = len(raw_domes)
             for dlat, dlon, dbortle in raw_domes:
                 dist  = _haversine_miles(lat, lon, dlat, dlon)
                 if dist < 5:
@@ -1746,6 +1757,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                         "name":           None,
                     })
 
+    _funnel["domes_pass_filter"] = len(dome_clusters)
     # Take 2× the display limit so dedup has buffer to fill _MAX_DOMES unique names.
     dome_clusters = sorted(dome_clusters, key=lambda p: (-p["bortle_class"], p["distance_miles"]))[:_MAX_DOMES * 2]
 
@@ -1803,11 +1815,20 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         areas_thread = threading.Thread(target=_fetch_areas, daemon=True)
         areas_thread.start()
 
-    # Name light domes (main thread — gives Overpass time to complete)
+    # Name light domes. AWS Location has no per-second policy, so geocode them
+    # concurrently (like _parallel_prefetch_settlements); public Nominatim (local
+    # backend) stays serial per its usage policy. Names/order are unchanged.
     with prof.phase("dome naming (geocode)"):
-        for dome in dome_clusters:
-            dome_name = _settlement(dome["lat"], dome["lon"])
-            dome["name"] = dome_name or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
+        if dome_clusters:
+            if ports.get_backend()._name == "aws" and len(dome_clusters) > 1:
+                workers = min(_GEOCODE_MAX_WORKERS, len(dome_clusters))
+                with ThreadPoolExecutor(max_workers=workers) as _ex:
+                    _names = list(_ex.map(
+                        lambda d: _settlement(d["lat"], d["lon"]), dome_clusters))
+            else:
+                _names = [_settlement(d["lat"], d["lon"]) for d in dome_clusters]
+            for dome, _nm in zip(dome_clusters, _names):
+                dome["name"] = _nm or f"{dome['lat']:.2f}°, {dome['lon']:.2f}°"
 
         # Deduplicate by name; list is sorted by (bortle desc, distance asc) so we keep
         # the nearest occurrence of each city name.
@@ -1818,6 +1839,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                 _seen_dome_names.add(dome["name"])
                 _deduped_domes.append(dome)
         dome_clusters = _deduped_domes[:_MAX_DOMES]
+        _funnel["domes_final"] = len(dome_clusters)
 
     if _use_overpass:
         with prof.phase("overpass join (net)"):
@@ -1867,6 +1889,34 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             # Keep existing distance-based sort for local backend
             for c in needs_drive:
                 c["drive_minutes"] = None
+
+    _funnel["results_final"] = len(dark_clusters)
+    _funnel["best_available"] = best_available is not None
+    if prof.enabled:
+        # One structured line per call: the candidate funnel + every surfaced
+        # coordinate, for the profiling harness to capture and save.
+        _funnel["origin"] = {"lat": round(lat, 5), "lon": round(lon, 5),
+                             "radius_mi": radius_miles,
+                             "bortle": origin_bortle, "sqm": origin_sqm}
+        _funnel["results"] = [
+            {"name": c.get("name"), "bortle": c["bortle_class"], "sqm": c.get("sqm"),
+             "dist_mi": c["distance_miles"], "dir": c["direction"],
+             "lat": round(c["lat"], 5), "lon": round(c["lon"], 5),
+             "drive_min": c.get("drive_minutes")}
+            for c in dark_clusters
+        ]
+        _funnel["domes"] = [
+            {"name": d.get("name"), "bortle": d["bortle_class"],
+             "dist_mi": d["distance_miles"], "dir": d["direction"],
+             "lat": round(d["lat"], 5), "lon": round(d["lon"], 5)}
+            for d in dome_clusters
+        ]
+        if best_available:
+            _funnel["best"] = {
+                "name": best_available.get("name"), "bortle": best_available["bortle_class"],
+                "dist_mi": best_available["distance_miles"],
+                "lat": round(best_available["lat"], 5), "lon": round(best_available["lon"], 5)}
+        log.info("[funnel] %s", json.dumps(_funnel))
 
     prof.report()
 
