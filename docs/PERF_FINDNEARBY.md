@@ -145,6 +145,34 @@ concurrency. Tests: 390 passed. This likely makes Tier 2 item 3 (regional subset
 Not yet benchmarked: Item 1 (memory bump) — deferred (single-threaded load already has
 ≥1 vCPU at 2 GB, so it won't help this phase; revisit for Init + dome detection).
 
+### Tier 3 · scipy dome detection — vectorise the per-blob centroid loop (2026-06-09)
+
+Profiling `_find_light_domes_from_array` on real 150-mile VIIRS windows
+(`scripts/bench_dome_detection.py`) showed **97–98% of the time was the centroid loop**,
+not the land mask as assumed: it did `labeled == i` + `.sum()` + `center_of_mass(...)`
+per blob — O(blobs × pixels), ~500–1300 blobs over ~1.3M pixels. Replaced with batched
+ops: `np.bincount` for sizes + scipy `center_of_mass`/`maximum` with `index=` (each a
+few full-array passes). **Output-identical** to the per-blob loop.
+
+| Origin (≈1.3M-px window) | Before | After | Speedup |
+|---|---:|---:|---:|
+| Los Angeles (315 domes) | 928 ms | **79 ms** | ~12× |
+| New York (829 domes) | 2547 ms | **84 ms** | ~30× |
+
+Correctness: new vs original loop = identical dome lists on both windows; 390 tests pass
+(incl. `test_light_dome_array.py`). Structural win (removes a blobs×pixels factor), so the
+ratio holds on Lambda's slower vCPU too — laptop absolute 0.9–2.5 s → ~0.08 s.
+
+**In-region confirmation** (throwaway 2 GB worker, cold), `light dome detection` phase vs
+the OLD-code baselines on the same origins:
+
+| Origin | OLD (baseline) | NEW | Speedup |
+|---|---:|---:|---:|
+| Phoenix | ~1726 ms | 207 ms | ~8× |
+| Dallas | ~4516 ms | 185 ms | ~24× |
+
+`find_nearby` returned cleanly both times. Confirmed → shipped.
+
 ## Reproduce
 
 - `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against` for correctness).
