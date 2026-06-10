@@ -1,0 +1,16 @@
+# Accepted, time-boxed CVE suppressions for the Trivy image scan.
+# Each entry MUST have a justification and be removed once upstream ships a fix.
+#
+# ── libsolv (Amazon Linux 2023 base image) ──────────────────────────────────
+# 4 HIGH CVEs in libsolv 0.7.22-1.amzn2023.0.3. A fix (0.7.22-1.amzn2023.0.4)
+# exists in the advisory DB but is NOT yet published to the AL2023 package repos
+# (verified 2026-06-09: latest `amazonlinux:2023` + `dnf upgrade` still installs
+# .0.3). libsolv is dnf's dependency resolver — it is invoked only during
+# `docker build`, never at Lambda runtime — so these metadata/PGP parser overflow
+# CVEs have no runtime attack surface in the deployed function.
+# REMOVE these four lines once AL2023 publishes libsolv 0.7.22-1.amzn2023.0.4
+# (then a routine base-digest bump clears them at the source).
+CVE-2026-48863
+CVE-2026-48864
+CVE-2026-9149
+CVE-2026-9150
