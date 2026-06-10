@@ -173,6 +173,27 @@ the OLD-code baselines on the same origins:
 
 `find_nearby` returned cleanly both times. Confirmed → shipped.
 
+### Tier 3 · dome naming parallelised + B8–9 suppression (2026-06-09)
+
+A 5-city AWS funnel/profile run (`docs/perf_runs/findnearby_funnel_2026-06-09.*`, captured
+with the funnel logging + `PYNIGHTSKY_NO_CACHE`) exposed two dome-stage costs:
+1. **`dome naming` was serial** — `_settlement` per dome in a loop (~1.45 s uncached for
+   dark origins with domes). Parallelised on the aws backend (`ThreadPoolExecutor`, same
+   pattern as `_parallel_prefetch_settlements`); local stays serial per Nominatim policy.
+2. **Bright origins waste the dome pipeline** — a dome must be ≥ origin+2 Bortle, and the
+   brightest blob is Bortle 9, so for origin Bortle ≥ 8 no dome can ever qualify. Now
+   gated by `origin_bortle <= 7` → detection + naming skipped (output unchanged: was empty).
+
+In-region confirmation (throwaway 2 GB worker, uncached):
+
+| City | phase | before | after |
+|---|---|---:|---:|
+| Sedona (B7) | dome naming | 1451 ms | 214 ms (~7×) |
+| Knolls (B1) | dome naming | 1417 ms | 217 ms (~7×) |
+| Atlantic City (B9) | dome detection + naming | 204 ms | 0 ms (suppressed) |
+
+Both output-preserving; 390 tests pass.
+
 ## Reproduce
 
 - `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against` for correctness).
