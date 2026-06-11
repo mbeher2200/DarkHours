@@ -62,50 +62,34 @@ class TestSqmToBortleArray:
 # ---------------------------------------------------------------------------
 
 class TestLoadRasterWindow:
+    """_load_raster_window delegates to the active RasterSource.read_window (the
+    tiled-grid reader) and degrades to None on error. The value contract
+    (nodata/negative clamp, orientation, float64) is covered against the real
+    reader in test_gridraster.py."""
 
-    def _make_mock_ds(self, data: np.ndarray, nodata=None, epsg=4326):
-        from rasterio.transform import from_bounds
-        mock_ds = MagicMock()
-        mock_ds.__enter__ = lambda s: s
-        mock_ds.__exit__ = MagicMock(return_value=False)
-        mock_ds.crs = MagicMock()
-        mock_ds.crs.to_epsg.return_value = epsg
-        mock_ds.nodata = nodata
-        mock_ds.transform = from_bounds(-180, -90, 180, 90, 3600, 1800)
-        mock_ds.read.return_value = data.copy()
-        mock_ds.window_transform = MagicMock(return_value=mock_ds.transform)
-        return mock_ds
+    def _patch_backend(self, monkeypatch, read_window):
+        fake_src = MagicMock()
+        fake_src.read_window.side_effect = read_window
+        fake_backend = MagicMock(raster_source=fake_src)
+        monkeypatch.setattr(ds.ports, "get_backend", lambda: fake_backend)
+        return fake_src
 
-    def test_clamps_nodata_to_zero(self):
-        data = np.array([[255.0, 10.0, 0.0]], dtype=np.float32)
-        mock_ds = self._make_mock_ds(data, nodata=255.0)
-        with patch("rasterio.open", return_value=mock_ds):
-            result = ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0)
-        assert result is not None
-        assert result[0, 0] == pytest.approx(0.0)   # nodata → 0
-        assert result[0, 1] == pytest.approx(10.0)  # valid value preserved
+    def test_forwards_args_and_returns_array(self, monkeypatch):
+        arr = np.zeros((3, 4), dtype=np.float64)
+        src = self._patch_backend(monkeypatch, lambda *a, **k: arr)
+        result = ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0)
+        assert result is arr
+        src.read_window.assert_called_once_with(
+            "viirs", 30.0, 31.0, -120.0, -119.0, out_shape=None)
 
-    def test_clamps_negative_to_zero(self):
-        data = np.array([[-5.0, 3.0]], dtype=np.float32)
-        mock_ds = self._make_mock_ds(data, nodata=None)
-        with patch("rasterio.open", return_value=mock_ds):
-            result = ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0)
-        assert result is not None
-        assert result[0, 0] == pytest.approx(0.0)   # negative → 0
-        assert result[0, 1] == pytest.approx(3.0)
+    def test_forwards_out_shape(self, monkeypatch):
+        src = self._patch_backend(monkeypatch, lambda *a, **k: np.zeros((5, 8)))
+        ds._load_raster_window("falchi", 30.0, 31.0, -120.0, -119.0, out_shape=(5, 8))
+        assert src.read_window.call_args.kwargs["out_shape"] == (5, 8)
 
-    def test_returns_none_on_rasterio_error(self):
-        with patch("rasterio.open", side_effect=RuntimeError("disk error")):
-            result = ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0)
-        assert result is None
-
-    def test_returns_float64(self):
-        data = np.array([[5.0, 10.0]], dtype=np.float32)
-        mock_ds = self._make_mock_ds(data)
-        with patch("rasterio.open", return_value=mock_ds):
-            result = ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0)
-        assert result is not None
-        assert result.dtype == np.float64
+    def test_returns_none_on_error(self, monkeypatch):
+        self._patch_backend(monkeypatch, MagicMock(side_effect=RuntimeError("disk error")))
+        assert ds._load_raster_window("viirs", 30.0, 31.0, -120.0, -119.0) is None
 
 
 # ---------------------------------------------------------------------------

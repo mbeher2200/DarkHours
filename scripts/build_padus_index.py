@@ -50,7 +50,7 @@ from shapely.geometry import mapping, MultiPolygon, Polygon
 GDB_PATH   = os.path.join("Temp", "PADUS4_1Geodatabase", "PADUS4_1Geodatabase.gdb")
 LAYER      = "PADUS4_1Fee"
 OUT_DIR    = "cache"
-OUT_FILE   = os.path.join(OUT_DIR, "darkhours_padus_h3.parquet")
+OUT_FILE   = os.path.join(OUT_DIR, "darkhours_padus_h3.npz")
 RESOLUTION = 7   # ~5 km hex — fits comfortably in a Lambda Layer
 
 
@@ -156,12 +156,21 @@ def build_index() -> None:
     df["h3_cell"] = df["h3_cell"].map(h3.str_to_int).astype("uint64")
     df = df.sort_values("h3_cell").reset_index(drop=True)
 
-    # --- Write output ---
+    # --- Write output (.npz; numpy-only at runtime, no pyarrow) ---
+    # encode_padus_npz is the single source of truth for the on-disk layout, shared
+    # with the one-off parquet→npz converter.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from convert_padus_parquet_to_npz import encode_padus_npz
     os.makedirs(OUT_DIR, exist_ok=True)
-    df.to_parquet(OUT_FILE, engine="pyarrow", compression="zstd", index=False)
+    stats = encode_padus_npz(
+        OUT_FILE,
+        df["h3_cell"].to_numpy(dtype="uint64"),
+        df["Unit_Nm"].fillna("").astype(str).tolist(),
+        df["is_blacklisted"].to_numpy(dtype=bool),
+    )
     size_mb = os.path.getsize(OUT_FILE) / (1024 * 1024)
-    print(f"\n  Saved → {OUT_FILE}  ({size_mb:.1f} MB)")
-    print(f"  Columns: {df.columns.tolist()}")
+    print(f"\n  Saved → {OUT_FILE}  ({size_mb:.1f} MB)  "
+          f"{stats['cells']:,} cells, {stats['unique_names']:,} unique names")
 
 
 if __name__ == "__main__":

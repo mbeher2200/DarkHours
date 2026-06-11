@@ -36,16 +36,13 @@ if "LAMBDA_TASK_ROOT" in os.environ:
     # the warming proceeds in the background, benefiting subsequent jobs on the same
     # container. Each step is independently guarded so one failure can't wedge the rest.
     def _prewarm() -> None:
-        # S3 COGs: open + sample one pixel to prime GDAL's VSI_CACHE (header + a tile),
-        # cutting cold raster I/O on the first real job.
+        # S3 grids: open (fetch the tiny .json) + sample one pixel (a few-byte ranged
+        # GET) to prime each dataset's GridArray, cutting cold raster I/O on the first job.
         try:
-            import rasterio
             from PyNightSkyPredictor import ports as _p
             src = _p.get_backend().raster_source
             for dataset in ("viirs", "falchi"):
-                path = src.path_for(dataset, show_progress=False)
-                with rasterio.open(path) as ds:
-                    list(ds.sample([(0.0, 0.0)]))
+                src.sample(dataset, 0.0, 0.0)
         except Exception as _e:
             log.debug("Raster pre-warm failed: %s", _e)
         # PAD-US H3 index (columnar load) used by find_nearby Tier 1.
