@@ -194,6 +194,30 @@ In-region confirmation (throwaway 2 GB worker, uncached):
 
 Both output-preserving; 390 tests pass.
 
+### Worker cold start · non-blocking prewarm + memory A/B (2026-06-10)
+
+The worker ran `_prewarm_rasters()` **synchronously at module init**, blowing Lambda's 10 s
+init budget (`INIT_REPORT … Status: timeout`) — wasted init that re-ran into the first
+invoke. Moved the warm-up to a **daemon thread** (mirrors the API's lifespan prewarm) and
+extended it to warm rasters + PAD-US index + DynamoDB pool + ephemeris in the background.
+
+In-region (throwaway 2 GB worker, cold containers):
+- **`INIT` no longer times out: 10 s timeout → ~4.4–5.8 s.**
+- **PAD-US load in-job → 0 ms** (background-prewarmed; was 0.45 s columnar / 5–24 s as the old dict).
+- First cold-job `[profile] TOTAL` ~3.1–3.5 s (was dominated by the wasted init + cold PAD-US).
+
+**Memory A/B (2 GB vs 3 GB; account caps Lambda at 3008 MB so 4 GB N/A):**
+
+| cold sample | init | first-job TOTAL | billed GB-s |
+|---|--:|--:|--:|
+| 2 GB | ~4.4 s | 3481 ms | 16.0 |
+| 3 GB (max) | ~4.6 s | 3117 ms | 23.5 |
+
+3 GB shaved ~0.3 s off the invoke but **init was flat** (the cold-start dominator) at ~47%
+more GB-s/invoke. **Decision: keep 2 GB — memory bump is a no-op.** Shipped the prewarm fix
+only. (Out of scope per decision: keep-warm ping, provisioned concurrency — the one-time
+~17 s first-container image lazy-load tax remains, only addressable by provisioned concurrency.)
+
 ## Reproduce
 
 - `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against` for correctness).

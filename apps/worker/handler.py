@@ -29,11 +29,15 @@ if "LAMBDA_TASK_ROOT" in os.environ:
     except ImportError:
         pass
 
-    # Pre-warm both S3 COGs during Lambda init so the first job doesn't pay for
-    # cold GDAL VSI_CACHE misses (header reads + overview structure = ~10-15s on
-    # a fresh container). Opening + sampling one pixel caches the COG index and
-    # at least one tile, cutting the first real job's raster I/O to near-zero.
-    def _prewarm_rasters() -> None:
+    # Pre-warm the first-job cost centres in a BACKGROUND DAEMON THREAD (mirrors the
+    # API's lifespan prewarm in apps/api/main.py). Doing this synchronously at module
+    # init blew Lambda's 10 s init budget (INIT_REPORT Status: timeout), so the wasted
+    # init re-ran into the first invoke. Threaded, module init returns immediately and
+    # the warming proceeds in the background, benefiting subsequent jobs on the same
+    # container. Each step is independently guarded so one failure can't wedge the rest.
+    def _prewarm() -> None:
+        # S3 COGs: open + sample one pixel to prime GDAL's VSI_CACHE (header + a tile),
+        # cutting cold raster I/O on the first real job.
         try:
             import rasterio
             from PyNightSkyPredictor import ports as _p
@@ -41,11 +45,30 @@ if "LAMBDA_TASK_ROOT" in os.environ:
             for dataset in ("viirs", "falchi"):
                 path = src.path_for(dataset, show_progress=False)
                 with rasterio.open(path) as ds:
-                    list(ds.sample([(0.0, 0.0)]))   # one pixel primes the file header + tile
+                    list(ds.sample([(0.0, 0.0)]))
         except Exception as _e:
             log.debug("Raster pre-warm failed: %s", _e)
+        # PAD-US H3 index (columnar load) used by find_nearby Tier 1.
+        try:
+            from PyNightSkyPredictor import darksky as _ds
+            _ds._load_padus_h3_index()
+        except Exception as _e:
+            log.debug("PAD-US pre-warm failed: %s", _e)
+        # DynamoDB connection pool (same warmup call the API uses).
+        try:
+            from PyNightSkyPredictor import ports as _p
+            _p.get_backend().cache.get("__warmup__")
+        except Exception as _e:
+            log.debug("Cache pre-warm failed: %s", _e)
+        # Ephemeris (mmap de421.bsp) — needed by trip/calendar jobs.
+        try:
+            from PyNightSkyPredictor import sky_events as _se
+            _se._ephemeris()
+        except Exception as _e:
+            log.debug("Ephemeris pre-warm failed: %s", _e)
 
-    _prewarm_rasters()
+    import threading
+    threading.Thread(target=_prewarm, daemon=True).start()
 
 
 def handler(event, context=None):
