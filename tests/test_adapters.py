@@ -119,19 +119,21 @@ def test_geocode_save_load_roundtrip(geocode_impl):
     assert geocode_impl.load() == data
 
 
-# ── S3RasterSource path building (no AWS needed) ─────────────────────────────
+# ── S3RasterSource grid resolution (no AWS needed) ───────────────────────────
 
-def test_s3_path_for_builds_vsis3_uri():
+def test_s3_resolves_grid_key_prefixes():
     from PyNightSkyPredictor.darksky import S3RasterSource
     src = S3RasterSource(bucket="my-bucket")
-    assert src.path_for("viirs") == "/vsis3/my-bucket/viirs_2025_cog.tif"
-    assert src.path_for("falchi") == "/vsis3/my-bucket/world_atlas_2016_cog.tif"
+    # Grid pair on S3 is {key}.bin / {key}.json (no GDAL /vsis3 URI anymore).
+    assert src._KEYS["viirs"] == "viirs_2025"
+    assert src._KEYS["falchi"] == "world_atlas_2016"
 
 
 def test_s3_unknown_dataset_raises():
     from PyNightSkyPredictor.darksky import S3RasterSource
+    # Unknown dataset is rejected before any S3/network access.
     with pytest.raises(ValueError):
-        S3RasterSource(bucket="b").path_for("nope")
+        S3RasterSource(bucket="b").sample("nope", 0.0, 0.0)
 
 
 def test_s3_missing_bucket_raises_lazily(monkeypatch):
@@ -139,4 +141,4 @@ def test_s3_missing_bucket_raises_lazily(monkeypatch):
     monkeypatch.delenv("PYNIGHTSKY_RASTER_BUCKET", raising=False)
     src = S3RasterSource()          # construction must NOT raise (lazy)
     with pytest.raises(RuntimeError):
-        src.path_for("viirs")        # bucket resolved here → raises
+        src.sample("viirs", 0.0, 0.0)   # bucket resolved here → raises before S3

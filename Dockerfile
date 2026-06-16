@@ -1,6 +1,7 @@
 # PyNightSky API container — Amazon Linux 2023 base.
-# AWS-native (App Runner's own runtimes are AL2023), glibc (so the rasterio
-# manylinux wheel + bundled GDAL work, incl. /vsis3), and currently 0 CVEs.
+# AWS-native (App Runner's own runtimes are AL2023), glibc (manylinux wheels work),
+# and currently 0 CVEs. The image is GDAL-free: light-pollution rasters are read as
+# tiled raw-binary grids with numpy + boto3 (rasterio is build-only, not installed here).
 # Pinned by digest for reproducible builds; Dependabot (docker ecosystem) bumps it
 # when AWS republishes the tag, which is how we pick up base-OS security patches.
 FROM amazonlinux:2023@sha256:267b42d61c8eb5537270b62ec97b73bb104708d9245d343b5eeb1d92f0f65d3d
@@ -9,8 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# Python 3.13 from the AL2023 repos, then an isolated venv. (libexpat etc. that
-# the rasterio/GDAL wheel links are already present in the AL2023 userland.)
+# Python 3.13 from the AL2023 repos, then an isolated venv.
 RUN dnf install -y python3.13 python3.13-pip \
     && dnf clean all \
     && rm -rf /var/cache/dnf

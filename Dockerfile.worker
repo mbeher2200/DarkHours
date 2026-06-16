@@ -1,8 +1,9 @@
 # Async job worker image (M6.3). Same hardened Amazon Linux 2023 base + non-root
 # user as the API image, but instead of the Lambda Web Adapter (HTTP) it uses the
 # Lambda Runtime Interface Client (awslambdaric) so it runs as a normal handler for
-# SQS events. It needs rasterio/GDAL + the de421.bsp ephemeris to run plan_trip, so
-# it's a container (not the tiny warmer zip). Staying on AL2023 + non-root avoids
+# SQS events. It carries the full engine (scipy/skyfield/numpy + the de421.bsp
+# ephemeris) and reads the light-pollution grids from S3 with numpy+boto3 (no GDAL),
+# so it's a container (not the tiny warmer zip). Staying on AL2023 + non-root avoids
 # Trivy DS-0002 (the AWS Lambda base image would run as root).
 FROM amazonlinux:2023@sha256:267b42d61c8eb5537270b62ec97b73bb104708d9245d343b5eeb1d92f0f65d3d
 
@@ -26,7 +27,7 @@ RUN pip install -r requirements-worker.txt
 # App code — includes PyNightSkyPredictor/de421.bsp (ephemeris) which plan_trip needs.
 COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
-COPY cache/darkhours_padus_h3.parquet ./cache/darkhours_padus_h3.parquet
+COPY cache/darkhours_padus_h3.npz ./cache/darkhours_padus_h3.npz
 
 # Drop root (Lambda fs is read-only except /tmp, for any user).
 ENV HOME=/tmp

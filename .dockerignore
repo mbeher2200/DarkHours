@@ -16,12 +16,19 @@ tests/
 docs/
 cdk/
 tools/            # includes the 446 MB lp_db experiment
+Temp/             # 1.9 GB raw PAD-US geodatabase (build_padus_index.py input only)
+out/              # throwaway local probe/build artifacts
+scripts/          # build/bench/migration tooling — not run inside the image
 *.md
 LICENSE
 requirements-dev.txt
 Dockerfile
 .dockerignore
 .gitignore
+
+# The web frontend + its node_modules are not part of the Python worker/API image
+apps/web/
+**/node_modules/
 
 # Large geodata never belongs in the image (rasters are read from S3)
 *.tif
