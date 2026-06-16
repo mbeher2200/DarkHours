@@ -44,7 +44,7 @@ def _run_nearby_job(params: dict) -> dict:
     """Execute a resolved nearby job → JSON-safe dict from find_nearby()."""
     result = _find_nearby(params["lat"], params["lon"], int(params.get("radius_miles", 60)))
     if result is None:
-        raise RuntimeError("Light pollution data unavailable (rasterio not installed).")
+        raise RuntimeError("Light pollution data unavailable (raster grid unreadable).")
     return result
 
 

@@ -1,8 +1,12 @@
-# Offline data-build dependencies — not needed for Lambda runtime or local CLI use.
-# Required only to run scripts/build_padus_index.py.
+# Offline data-build dependencies — NOT needed for the Lambda runtime image.
+# Required to run scripts/build_padus_index.py, and to build the light-pollution
+# grids (scripts/build_raster_grid.py and the local backend's first-use build) —
+# rasterio reads the source GeoTIFFs at build time only; the runtime reads the
+# resulting raw-binary grids with numpy + boto3 (no GDAL).
 #
 # Install: pip install -r requirements-build.txt
 geopandas
 pyarrow
 fiona
 h3
+rasterio==1.5.0

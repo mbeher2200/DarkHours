@@ -226,3 +226,29 @@ only. (Out of scope per decision: keep-warm ping, provisioned concurrency — th
 - `scripts/profile_parallel_geocode.py` — offline serial-vs-parallel A/B (stubbed latency).
 - `scripts/profile_aws.sh` + `scripts/aws_one_search.py` — run one search against the real
   aws backend with profiling (needs an authenticated session).
+
+## Rasterio → tiled-grid lookup latency (2026-06-11)
+
+Removing rasterio/GDAL replaced the COG `/vsis3` reads with our own S3 byte-range reads of
+the tiled raw-binary grids (`gridraster`). A/B over **40 identical random points**, host →
+S3 (us-east-1) over WAN — relative numbers are the signal; absolute is WAN-inflated vs an
+in-region Lambda:
+
+| | cold open | warm sample (median / p90 / max / mean) |
+|---|---|---|
+| OLD rasterio `/vsis3` COG | 368 ms | 154 / 292 / 562 / 164 ms |
+| NEW gridraster S3 (host) | ~310 ms* | 181 / 277 / 360 / 195 ms |
+| NEW in throwaway container | 313 ms | 198 / 333 / 589 / 224 ms |
+
+\* A first run showed a 6.3 s cold open; decomposition (boto3 import 130 ms, client create
+46 ms, cold-TLS GET 202 ms, `open_s3` w/ reused client 59 ms) proved it a one-off region/IMDS
+resolution stall, not reproducible. Production reuses one S3 client and warms both grids in
+`_prewarm`.
+
+**Verdict: no meaningful lookup slowdown.** Single-pixel reads are S3-RTT-bound (~150–200 ms
+over WAN; <5 ms in-region), so old vs new is a wash — new reads 4 bytes vs a whole COG tile,
+and has a better tail. Cold open is equal/better. Correctness: all 10 test cities
+(VIIRS + Falchi paths) returned identical SQM/Bortle/source vs local-grid == rasterio.
+Image: worker **1.28 GB** (rasterio/GDAL absent). Harness: `out/profile_baseline.py` (host
+old-vs-new A/B), `out/city_probe.py` (profiled 10-city probe; run in-container with
+`PYNIGHTSKY_BACKEND=aws`).
