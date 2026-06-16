@@ -227,6 +227,22 @@ class LambdaApiStack(Stack):
         worker.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
         worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
 
+        # --- Scheduled worker warmup ping — keeps one worker container alive + primed ---
+        # The worker is only invoked by SQS, so at sparse traffic nearly every job pays the
+        # ~4.6s cold Init. EventBridge invokes the worker directly every 4 min with a
+        # non-SQS event (no Records); the handler treats that as a warmup, runs the prewarm
+        # synchronously, and returns. Cost: ~10,800 tiny invocations/month (free tier).
+        worker_warmup_rule = events.Rule(
+            self, "WorkerWarmupRule",
+            schedule=events.Schedule.rate(Duration.minutes(4)),
+        )
+        worker_warmup_rule.add_target(
+            targets.LambdaFunction(
+                worker,
+                event=events.RuleTargetInput.from_object({"warmup": True}),
+            )
+        )
+
         # The API can enqueue jobs and knows the queue URL (its presence flips the
         # endpoints from inline to async).
         jobs_queue.grant_send_messages(fn)
