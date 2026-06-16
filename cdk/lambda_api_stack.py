@@ -11,9 +11,12 @@ Foundational resources (S3 raster bucket, DynamoDB cache table) are referenced, 
 managed here. Names come from the environment so the public repo carries no identifiers.
 """
 import os
+import pathlib
+import shutil
 
 from aws_cdk import (
     Stack,
+    BundlingOptions,
     CfnOutput,
     Duration,
     RemovalPolicy,
@@ -41,6 +44,30 @@ from aws_cdk import (
     aws_wafv2 as wafv2,
 )
 from constructs import Construct
+
+_REPO = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _stage_worker_src() -> str:
+    """Stage the minimal source the worker zip needs as the bundling input.
+
+    The runtime is GDAL/scipy/pyarrow-free (light-pollution rasters are read from S3
+    as raw-binary grids with numpy+boto3; the PAD-US index is a numpy .npz), so the
+    worker fits a zip Lambda (~169 MB unzipped < 250 MB). We ship the engine source,
+    apps (minus the web SPA), the de421.bsp ephemeris (inside PyNightSkyPredictor/),
+    the PAD-US .npz, and requirements.txt; bundling pip-installs the deps on top.
+    """
+    stage = _REPO / "cdk" / ".worker_build"
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    ig = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", "node_modules", "web", "dist")
+    shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
+    shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
+    (stage / "cache").mkdir()
+    shutil.copy(_REPO / "cache" / "darkhours_padus_h3.npz", stage / "cache" / "darkhours_padus_h3.npz")
+    shutil.copy(_REPO / "requirements.txt", stage / "requirements.txt")
+    return str(stage)
 
 
 class LambdaApiStack(Stack):
@@ -145,11 +172,16 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(route_policy)
         fn.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
 
-        # --- async jobs: SQS queue + container-Lambda worker (M6.3) ---
+        # --- async jobs: SQS queue + zip-Lambda worker (M6.3) ---
         # Long /calendar+/trip computes run off the request path. The API enqueues a
-        # job; this worker (a container Lambda — it needs rasterio) runs plan_trip and
-        # writes the result into the cache, where /jobs/{id} reads it. visibility_timeout
-        # must exceed the worker timeout; a DLQ catches messages that can't be processed.
+        # job; this worker runs plan_trip and writes the result into the cache, where
+        # /jobs/{id} reads it. visibility_timeout must exceed the worker timeout; a DLQ
+        # catches messages that can't be processed.
+        #
+        # The worker is a zip Lambda (not a container): with rasterio/GDAL, pyarrow and
+        # scipy removed from the runtime, the deps fit the 250 MB zip limit (~169 MB
+        # unzipped), which avoids the container image's first-invoke image-load latency.
+        # Deps are pip-installed for the Lambda runtime (linux/amd64) by CDK bundling.
         dlq = sqs.Queue(self, "JobsDlq", retention_period=Duration.days(14))
         jobs_queue = sqs.Queue(
             self, "JobsQueue",
@@ -158,11 +190,24 @@ class LambdaApiStack(Stack):
             dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=dlq),
         )
 
-        worker_tag = self.node.try_get_context("imageTag") or "worker"
-        worker_repo = ecr.Repository.from_repository_name(self, "WorkerRepo", "pynightsky-worker")
-        worker = lambda_.DockerImageFunction(
+        worker = lambda_.Function(
             self, "Worker",
-            code=lambda_.DockerImageCode.from_ecr(worker_repo, tag_or_digest=worker_tag),
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            architecture=lambda_.Architecture.X86_64,
+            handler="apps.worker.handler.handler",
+            code=lambda_.Code.from_asset(
+                _stage_worker_src(),
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_13.bundling_image,
+                    platform="linux/amd64",
+                    command=[
+                        "bash", "-c",
+                        "pip install --no-cache-dir -r requirements.txt "
+                        "python-json-logger aws-xray-sdk -t /asset-output "
+                        "&& cp -r PyNightSkyPredictor apps cache /asset-output/",
+                    ],
+                ),
+            ),
             memory_size=2048,
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
             tracing=lambda_.Tracing.ACTIVE,

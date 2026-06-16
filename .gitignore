@@ -64,6 +64,7 @@ cdk.out/
 postman/*.postman_environment.json
 !postman/PyNightSky.local.postman_environment.json
 
-# CDK warmer Lambda staging dir (built at synth)
+# CDK Lambda staging dirs (built at synth)
 cdk/.warmer_build/
+cdk/.worker_build/
 PRODUCT.md
