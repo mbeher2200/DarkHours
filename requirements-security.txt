@@ -1,5 +1,5 @@
 # Security-scan toolchain (SAST + dependency audit). Run via scripts/security_scan.sh.
 # Trivy (container/fs scan) is run from its official Docker image — no pip install.
 bandit==1.9.4
-pip-audit==2.10.0
-semgrep==1.165.0
+pip-audit==2.10.1
+semgrep==1.166.0
