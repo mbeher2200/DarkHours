@@ -252,3 +252,37 @@ and has a better tail. Cold open is equal/better. Correctness: all 10 test citie
 Image: worker **1.28 GB** (rasterio/GDAL absent). Harness: `out/profile_baseline.py` (host
 old-vs-new A/B), `out/city_probe.py` (profiled 10-city probe; run in-container with
 `PYNIGHTSKY_BACKEND=aws`).
+
+## 2026-06-16 — Lifecycle profile + worker keep-warm + drive-time caching
+
+End-to-end `/nearby` is **worker-bound**. API enqueue + polls are warm 2–15 ms (kept warm by
+the existing `/warmup` rule); the SQS worker was **not** kept warm and dominates latency.
+
+**In-region warm profile** (throwaway worker cloned from the deployed artifact, `PROFILE=1`,
+3 synthetic invokes, torn down). Per-phase ms `[cold+cachecold | warm+cachecold | warm+cachewarm]`:
+
+| phase | cold+cold | warm+cold | warm+warm |
+|---|--:|--:|--:|
+| **drive times (aws)** *(uncached)* | 1961 | 934 | **1978** |
+| viirs window read (S3) | 562 | 928 | 347 |
+| falchi window read (S3) | 378 | 371 | 200 |
+| extract+cluster+dome-detect (CPU) | 656 | 558 | 543 |
+| jit geocode | 82 | 826 | 5 |
+| dome naming | 459 | 323 | 62 |
+| origin settlement+lookup | 1385 | 377 | 9 |
+| **TOTAL handler** | **5499** (+Init 4454) | **4340** | **3158** |
+
+**Headline:** even fully cache-warm the worker is 3.16 s, and `drive times` ≈ 1.98 s (~63%)
+— the dominant phase, and uncached. (A laptop-harness run had shown drive-times at only
+~303 ms — misleading; the in-region throwaway is authoritative.)
+
+**Shipped:**
+- **Worker keep-warm** (PR #28): `WorkerWarmupRule` (EventBridge rate(4 min) → worker with
+  `{"warmup":true}`); handler runs prewarm synchronously on a Record-less event. Verified:
+  cold ping Init 4.93 s + 1.56 s prewarm off the user path; next ping warm 4.8 ms. Real jobs
+  skip the ~4.6 s cold Init.
+- **Drive-time per-leg cache**: `_aws_drive_times` now caches each origin→dest leg
+  (`route_drive|{olat:.3f}|{olon:.3f}|{dlat:.3f}|{dlon:.3f}`, 90-day TTL); only cache-missing
+  legs hit `calculate_route_matrix`; failures aren't cached. The call was already a single
+  batched matrix request (server-parallel), so the win is from skipping it on repeat areas,
+  not from parallelising. Projected warm-warm 3.16 s → ~1.2 s.
