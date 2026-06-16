@@ -165,6 +165,19 @@ def test_nearby_requires_location_or_coords():
     assert client.get("/nearby", params={"radius": 60}).status_code == 400
 
 
+def test_nearby_raw_coords_skip_geocoding(monkeypatch, _nearby_mocks):
+    """Raw-coord /nearby must NOT reverse-geocode or look up a timezone — the job
+    only needs lat/lon and the worker names the origin itself. Both are wasted
+    enqueue latency, so we assert the handler never touches them."""
+    def _boom(*a, **kw):
+        raise AssertionError("raw-coord /nearby should not resolve a place")
+    monkeypatch.setattr(main_mod._loc, "reverse_geocode", _boom)
+    monkeypatch.setattr(main_mod._loc, "timezone_for", _boom)
+    r = TestClient(app).get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 60})
+    assert r.status_code == 202
+    assert "job_id" in r.json()
+
+
 @pytest.mark.eph
 @requires_rasters
 def test_night_by_coords_matches_baseline():
