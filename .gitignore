@@ -47,7 +47,7 @@ dev.sh
 Temp/
 
 # Generated spatial index artefacts (derived from PADUS; do not distribute)
-# darkhours_padus_h3.parquet (~10 MB) IS committed — Docker builds require it.
+# darkhours_padus_h3.parquet (~3.5 MB) IS committed — Docker builds require it.
 # Raw/intermediate files (GDB, full vector parquet, shapefiles) are excluded.
 cache/*
 !cache/darkhours_padus_h3.parquet
