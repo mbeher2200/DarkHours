@@ -54,18 +54,6 @@ except ImportError:
     )
     _HAS_GLM = False
 
-try:
-    from scipy.ndimage import label as _ndimage_label
-    from scipy.ndimage import center_of_mass as _ndimage_center_of_mass
-    from scipy.ndimage import maximum as _ndimage_maximum
-    _HAS_SCIPY = True
-except ImportError:
-    log.warning(
-        "scipy not installed; array-based light dome detection disabled. "
-        "Run `pip install scipy` to enable."
-    )
-    _HAS_SCIPY = False
-
 _HAS_H3 = False
 try:
     import h3 as _h3_lib
@@ -673,6 +661,66 @@ def _load_raster_window(
         return None
 
 
+def _connected_components_8(mask: "np.ndarray") -> "tuple[np.ndarray, int]":
+    """Label 8-connected components of a 2-D boolean ``mask``.
+
+    Pure-numpy drop-in for ``scipy.ndimage.label(mask, structure=np.ones((3, 3)))``:
+    returns ``(labeled, n_features)`` with background = 0 and components numbered
+    1..n in raster-scan order of first appearance — byte-identical to scipy's output
+    (verified over random masks), so scipy is not a runtime dependency.
+
+    Vectorised union-find by min-label propagation: build the 8-connectivity edges
+    (4 shift directions cover all neighbour pairs), then iteratively push the minimum
+    flat index across each edge with pointer-jumping until stable. Each component's
+    representative is its minimum flat index, so sorting the unique representatives
+    reproduces scipy's first-appearance numbering.
+    """
+    import numpy as np
+
+    rows, cols = mask.shape
+    n = rows * cols
+    labeled = np.zeros((rows, cols), dtype=np.int64)
+    if n == 0 or not mask.any():
+        return labeled, 0
+
+    grid = np.arange(n).reshape(rows, cols)
+    a_parts, b_parts = [], []
+
+    def _add(sel, ga, gb):
+        if sel.any():
+            a_parts.append(ga[sel])
+            b_parts.append(gb[sel])
+
+    _add(mask[:, :-1] & mask[:, 1:],   grid[:, :-1],  grid[:, 1:])    # right
+    _add(mask[:-1, :] & mask[1:, :],   grid[:-1, :],  grid[1:, :])    # down
+    _add(mask[:-1, :-1] & mask[1:, 1:], grid[:-1, :-1], grid[1:, 1:])  # down-right
+    _add(mask[:-1, 1:] & mask[1:, :-1], grid[:-1, 1:],  grid[1:, :-1])  # down-left
+
+    labels = np.arange(n)
+    if a_parts:
+        a = np.concatenate(a_parts)
+        b = np.concatenate(b_parts)
+        while True:
+            prev = labels
+            cand = np.minimum(labels[a], labels[b])
+            nxt = labels.copy()
+            np.minimum.at(nxt, a, cand)
+            np.minimum.at(nxt, b, cand)
+            nxt = nxt[nxt]                        # pointer-jump for fast convergence
+            if np.array_equal(nxt, prev):
+                break
+            labels = nxt
+
+    fg = mask.ravel()
+    reps = labels[fg]
+    uniq = np.unique(reps)                        # ascending = first-appearance order
+    remap = np.zeros(n, dtype=np.int64)
+    remap[uniq] = np.arange(1, uniq.size + 1)
+    out = np.zeros(n, dtype=np.int64)
+    out[fg] = remap[reps]
+    return out.reshape(rows, cols), int(uniq.size)
+
+
 def _find_light_domes_from_array(
     viirs_array: "np.ndarray",
     min_lat: float,
@@ -683,7 +731,7 @@ def _find_light_domes_from_array(
     min_blob_pixels: int = 4,
 ) -> list:
     """
-    Pure numpy/scipy function — no I/O, testable with synthetic arrays.
+    Pure numpy function — no I/O, no scipy, testable with synthetic arrays.
 
     Identifies contiguous regions of pixels whose Bortle class is >= tier_min_bortle
     and returns each blob's radiance-weighted centroid and peak Bortle class.
@@ -704,10 +752,8 @@ def _find_light_domes_from_array(
     Returns
     -------
     list of (lat: float, lon: float, max_bortle: int) tuples.
-    Returns [] if scipy is unavailable, the array is empty, or no blobs qualify.
+    Returns [] if the array is empty or no blobs qualify.
     """
-    if not _HAS_SCIPY:
-        return []
     import numpy as np
 
     rows, cols = viirs_array.shape
@@ -739,32 +785,43 @@ def _find_light_domes_from_array(
 
     # ── Connected-component labeling (8-connectivity) ─────────────────────────
     # 8-connectivity merges diagonally adjacent pixels, matching how city skyglow
-    # blobs appear in the raster (not strictly axis-aligned).
-    labeled, n_features = _ndimage_label(
-        tier_mask, structure=np.ones((3, 3), dtype=np.int8)
-    )
+    # blobs appear in the raster (not strictly axis-aligned). _connected_components_8
+    # is a pure-numpy drop-in for scipy.ndimage.label (same partition AND label
+    # numbering), so scipy is no longer a runtime dependency.
+    labeled, n_features = _connected_components_8(tier_mask)
 
-    # ── Centroid extraction (radiance-weighted, vectorised) ───────────────────
-    # viirs_array (not tier_mask) is the weighting array so the centroid gravitates
-    # toward the brightest core rather than the geometric centre — for a crescent
-    # metro the geometric centroid can land in a bay or dark suburb.
-    #
-    # All per-blob work is batched: np.bincount for sizes and scipy's index= APIs
-    # for centroids/peaks compute every label in a few full-array passes. The prior
-    # per-blob Python loop did `labeled == i` + center_of_mass per blob — O(blobs ×
-    # pixels), which was ~98% of this function on a bright metro window (NY: ~2.3 s
-    # over 1326 blobs). Output is identical (same blobs, order, centroids, peaks).
+    # ── Per-blob reductions (radiance-weighted centroid + peak Bortle, vectorised) ─
+    # viirs_array (not tier_mask) is the centroid weighting array so the centroid
+    # gravitates toward the brightest core rather than the geometric centre — for a
+    # crescent metro the geometric centroid can land in a bay or dark suburb.
+    # Every label is reduced in a few full-array bincount/maximum.at passes (no
+    # per-blob Python loop, no scipy index= APIs); output is identical.
     sizes = np.bincount(labeled.ravel())          # pixel count per label (index 0 = bg)
     keep = np.nonzero(sizes >= min_blob_pixels)[0]
     keep = keep[keep != 0]
     if keep.size == 0:
         return []
 
-    centroids  = _ndimage_center_of_mass(viirs_array, labeled, index=keep)
-    max_bortle = np.atleast_1d(_ndimage_maximum(bortle_arr, labeled, index=keep))
+    n_lab   = sizes.size                          # n_features + 1 (incl. background)
+    lab_flat = labeled.ravel()
+    weights  = viirs_array.ravel().astype(np.float64)
+    row_idx  = np.repeat(np.arange(rows, dtype=np.float64), cols)
+    col_idx  = np.tile(np.arange(cols, dtype=np.float64), rows)
+    # Radiance-weighted centroid: sum(w*coord)/sum(w) per label (matches
+    # scipy.ndimage.center_of_mass(viirs_array, labeled)); zero total weight → NaN.
+    wsum = np.bincount(lab_flat, weights=weights,           minlength=n_lab)
+    rsum = np.bincount(lab_flat, weights=weights * row_idx, minlength=n_lab)
+    csum = np.bincount(lab_flat, weights=weights * col_idx, minlength=n_lab)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cen_row = rsum[keep] / wsum[keep]
+        cen_col = csum[keep] / wsum[keep]
+    # Peak Bortle per label (matches scipy.ndimage.maximum(bortle_arr, labeled)).
+    maxb = np.zeros(n_lab, dtype=np.int64)
+    np.maximum.at(maxb, lab_flat, bortle_arr.ravel().astype(np.int64))
+    max_bortle = maxb[keep]
 
     results = []
-    for (row_f, col_f), mb in zip(centroids, max_bortle):
+    for row_f, col_f, mb in zip(cen_row, cen_col, max_bortle):
         # A degenerate blob (zero total weight) yields a NaN centroid — skip it.
         if math.isnan(row_f) or math.isnan(col_f):
             continue
@@ -1702,7 +1759,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
         _funnel["band_selected"] = len(dark_candidates)
 
-    # ── Light dome candidates (scipy blob detection on the same viirs_arr) ─────
+    # ── Light dome candidates (numpy blob detection on the same viirs_arr) ─────
     # A dome must be brighter than the origin by >=2 Bortle classes (dbortle >
     # origin_bortle and >= min(origin_bortle+2, 10)). The brightest possible blob is
     # Bortle 9, so for an origin already at Bortle 8-9 no dome can ever qualify —
@@ -1711,7 +1768,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _funnel["domes_raw"] = 0
     _dome_search = origin_bortle <= 7
     with prof.phase("light dome detection"):
-        if _HAS_SCIPY and viirs_arr is not None and _dome_search:
+        if viirs_arr is not None and _dome_search:
             raw_domes = _find_light_domes_from_array(
                 viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
                 tier_min_bortle=8,

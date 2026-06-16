@@ -3,5 +3,4 @@ skyfield==1.54
 timezonefinder==8.2.4
 boto3==1.43.25
 global-land-mask>=1.0
-scipy>=1.17.1
 h3>=4.0

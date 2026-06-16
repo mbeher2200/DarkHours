@@ -12,8 +12,6 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
 
-scipy = pytest.importorskip("scipy", reason="scipy required for array-based dome tests")
-
 import PyNightSkyPredictor.darksky as ds
 
 # ---------------------------------------------------------------------------
@@ -97,14 +95,6 @@ class TestLoadRasterWindow:
 # ---------------------------------------------------------------------------
 
 class TestFindLightDomesFromArray:
-
-    def setup_method(self):
-        # Ensure scipy path is active
-        self._orig_scipy = ds._HAS_SCIPY
-        ds._HAS_SCIPY = True
-
-    def teardown_method(self):
-        ds._HAS_SCIPY = self._orig_scipy
 
     # TC-1: grid alignment — NW corner
     def test_grid_alignment_nw_corner(self, monkeypatch):
@@ -244,13 +234,6 @@ class TestFindLightDomesFromArray:
         assert len(results) == 1
         assert results[0][2] == 8
 
-    # TC-13: scipy unavailable → empty
-    def test_scipy_unavailable_returns_empty(self, monkeypatch):
-        monkeypatch.setattr(ds, "_HAS_SCIPY", False)
-        arr = np.full((5, 5), _radiance_for_bortle(9), dtype=np.float64)
-        results = ds._find_light_domes_from_array(arr, 30.0, 40.0, -120.0, -110.0)
-        assert results == []
-
     # TC-14: empty array → empty
     def test_empty_array_returns_empty(self, monkeypatch):
         monkeypatch.setattr(ds, "_HAS_GLM", False)
@@ -290,6 +273,141 @@ class TestFindLightDomesFromArray:
             arr, 30.0, 40.0, -120.0, -110.0, tier_min_bortle=8, min_blob_pixels=1
         )
         assert results == []  # ocean masking wipes the tier_mask
+
+
+# ---------------------------------------------------------------------------
+# _connected_components_8  (pure-numpy replacement for scipy.ndimage.label)
+# ---------------------------------------------------------------------------
+
+class TestConnectedComponents8:
+
+    def test_empty_mask(self):
+        labeled, n = ds._connected_components_8(np.zeros((4, 5), dtype=bool))
+        assert n == 0
+        assert labeled.shape == (4, 5)
+        assert not labeled.any()
+
+    def test_zero_size(self):
+        labeled, n = ds._connected_components_8(np.zeros((0, 3), dtype=bool))
+        assert n == 0 and labeled.shape == (0, 3)
+
+    def test_single_pixel(self):
+        m = np.zeros((3, 3), dtype=bool); m[1, 1] = True
+        labeled, n = ds._connected_components_8(m)
+        assert n == 1 and labeled[1, 1] == 1 and (labeled > 0).sum() == 1
+
+    def test_diagonal_pixels_merge_8conn(self):
+        # Two diagonally-touching pixels are ONE component under 8-connectivity.
+        m = np.zeros((3, 3), dtype=bool); m[0, 0] = True; m[1, 1] = True
+        labeled, n = ds._connected_components_8(m)
+        assert n == 1 and labeled[0, 0] == labeled[1, 1] == 1
+
+    def test_orthogonal_adjacency_merges(self):
+        m = np.zeros((2, 3), dtype=bool); m[0, 0] = m[0, 1] = m[1, 1] = True
+        labeled, n = ds._connected_components_8(m)
+        assert n == 1
+
+    def test_two_separated_components(self):
+        m = np.zeros((3, 5), dtype=bool); m[1, 0] = True; m[1, 4] = True
+        labeled, n = ds._connected_components_8(m)
+        assert n == 2
+        # Raster-scan numbering: the earlier (top-left) pixel is label 1.
+        assert labeled[1, 0] == 1 and labeled[1, 4] == 2
+
+    def test_all_foreground(self):
+        labeled, n = ds._connected_components_8(np.ones((4, 4), dtype=bool))
+        assert n == 1 and (labeled == 1).all()
+
+    def test_label_numbering_is_raster_scan_order(self):
+        # Three separate single-pixel blobs; labels follow first-appearance (C-order).
+        m = np.zeros((3, 3), dtype=bool)
+        m[0, 2] = True; m[1, 0] = True; m[2, 2] = True
+        labeled, n = ds._connected_components_8(m)
+        assert n == 3
+        assert labeled[0, 2] == 1 and labeled[1, 0] == 2 and labeled[2, 2] == 3
+
+    def test_parity_with_scipy_random_masks(self):
+        # Exact match (partition AND label numbering) vs scipy across many shapes/densities.
+        pytest.importorskip("scipy")
+        from scipy.ndimage import label as scilabel
+        struct = np.ones((3, 3), dtype=np.int8)
+        rng = np.random.default_rng(1234)
+        for _ in range(150):
+            h = int(rng.integers(1, 40)); w = int(rng.integers(1, 40))
+            mask = rng.random((h, w)) < rng.uniform(0.2, 0.75)
+            mine, n_mine = ds._connected_components_8(mask)
+            ref, n_ref = scilabel(mask, structure=struct)
+            assert n_mine == n_ref
+            assert np.array_equal(mine, ref)
+
+
+def _reference_domes_scipy(arr, min_lat, max_lat, min_lon, max_lon,
+                           tier_min_bortle=8, min_blob_pixels=4):
+    """Old scipy-based dome detection — the parity reference (mirrors
+    scripts/bench_dome_detection.py._reference_domes; GLM disabled)."""
+    from scipy.ndimage import label as ndlabel, center_of_mass as ndcom
+    rows, cols = arr.shape
+    lat_vals = np.linspace(max_lat, min_lat, rows)
+    lon_vals = np.linspace(min_lon, max_lon, cols)
+    lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
+    sqm = np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
+    bortle = ds._sqm_to_bortle_array(sqm)
+    tier = (bortle >= tier_min_bortle) & (bortle != 0)
+    if not tier.any():
+        return []
+    labeled, n = ndlabel(tier, structure=np.ones((3, 3), dtype=np.int8))
+    out = []
+    for i in range(1, n + 1):
+        bm = labeled == i
+        if bm.sum() < min_blob_pixels:
+            continue
+        rf, cf = ndcom(arr, labeled, i)
+        if math.isnan(rf) or math.isnan(cf):
+            continue
+        ri = min(int(round(rf)), rows - 1)
+        ci = min(int(round(cf)), cols - 1)
+        out.append((float(lat_grid[ri, ci]), float(lon_grid[ri, ci]), int(np.max(bortle[bm]))))
+    return out
+
+
+class TestDomeParityWithScipy:
+    """The new pure-numpy dome detection matches the old scipy implementation on
+    random radiance fields (GLM disabled for a deterministic, hermetic compare)."""
+
+    def test_random_fields_match_scipy_reference(self, monkeypatch):
+        pytest.importorskip("scipy")
+        monkeypatch.setattr(ds, "_HAS_GLM", False)
+        rng = np.random.default_rng(7)
+        for _ in range(60):
+            h = int(rng.integers(6, 40)); w = int(rng.integers(6, 40))
+            # Mix of dark (0) and bright (Bortle 8-9) pixels so tier blobs form.
+            arr = np.zeros((h, w), dtype=np.float64)
+            bright = rng.random((h, w)) < rng.uniform(0.05, 0.4)
+            arr[bright] = _radiance_for_bortle(int(rng.integers(8, 10)))
+            mine = ds._find_light_domes_from_array(arr, 30.0, 40.0, -120.0, -110.0,
+                                                   tier_min_bortle=8, min_blob_pixels=4)
+            ref = _reference_domes_scipy(arr, 30.0, 40.0, -120.0, -110.0,
+                                         tier_min_bortle=8, min_blob_pixels=4)
+            # Same blob count and the same multiset of peak Bortle classes.
+            assert len(mine) == len(ref)
+            assert sorted(m[2] for m in mine) == sorted(r[2] for r in ref)
+            # Centroids match to within ~1 grid pixel: a radiance-weighted centroid
+            # landing on an exact .5 boundary rounds to either neighbouring pixel
+            # depending on float summation order — both are correct, the grid-snap
+            # just flips. Greedy 1:1 match each mine dome to a ref dome within 1.2 px.
+            tol_lat = 1.2 * 10.0 / (h - 1)
+            tol_lon = 1.2 * 10.0 / (w - 1)
+            unmatched = list(ref)
+            for ml in mine:
+                for j, rl in enumerate(unmatched):
+                    if (ml[2] == rl[2]
+                            and abs(ml[0] - rl[0]) <= tol_lat
+                            and abs(ml[1] - rl[1]) <= tol_lon):
+                        unmatched.pop(j)
+                        break
+                else:
+                    assert False, f"no ref match for dome {ml} (shape {h}x{w})"
+            assert not unmatched
 
 
 # ---------------------------------------------------------------------------
