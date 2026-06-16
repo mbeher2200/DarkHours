@@ -63,6 +63,16 @@ def test_worker_handler_processes_records(monkeypatch, mem_cache):
     assert jobs.get("abc") == {"status": "done", "result": {"ok": True}}
 
 
+def test_worker_handler_warmup_ping(monkeypatch):
+    """A non-SQS event (no Records) is a scheduled warmup: it runs prewarm and
+    returns without touching the job pipeline."""
+    calls = {"prewarm": 0, "process": 0}
+    monkeypatch.setattr(worker_handler, "_prewarm", lambda: calls.__setitem__("prewarm", calls["prewarm"] + 1))
+    monkeypatch.setattr(jobs, "process", lambda *a, **kw: calls.__setitem__("process", calls["process"] + 1))
+    assert worker_handler.handler({"warmup": True}, None) == {"warmed": True}
+    assert calls == {"prewarm": 1, "process": 0}
+
+
 def test_trip_endpoint_returns_202_then_done(monkeypatch, mem_cache):
     monkeypatch.setattr(main_mod._loc, "resolve",
                         lambda name: (40.0, -105.0, "Boulder", "America/Denver"))
