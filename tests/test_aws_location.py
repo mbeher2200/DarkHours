@@ -294,3 +294,72 @@ class TestSettlementDispatch:
         mock_nom.assert_called_once_with(39.7392, -104.9903)
         mock_aws.assert_not_called()
         assert result == "Denver, CO"
+
+
+# ── Drive-time route matrix + per-leg caching (_aws_drive_times) ──────────────
+
+class TestAwsDriveTimes:
+    """The route-matrix call is the dominant warm find_nearby phase (~2 s) and was
+    previously uncached. These cover the per-leg cache: hits skip the API, misses hit
+    it once for just the missing legs, and failures stay un-cached."""
+
+    @pytest.fixture
+    def _mem_cache(self, monkeypatch):
+        store: dict = {}
+        monkeypatch.setattr("PyNightSkyPredictor.darksky.cache.get", lambda k: store.get(k))
+        monkeypatch.setattr("PyNightSkyPredictor.darksky.cache.set",
+                            lambda k, v, ttl_seconds=None: store.__setitem__(k, v))
+        return store
+
+    @staticmethod
+    def _matrix(*minutes):
+        """A calculate_route_matrix response with one row of DurationSeconds (None = gap)."""
+        return {"RouteMatrix": [[
+            ({"DurationSeconds": m * 60} if m is not None else {}) for m in minutes
+        ]]}
+
+    def test_miss_calls_matrix_once_and_caches(self, monkeypatch, _mem_cache):
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        client.calculate_route_matrix.return_value = self._matrix(56, 88)
+        monkeypatch.setattr(ds, "_location", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert [c["drive_minutes"] for c in clusters] == [56, 88]
+        client.calculate_route_matrix.assert_called_once()
+        # both legs now cached
+        assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == 56
+
+    def test_full_cache_hit_skips_api(self, monkeypatch, _mem_cache):
+        import PyNightSkyPredictor.darksky as ds
+        _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = 56
+        _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.23, -111.07)] = ds._DRIVE_NO_ROUTE
+        client = MagicMock()
+        monkeypatch.setattr(ds, "_location", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert [c["drive_minutes"] for c in clusters] == [56, None]  # sentinel → None
+        client.calculate_route_matrix.assert_not_called()
+
+    def test_partial_miss_queries_only_uncached(self, monkeypatch, _mem_cache):
+        import PyNightSkyPredictor.darksky as ds
+        _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = 56
+        client = MagicMock()
+        client.calculate_route_matrix.return_value = self._matrix(88)  # only the miss
+        monkeypatch.setattr(ds, "_location", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert [c["drive_minutes"] for c in clusters] == [56, 88]
+        # only the single uncached destination was sent
+        _, kwargs = client.calculate_route_matrix.call_args
+        assert kwargs["DestinationPositions"] == [[-111.07, 35.23]]
+
+    def test_api_failure_leaves_none_and_uncached(self, monkeypatch, _mem_cache):
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        client.calculate_route_matrix.side_effect = RuntimeError("throttled")
+        monkeypatch.setattr(ds, "_location", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["drive_minutes"] is None
+        assert _mem_cache == {}  # transient failure must not poison the cache
