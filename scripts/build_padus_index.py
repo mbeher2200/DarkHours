@@ -1,7 +1,7 @@
 """
 Build a compact H3 spatial index of public lands from the USGS PAD-US 4.1 Geodatabase.
 
-The output (cache/darkhours_padus_h3.parquet, ~10 MB) is used by the DarkHours Lambda
+The output (cache/darkhours_padus_h3.parquet, ~3.5 MB) is used by the DarkHours Lambda
 as a fast pre-filter before calling Overpass: if a GPS coordinate falls inside a known
 public land cell the park name is returned directly; if it lands on a blacklisted cell
 (military, tribal, private, no-access) the candidate is eliminated without an API call.
@@ -28,15 +28,14 @@ public land cell the park name is returned directly; if it lands on a blackliste
 
     python scripts/build_padus_index.py
 
-Output is written to cache/darkhours_padus_h3.parquet (also gitignored).
+Output: cache/darkhours_padus_h3.parquet — committed via a .gitignore exception
+(the Docker images copy it). h3_cell is stored as sorted uint64 so the runtime loader
+binary-searches it instead of building a ~1.4M-entry dict; see docs/PADUS_INDEX.md.
 
---- LAMBDA QUERY PATTERN ---
+--- RUNTIME LOOKUP ---
 
-    cell = h3.latlng_to_cell(lat, lng, 7)
-    row  = index.get(cell)
-    if row is None:              proceed_to_overpass()          # not in PADUS
-    elif row["is_blacklisted"]:  eliminate_candidate()          # restricted land
-    else:                        use_park_name(row["Unit_Nm"])  # skip Overpass
+    Loaded once per process and queried via darksky._load_padus_h3_index /
+    _padus_h3_lookup (columnar np.searchsorted). See docs/PADUS_INDEX.md.
 """
 
 import os
