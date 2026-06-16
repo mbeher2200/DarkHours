@@ -32,7 +32,11 @@ function buildQuery(q: NightQuery): string {
   return p.toString()
 }
 
-const NEARBY_POLL_MS    = 3_000
+// Adaptive poll backoff: a warm job finishes in ~1.3s, so probe early and often
+// at first, then ease off. Each entry is the wait BEFORE that poll; the last value
+// repeats until the timeout. Catches a warm result near ~1.5s instead of the old
+// fixed 3s tick (no compute change — purely perceived latency).
+const NEARBY_POLL_BACKOFF_MS = [500, 1_000, 2_000, 3_000]
 const NEARBY_TIMEOUT_MS = 120_000
 
 /**
@@ -58,8 +62,9 @@ export async function fetchNearby(lat: number, lon: number, radius = 60): Promis
   const { job_id } = (await res.json()) as { job_id: string }
 
   const deadline = Date.now() + NEARBY_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, NEARBY_POLL_MS))
+  for (let attempt = 0; Date.now() < deadline; attempt++) {
+    const wait = NEARBY_POLL_BACKOFF_MS[Math.min(attempt, NEARBY_POLL_BACKOFF_MS.length - 1)]
+    await new Promise(r => setTimeout(r, wait))
     let poll: Response
     try {
       poll = await fetch(`/jobs/${job_id}`)
