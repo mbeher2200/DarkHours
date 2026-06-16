@@ -68,6 +68,10 @@ async def lifespan(app: FastAPI):
                 _p.get_backend().cache.get("__warmup__")   # open DynamoDB connection pool
             except Exception as _e:
                 logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
+            try:
+                jobs._sqs()   # build the boto3 SQS client off the first enqueue's path
+            except Exception as _e:
+                logging.getLogger(__name__).debug("SQS pre-warm failed: %s", _e)
 
         threading.Thread(target=_prewarm, daemon=True).start()
     yield
@@ -337,7 +341,16 @@ def nearby(
                         description="Search radius in miles (5–150)"),
 ):
     """Submit a nearby dark-sky search → 202 + job_id (poll /jobs/{id})."""
-    la, lo, _disp, _tz = _resolve(location, lat, lon)
+    # Only resolve what the job actually uses (lat/lon). The display name and
+    # timezone that _resolve() also computes are discarded here, and the worker
+    # reverse-geocodes the origin itself — so for raw coordinates (the web UI's
+    # path) we skip the wasted timezone lookup + networked reverse-geocode.
+    if location:
+        la, lo, _disp, _tz = _resolve(location, None, None)   # name → coords (still needed)
+    elif lat is not None and lon is not None:
+        la, lo = lat, lon
+    else:
+        raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
     job_id = jobs.submit({"type": "nearby", "lat": la, "lon": lo, "radius_miles": radius})
     return _accepted(job_id)
 
