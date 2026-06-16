@@ -495,6 +495,7 @@ _OVERPASS_URL    = "https://overpass-api.de/api/interpreter"
 _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
 _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
+_DRIVE_NO_ROUTE  = -1            # sentinel: route matrix returned no duration for this leg
 
 # PAD-US H3 spatial index — module-level lazy-load cache
 _PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
@@ -562,32 +563,58 @@ def _reset_location_client() -> None:
     _location_client = None
 
 
+def _drive_cache_key(olat: float, olon: float, dlat: float, dlon: float) -> str:
+    """Per-leg drive-time cache key (origin→destination, rounded to ~111 m)."""
+    return f"route_drive|{olat:.3f}|{olon:.3f}|{dlat:.3f}|{dlon:.3f}"
+
+
 def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> None:
     """Annotate each cluster dict with drive_minutes (int | None) via AWS Location route matrix.
 
     AWS-backend only. Mutates in-place. Silently sets None on any API failure so the
     caller always has the field, just without a value.
+
+    Per-leg cached (origin→destination, rounded, 90-day TTL): dark-sky sites for a given
+    area are stable, so repeat searches skip the route-matrix call entirely; only the
+    cache-missing legs are sent to AWS. The matrix phase was ~2 s and previously uncached —
+    the dominant warm cost (see docs/PERF_FINDNEARBY.md).
     """
     if not clusters:
         return
+    # 1. Serve cached legs from a single batched route-matrix call's worth of history;
+    #    collect the misses. A cached _DRIVE_NO_ROUTE means "computed, no route" (≠ miss).
+    misses = []
+    for c in clusters:
+        cached = cache.get(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]))
+        if cached is not None:
+            c["drive_minutes"] = None if cached == _DRIVE_NO_ROUTE else cached
+        else:
+            c["drive_minutes"] = None      # default until filled by the API below
+            misses.append(c)
+    if not misses:
+        return
+    # 2. One route-matrix call for just the uncached legs; cache each result. On failure
+    #    leave drive_minutes=None and DON'T cache, so a transient error isn't sticky.
     calc_name = os.environ.get("PYNIGHTSKY_ROUTE_CALCULATOR", "pynightsky-route-calculator")
     try:
         client = _location()
         resp = client.calculate_route_matrix(
             CalculatorName=calc_name,
             DeparturePositions=[[origin_lon, origin_lat]],
-            DestinationPositions=[[c["lon"], c["lat"]] for c in clusters],
+            DestinationPositions=[[c["lon"], c["lat"]] for c in misses],
             TravelMode="Car",
         )
         row = resp.get("RouteMatrix", [[]])[0]
-        for i, c in enumerate(clusters):
+        for i, c in enumerate(misses):
             entry = row[i] if i < len(row) else {}
             secs  = entry.get("DurationSeconds") if entry else None
-            c["drive_minutes"] = round(secs / 60) if secs is not None else None
+            mins  = round(secs / 60) if secs is not None else None
+            c["drive_minutes"] = mins
+            cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
+                      mins if mins is not None else _DRIVE_NO_ROUTE,
+                      ttl_seconds=_GEO_CACHE_TTL)
     except Exception as e:
         log.debug("AWS route matrix failed: %s", e)
-        for c in clusters:
-            c["drive_minutes"] = None
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
