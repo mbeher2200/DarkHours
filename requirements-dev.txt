@@ -2,3 +2,5 @@
 pytest==9.0.3
 moto[dynamodb]==5.2.2   # in-process AWS mock for hermetic adapter contract tests
 httpx==0.28.1           # FastAPI TestClient transport
+scipy>=1.17.1           # reference ONLY: dome-detection parity tests + bench_dome_detection.py
+                        # (NOT a runtime dep — _connected_components_8 replaced scipy.ndimage)

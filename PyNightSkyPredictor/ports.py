@@ -42,23 +42,29 @@ class GeocodeStore(Protocol):
 
 @runtime_checkable
 class RasterSource(Protocol):
-    """Resolves a light-pollution dataset name to an rasterio-openable path.
+    """Reads light-pollution values from the tiled raw-binary grids (numpy + boto3,
+    no GDAL). ``dataset`` is ``"viirs"`` or ``"falchi"``.
 
-    Returns a local filesystem path today; a GDAL VSI URI (``/vsis3/...``) once
-    the rasters move to S3 in M2. ``dataset`` is ``"viirs"`` or ``"falchi"``.
+    ``sample`` returns a single pixel value (nodata/out-of-bounds → 0.0, ``None`` on
+    error); ``read_window`` returns a float64 bbox sub-array (row 0 = max_lat), with
+    an optional bilinear ``out_shape`` resample. Local reads a memmapped grid;
+    aws range-reads it from S3.
     """
 
-    def path_for(self, dataset: str, *, show_progress: bool = True): ...
+    def sample(self, dataset: str, lat: float, lon: float) -> "float | None": ...
+    def read_window(self, dataset: str, min_lat: float, max_lat: float,
+                    min_lon: float, max_lon: float,
+                    out_shape: "tuple[int, int] | None" = None): ...
 
 
 class Backend:
     """Bundle of the three adapters chosen for the active environment.
 
     Each adapter is built lazily on first access, so a consumer that only needs
-    one of them never imports the others. This matters in the cloud: the TLE
-    warmer (cache-only) must NOT pull in the raster adapter, which imports
-    ``darksky`` → ``rasterio`` (the 335 MB GDAL stack). ``name`` is validated
-    eagerly in ``_build_backend``; the adapter modules are imported on demand
+    one of them never imports the others. The raster adapter now reads tiled
+    raw-binary grids with numpy + boto3 (no rasterio/GDAL in the runtime image).
+    ``name`` is validated eagerly in ``_build_backend``; the adapter modules are
+    imported on demand
     (they ``import ports`` themselves, so importing them at module load would be
     circular — by access time they are fully initialised)."""
 

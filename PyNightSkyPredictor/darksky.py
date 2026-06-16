@@ -54,18 +54,6 @@ except ImportError:
     )
     _HAS_GLM = False
 
-try:
-    from scipy.ndimage import label as _ndimage_label
-    from scipy.ndimage import center_of_mass as _ndimage_center_of_mass
-    from scipy.ndimage import maximum as _ndimage_maximum
-    _HAS_SCIPY = True
-except ImportError:
-    log.warning(
-        "scipy not installed; array-based light dome detection disabled. "
-        "Run `pip install scipy` to enable."
-    )
-    _HAS_SCIPY = False
-
 _HAS_H3 = False
 try:
     import h3 as _h3_lib
@@ -87,6 +75,13 @@ _VIIRS_TIF     = _CACHE_DIR / "viirs_2025_raw.tif"
 _FALCHI_ZIP_URL = ("https://datapub.gfz-potsdam.de/download/"
                    "10.5880.GFZ.1.4.2016.001/World_Atlas_2015.zip")
 _FALCHI_TIF     = _CACHE_DIR / "world_atlas_2016.tif"
+
+# Tiled raw-binary grids (built once from the GeoTIFFs above by gridbuild; read at
+# runtime by gridraster with numpy+boto3 only — no rasterio/GDAL). The local backend
+# builds these on first use; the aws backend reads the same-named pair from S3.
+_GRID_DIR    = _CACHE_DIR / "grid"
+_VIIRS_GRID  = _GRID_DIR / "viirs_2025"
+_FALCHI_GRID = _GRID_DIR / "world_atlas_2016"
 
 # Falchi natural-sky reference (airglow + zodiacal light + integrated starlight)
 _L_NATURAL   = 0.252   # mcd/m²
@@ -201,53 +196,93 @@ def _download_falchi(show_progress: bool = True) -> None:
               _FALCHI_ZIP_URL, _FALCHI_TIF, show_progress)
 
 
-class LocalRasterSource:
-    """Resolve a dataset name to a local GeoTIFF path, downloading on first use.
+class _GridRasterSource:
+    """Shared ``sample``/``read_window`` over a per-dataset tiled raw-binary grid.
 
-    The default (local) RasterSource adapter. ``path_for`` returns a ``Path`` that
-    ``rasterio.open`` accepts directly; the S3 adapter in M2 will return a
-    ``/vsis3/...`` URI instead, leaving the sampling code untouched.
+    Subclasses provide ``_grid(dataset) -> gridraster.GridArray`` (cached). Both
+    operations preserve the legacy contract: ``sample`` returns nodata/out-of-bounds
+    → 0.0, negatives → 0, ``None`` on read error; ``read_window`` returns a float64
+    array (row 0 = max_lat, col 0 = min_lon), boundless-filled 0.0, nodata/neg
+    clamped, with an optional bilinear ``out_shape`` resample.
+    """
+
+    def __init__(self):
+        self._grids: dict[str, object] = {}
+
+    def _grid(self, dataset: str):                     # pragma: no cover - abstract
+        raise NotImplementedError
+
+    def sample(self, dataset: str, lat: float, lon: float) -> float | None:
+        g = self._grid(dataset)
+        return g.sample(lat, lon)
+
+    def read_window(self, dataset: str, min_lat: float, max_lat: float,
+                    min_lon: float, max_lon: float,
+                    out_shape: "tuple[int, int] | None" = None) -> "np.ndarray | None":
+        g = self._grid(dataset)
+        return g.read_window(min_lat, max_lat, min_lon, max_lon, out_shape=out_shape)
+
+
+class LocalRasterSource(_GridRasterSource):
+    """Local RasterSource: download the raw GeoTIFF then build the tiled grid on
+    first use, and read it with ``gridraster`` (memmap).
+
+    ``rasterio`` is required only for the one-time build (a local/build-only
+    dependency — ``pip install -r requirements-build.txt``); it is NOT needed for
+    runtime reads and is absent from the Lambda image.
     """
 
     _DATASETS = {
-        "viirs":  (_download_viirs,  _VIIRS_TIF),
-        "falchi": (_download_falchi, _FALCHI_TIF),
+        "viirs":  (_download_viirs,  _VIIRS_TIF,  _VIIRS_GRID),
+        "falchi": (_download_falchi, _FALCHI_TIF, _FALCHI_GRID),
     }
 
-    def path_for(self, dataset: str, *, show_progress: bool = True):
+    def _grid(self, dataset: str):
+        cached = self._grids.get(dataset)
+        if cached is not None:
+            return cached
         try:
-            downloader, path = self._DATASETS[dataset]
+            downloader, tif_path, grid_prefix = self._DATASETS[dataset]
         except KeyError:
             raise ValueError(f"Unknown raster dataset: {dataset!r}")
-        downloader(show_progress=show_progress)
-        return path
+
+        from . import gridraster
+        if not (grid_prefix.with_suffix(".bin").exists()
+                and grid_prefix.with_suffix(".json").exists()):
+            downloader(show_progress=True)             # ensure the raw GeoTIFF is present
+            from . import gridbuild
+            try:
+                gridbuild.build(tif_path, grid_prefix, dataset)
+            except ImportError as e:
+                raise RuntimeError(
+                    "Building the light-pollution grid requires rasterio "
+                    "(local/build-only). Install it with: "
+                    "pip install -r requirements-build.txt"
+                ) from e
+
+        g = gridraster.open_local(grid_prefix)
+        self._grids[dataset] = g
+        return g
 
 
-class S3RasterSource:
-    """Read the light-pollution COGs from S3 in place via GDAL ``/vsis3``.
+class S3RasterSource(_GridRasterSource):
+    """AWS RasterSource: range-read the tiled grid (``{key}.bin``/``{key}.json``)
+    from S3 in place via boto3 — nothing is downloaded.
 
-    Nothing is downloaded — ``rasterio.open`` range-reads only the COG tiles it
-    needs over HTTPS. The bucket comes from the ``PYNIGHTSKY_RASTER_BUCKET``
-    environment variable (kept out of source so the public repo carries no bucket
-    name). Credentials and region resolve from the standard AWS environment: an
-    instance/task role in the cloud, or ``AWS_PROFILE`` locally.
+    The bucket comes from ``PYNIGHTSKY_RASTER_BUCKET`` (kept out of source so the
+    public repo carries no bucket name); credentials/region resolve from the
+    standard AWS environment (task role in the cloud, ``AWS_PROFILE`` locally).
     """
 
     _KEYS = {
-        "viirs":  "viirs_2025_cog.tif",
-        "falchi": "world_atlas_2016_cog.tif",
+        "viirs":  "viirs_2025",
+        "falchi": "world_atlas_2016",
     }
 
     def __init__(self, bucket: str | None = None):
+        super().__init__()
         self._bucket = bucket
-        # GDAL /vsis3 tuning for COG-over-S3: don't list the bucket on open
-        # (one fewer round-trip), restrict to .tif, and cache fetched ranges.
-        os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
-        os.environ.setdefault("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tif")
-        os.environ.setdefault("VSI_CACHE", "TRUE")
-        # --- Added these lines to optimize S3 COG performance ---
-        os.environ.setdefault("VSI_CACHE_SIZE", "52428800")
-        os.environ.setdefault("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "YES")
+        self._client = None
 
     @property
     def bucket(self) -> str:
@@ -257,68 +292,53 @@ class S3RasterSource:
         if not b:
             raise RuntimeError(
                 "PYNIGHTSKY_RASTER_BUCKET is not set — required for the 'aws' "
-                "raster backend (the S3 bucket holding the COGs)."
+                "raster backend (the S3 bucket holding the grids)."
             )
         return b
 
-    def path_for(self, dataset: str, *, show_progress: bool = True):
+    def _s3(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("s3")
+        return self._client
+
+    def _grid(self, dataset: str):
+        cached = self._grids.get(dataset)
+        if cached is not None:
+            return cached
         try:
-            key = self._KEYS[dataset]
+            key_prefix = self._KEYS[dataset]
         except KeyError:
             raise ValueError(f"Unknown raster dataset: {dataset!r}")
-        return f"/vsis3/{self.bucket}/{key}"
+        from . import gridraster
+        g = gridraster.open_s3(self.bucket, key_prefix, client=self._s3())
+        self._grids[dataset] = g
+        return g
 
 
 # ---------------------------------------------------------------------------
 # Raster sampling
 # ---------------------------------------------------------------------------
 
-def _sample_tif(tif_path: Path, lat: float, lon: float) -> float | None:
-    """
-    Return the pixel value at (lat, lon) from a GeoTIFF.
-    Handles EPSG:4326 and other CRS via rasterio warp.
-    Returns None on error; 0.0 for nodata / below-detection pixels.
-    """
-    try:
-        import rasterio
-        from rasterio.warp import transform as warp_transform
-    except ImportError:
-        log.warning("rasterio not installed; skipping light pollution lookup")
-        return None
-
-    try:
-        with rasterio.open(tif_path) as ds:
-            if ds.crs and ds.crs.to_epsg() != 4326:
-                xs, ys = warp_transform("EPSG:4326", ds.crs, [lon], [lat])
-            else:
-                xs, ys = [lon], [lat]
-
-            value = float(list(ds.sample([(xs[0], ys[0])]))[0][0])
-
-            if ds.nodata is not None and abs(value - ds.nodata) < 1.0:
-                log.debug("Nodata pixel at (%.4f, %.4f) in %s",
-                          lat, lon, os.path.basename(str(tif_path)))
-                return 0.0
-
-            return max(value, 0.0)
-    except Exception as e:
-        log.warning("Raster lookup failed (%s): %s", os.path.basename(str(tif_path)), e)
-        return None
-
-
 def _viirs_radiance(lat: float, lon: float) -> float | None:
-    """Return VIIRS 2025 radiance (nW/cm²/sr), downloading the TIF if needed."""
-    path  = ports.get_backend().raster_source.path_for("viirs")
-    value = _sample_tif(path, lat, lon)
+    """Return VIIRS 2025 radiance (nW/cm²/sr); builds/opens the grid on first use."""
+    try:
+        value = ports.get_backend().raster_source.sample("viirs", lat, lon)
+    except Exception as e:
+        log.warning("VIIRS lookup failed: %s", e)
+        return None
     if value is not None:
         log.debug("VIIRS radiance at (%.4f, %.4f): %.3f nW/cm²/sr", lat, lon, value)
     return value
 
 
 def _falchi_luminance(lat: float, lon: float) -> float | None:
-    """Return Falchi 2016 artificial luminance (mcd/m²), downloading if needed."""
-    path  = ports.get_backend().raster_source.path_for("falchi")
-    value = _sample_tif(path, lat, lon)
+    """Return Falchi 2016 artificial luminance (mcd/m²); builds/opens on first use."""
+    try:
+        value = ports.get_backend().raster_source.sample("falchi", lat, lon)
+    except Exception as e:
+        log.warning("Falchi lookup failed: %s", e)
+        return None
     if value is not None:
         log.debug("Falchi luminance at (%.4f, %.4f): %.4f mcd/m²", lat, lon, value)
     return value
@@ -394,7 +414,7 @@ def lookup(lat: float, lon: float) -> dict | None:
       below_detection bool  — True only if both sources return 0/None
       source         str   — "VIIRS 2025" or "Falchi 2016"
 
-    Returns None if rasterio is unavailable or both files cannot be read.
+    Returns None if the raster grids are unavailable or both reads fail.
     """
     _cache_key = (round(lat, 2), round(lon, 2))
     if _cache_key in _bortle_mem_cache:
@@ -403,7 +423,7 @@ def lookup(lat: float, lon: float) -> dict | None:
     # --- Primary: VIIRS 2025 ---
     radiance = _viirs_radiance(lat, lon)
     if radiance is None:
-        # rasterio missing or file error; try Falchi anyway
+        # grid unreadable or read error; try Falchi anyway
         log.debug("VIIRS unavailable, falling back to Falchi")
     elif radiance > 0:
         sqm = radiance_to_sqm(radiance)
@@ -477,7 +497,7 @@ _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county —
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
 
 # PAD-US H3 spatial index — module-level lazy-load cache
-_PADUS_H3_FILENAME = "darkhours_padus_h3.parquet"
+_PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
 _PADUS_UNAVAILABLE = object()   # singleton: tried to load, file missing or unreadable
 _padus_h3_cache: "dict | object | None" = None  # None = not yet attempted
 _OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests (overpass-api.de policy)
@@ -627,77 +647,78 @@ def _load_raster_window(
     align a coarser raster (e.g. Falchi) to the VIIRS pixel grid so both arrays
     are shape-identical before any arithmetic.
 
-    Returns None on any error (import failure, missing file, rasterio exception).
+    Delegates to the active RasterSource's grid reader (tiled raw-binary; numpy +
+    boto3, no GDAL). Both datasets are EPSG:4326 so there is no runtime reproject.
+    Returns None on any error (backend unavailable, read failure).
     """
     try:
-        import numpy as np
-        import rasterio
-        from rasterio.warp import transform as warp_transform, reproject, Resampling
-        from rasterio.windows import from_bounds as _window_from_bounds
-        from rasterio.transform import from_bounds as _tx_from_bounds
-    except ImportError as exc:
-        log.warning("rasterio/numpy unavailable in _load_raster_window: %s", exc)
-        return None
-
-    try:
-        src        = ports.get_backend().raster_source
-        raster_path = src.path_for(source_key, show_progress=False)
-
-        with rasterio.open(raster_path) as ds:
-            nodata = ds.nodata
-            needs_reproject = bool(ds.crs and ds.crs.to_epsg() != 4326)
-
-            if needs_reproject:
-                # Transform all four bbox corners to the raster CRS, take the envelope
-                corner_lons = [min_lon, max_lon, min_lon, max_lon]
-                corner_lats = [min_lat, min_lat, max_lat, max_lat]
-                xs, ys = warp_transform("EPSG:4326", ds.crs, corner_lons, corner_lats)
-                left, right = min(xs), max(xs)
-                bottom, top  = min(ys), max(ys)
-                window = _window_from_bounds(left, bottom, right, top,
-                                             transform=ds.transform)
-                native_arr = ds.read(
-                    1, window=window, boundless=True, fill_value=0.0,
-                ).astype(np.float64)
-
-                # Reproject from the native CRS back to a WGS-84 aligned grid
-                dst_h = out_shape[0] if out_shape else native_arr.shape[0]
-                dst_w = out_shape[1] if out_shape else native_arr.shape[1]
-                dst_transform = _tx_from_bounds(
-                    min_lon, min_lat, max_lon, max_lat,
-                    width=dst_w, height=dst_h,
-                )
-                arr = np.zeros((dst_h, dst_w), dtype=np.float64)
-                reproject(
-                    source=native_arr,
-                    destination=arr,
-                    src_transform=ds.window_transform(window),
-                    src_crs=ds.crs,
-                    dst_transform=dst_transform,
-                    dst_crs="EPSG:4326",
-                    resampling=Resampling.bilinear,
-                )
-            else:
-                window = _window_from_bounds(
-                    min_lon, min_lat, max_lon, max_lat,
-                    transform=ds.transform,
-                )
-                read_kwargs = dict(window=window, boundless=True, fill_value=0.0)
-                if out_shape is not None:
-                    read_kwargs["out_shape"] = out_shape
-                    read_kwargs["resampling"] = Resampling.bilinear
-                arr = ds.read(1, **read_kwargs).astype(np.float64)
-
-        # Clamp nodata and negative values
-        if nodata is not None:
-            arr = np.where(np.abs(arr - nodata) < 1.0, 0.0, arr)
-        arr = np.where(arr < 0.0, 0.0, arr)
-        return arr
-
+        return ports.get_backend().raster_source.read_window(
+            source_key, min_lat, max_lat, min_lon, max_lon, out_shape=out_shape,
+        )
     except Exception as exc:
         log.warning("_load_raster_window(%r, %.3f, %.3f, %.3f, %.3f) failed: %s",
                     source_key, min_lat, max_lat, min_lon, max_lon, exc)
         return None
+
+
+def _connected_components_8(mask: "np.ndarray") -> "tuple[np.ndarray, int]":
+    """Label 8-connected components of a 2-D boolean ``mask``.
+
+    Pure-numpy drop-in for ``scipy.ndimage.label(mask, structure=np.ones((3, 3)))``:
+    returns ``(labeled, n_features)`` with background = 0 and components numbered
+    1..n in raster-scan order of first appearance — byte-identical to scipy's output
+    (verified over random masks), so scipy is not a runtime dependency.
+
+    Vectorised union-find by min-label propagation: build the 8-connectivity edges
+    (4 shift directions cover all neighbour pairs), then iteratively push the minimum
+    flat index across each edge with pointer-jumping until stable. Each component's
+    representative is its minimum flat index, so sorting the unique representatives
+    reproduces scipy's first-appearance numbering.
+    """
+    import numpy as np
+
+    rows, cols = mask.shape
+    n = rows * cols
+    labeled = np.zeros((rows, cols), dtype=np.int64)
+    if n == 0 or not mask.any():
+        return labeled, 0
+
+    grid = np.arange(n).reshape(rows, cols)
+    a_parts, b_parts = [], []
+
+    def _add(sel, ga, gb):
+        if sel.any():
+            a_parts.append(ga[sel])
+            b_parts.append(gb[sel])
+
+    _add(mask[:, :-1] & mask[:, 1:],   grid[:, :-1],  grid[:, 1:])    # right
+    _add(mask[:-1, :] & mask[1:, :],   grid[:-1, :],  grid[1:, :])    # down
+    _add(mask[:-1, :-1] & mask[1:, 1:], grid[:-1, :-1], grid[1:, 1:])  # down-right
+    _add(mask[:-1, 1:] & mask[1:, :-1], grid[:-1, 1:],  grid[1:, :-1])  # down-left
+
+    labels = np.arange(n)
+    if a_parts:
+        a = np.concatenate(a_parts)
+        b = np.concatenate(b_parts)
+        while True:
+            prev = labels
+            cand = np.minimum(labels[a], labels[b])
+            nxt = labels.copy()
+            np.minimum.at(nxt, a, cand)
+            np.minimum.at(nxt, b, cand)
+            nxt = nxt[nxt]                        # pointer-jump for fast convergence
+            if np.array_equal(nxt, prev):
+                break
+            labels = nxt
+
+    fg = mask.ravel()
+    reps = labels[fg]
+    uniq = np.unique(reps)                        # ascending = first-appearance order
+    remap = np.zeros(n, dtype=np.int64)
+    remap[uniq] = np.arange(1, uniq.size + 1)
+    out = np.zeros(n, dtype=np.int64)
+    out[fg] = remap[reps]
+    return out.reshape(rows, cols), int(uniq.size)
 
 
 def _find_light_domes_from_array(
@@ -710,7 +731,7 @@ def _find_light_domes_from_array(
     min_blob_pixels: int = 4,
 ) -> list:
     """
-    Pure numpy/scipy function — no I/O, testable with synthetic arrays.
+    Pure numpy function — no I/O, no scipy, testable with synthetic arrays.
 
     Identifies contiguous regions of pixels whose Bortle class is >= tier_min_bortle
     and returns each blob's radiance-weighted centroid and peak Bortle class.
@@ -731,10 +752,8 @@ def _find_light_domes_from_array(
     Returns
     -------
     list of (lat: float, lon: float, max_bortle: int) tuples.
-    Returns [] if scipy is unavailable, the array is empty, or no blobs qualify.
+    Returns [] if the array is empty or no blobs qualify.
     """
-    if not _HAS_SCIPY:
-        return []
     import numpy as np
 
     rows, cols = viirs_array.shape
@@ -766,32 +785,43 @@ def _find_light_domes_from_array(
 
     # ── Connected-component labeling (8-connectivity) ─────────────────────────
     # 8-connectivity merges diagonally adjacent pixels, matching how city skyglow
-    # blobs appear in the raster (not strictly axis-aligned).
-    labeled, n_features = _ndimage_label(
-        tier_mask, structure=np.ones((3, 3), dtype=np.int8)
-    )
+    # blobs appear in the raster (not strictly axis-aligned). _connected_components_8
+    # is a pure-numpy drop-in for scipy.ndimage.label (same partition AND label
+    # numbering), so scipy is no longer a runtime dependency.
+    labeled, n_features = _connected_components_8(tier_mask)
 
-    # ── Centroid extraction (radiance-weighted, vectorised) ───────────────────
-    # viirs_array (not tier_mask) is the weighting array so the centroid gravitates
-    # toward the brightest core rather than the geometric centre — for a crescent
-    # metro the geometric centroid can land in a bay or dark suburb.
-    #
-    # All per-blob work is batched: np.bincount for sizes and scipy's index= APIs
-    # for centroids/peaks compute every label in a few full-array passes. The prior
-    # per-blob Python loop did `labeled == i` + center_of_mass per blob — O(blobs ×
-    # pixels), which was ~98% of this function on a bright metro window (NY: ~2.3 s
-    # over 1326 blobs). Output is identical (same blobs, order, centroids, peaks).
+    # ── Per-blob reductions (radiance-weighted centroid + peak Bortle, vectorised) ─
+    # viirs_array (not tier_mask) is the centroid weighting array so the centroid
+    # gravitates toward the brightest core rather than the geometric centre — for a
+    # crescent metro the geometric centroid can land in a bay or dark suburb.
+    # Every label is reduced in a few full-array bincount/maximum.at passes (no
+    # per-blob Python loop, no scipy index= APIs); output is identical.
     sizes = np.bincount(labeled.ravel())          # pixel count per label (index 0 = bg)
     keep = np.nonzero(sizes >= min_blob_pixels)[0]
     keep = keep[keep != 0]
     if keep.size == 0:
         return []
 
-    centroids  = _ndimage_center_of_mass(viirs_array, labeled, index=keep)
-    max_bortle = np.atleast_1d(_ndimage_maximum(bortle_arr, labeled, index=keep))
+    n_lab   = sizes.size                          # n_features + 1 (incl. background)
+    lab_flat = labeled.ravel()
+    weights  = viirs_array.ravel().astype(np.float64)
+    row_idx  = np.repeat(np.arange(rows, dtype=np.float64), cols)
+    col_idx  = np.tile(np.arange(cols, dtype=np.float64), rows)
+    # Radiance-weighted centroid: sum(w*coord)/sum(w) per label (matches
+    # scipy.ndimage.center_of_mass(viirs_array, labeled)); zero total weight → NaN.
+    wsum = np.bincount(lab_flat, weights=weights,           minlength=n_lab)
+    rsum = np.bincount(lab_flat, weights=weights * row_idx, minlength=n_lab)
+    csum = np.bincount(lab_flat, weights=weights * col_idx, minlength=n_lab)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cen_row = rsum[keep] / wsum[keep]
+        cen_col = csum[keep] / wsum[keep]
+    # Peak Bortle per label (matches scipy.ndimage.maximum(bortle_arr, labeled)).
+    maxb = np.zeros(n_lab, dtype=np.int64)
+    np.maximum.at(maxb, lab_flat, bortle_arr.ravel().astype(np.int64))
+    max_bortle = maxb[keep]
 
     results = []
-    for (row_f, col_f), mb in zip(centroids, max_bortle):
+    for row_f, col_f, mb in zip(cen_row, cen_col, max_bortle):
         # A degenerate blob (zero total weight) yields a NaN centroid — skip it.
         if math.isnan(row_f) or math.isnan(col_f):
             continue
@@ -1296,7 +1326,7 @@ def _get_nominatim_county_city(lat: float, lon: float) -> "str | None":
 # ---------------------------------------------------------------------------
 
 def _padus_h3_path() -> "Path | None":
-    """Resolve the H3 parquet path, trying env override → repo layout → Lambda layout."""
+    """Resolve the H3 index (.npz) path, trying env override → repo layout → Lambda layout."""
     env_override = os.environ.get("PYNIGHTSKY_PADUS_H3_PATH")
     if env_override:
         p = Path(env_override)
@@ -1311,27 +1341,29 @@ def _padus_h3_path() -> "Path | None":
 
 
 class _PadusIndex:
-    """Columnar PAD-US H3 index: a sorted uint64 cell array plus parallel name and
-    blacklist arrays. Replaces a ~1.4M-entry Python dict — the dict build dominated
-    worker cold starts (~1.8 s locally, 5-24 s on Lambda's throttled vCPU). Lookups
-    binary-search the cell array (see _padus_h3_lookup); names stay as an Arrow array
-    and are materialised one element at a time, only on a hit."""
+    """Columnar PAD-US H3 index: a sorted uint64 cell array plus parallel blacklist
+    and dictionary-encoded name arrays. Replaces a ~1.4M-entry Python dict — the dict
+    build dominated worker cold starts (~1.8 s locally, 5-24 s on Lambda's throttled
+    vCPU). Lookups binary-search the cell array (see _padus_h3_lookup); the name is
+    materialised only on a hit via ``names[name_codes[i]]``. Read from a compressed
+    .npz with numpy only (no pyarrow)."""
 
-    __slots__ = ("cells", "names", "blacklist")
+    __slots__ = ("cells", "name_codes", "names", "blacklist")
 
-    def __init__(self, cells, names, blacklist):
-        self.cells = cells          # np.ndarray[uint64], ascending
-        self.names = names          # pyarrow Array (large_string), aligned to cells
-        self.blacklist = blacklist  # np.ndarray[bool], aligned to cells
+    def __init__(self, cells, name_codes, names, blacklist):
+        self.cells = cells              # np.ndarray[uint64], ascending
+        self.name_codes = name_codes    # np.ndarray[uint32], index into names, aligned to cells
+        self.names = names              # list[str], unique names (dictionary values)
+        self.blacklist = blacklist      # np.ndarray[bool], aligned to cells
 
 
 def _load_padus_h3_index() -> "_PadusIndex | None":
     """Lazy-load the PAD-US H3 index once per process; return the cached index after.
 
-    The index is columnar (see _PadusIndex), so loading is a parquet read into numpy
-    arrays rather than a ~1.4M-object Python dict build. Returns None (and caches that
-    failure) if h3/numpy/pyarrow is unavailable, the parquet is missing, or the read
-    fails — callers degrade gracefully to Tier 2/3.
+    The index is columnar (see _PadusIndex), so loading is a numpy .npz read rather
+    than a ~1.4M-object Python dict build. Returns None (and caches that failure) if
+    h3/numpy is unavailable, the .npz is missing, or the read fails — callers degrade
+    gracefully to Tier 2/3.
     """
     global _padus_h3_cache
     if _padus_h3_cache is _PADUS_UNAVAILABLE:
@@ -1345,28 +1377,28 @@ def _load_padus_h3_index() -> "_PadusIndex | None":
 
     path = _padus_h3_path()
     if path is None:
-        log.debug("PAD-US H3 parquet not found; Tier-1 spatial filter disabled.")
+        log.debug("PAD-US H3 index (.npz) not found; Tier-1 spatial filter disabled.")
         _padus_h3_cache = _PADUS_UNAVAILABLE
         return None
 
     try:
         import numpy as np
-        import pyarrow.parquet as pq
-        tbl = pq.read_table(str(path), columns=["h3_cell", "Unit_Nm", "is_blacklisted"])
-        cells     = tbl.column("h3_cell").to_numpy(zero_copy_only=False).astype(np.uint64, copy=False)
-        names     = tbl.column("Unit_Nm")
-        blacklist = tbl.column("is_blacklisted").to_numpy(zero_copy_only=False)
-        # The parquet is written sorted by cell (build + migrate scripts), so
-        # np.searchsorted is valid. Guard cheaply (~ms) and sort if it ever isn't.
+        with np.load(path) as npz:
+            cells      = npz["cells"].astype(np.uint64, copy=False)
+            name_codes = npz["name_codes"].astype(np.uint32, copy=False)
+            blacklist  = npz["blacklist"].astype(bool, copy=False)
+            names_blob = npz["names_blob"].tobytes()
+        # Dictionary values: unique names joined on NUL (see convert_padus_parquet_to_npz).
+        names = names_blob.decode("utf-8").split("\x00") if names_blob else []
+        # The .npz is written sorted by cell, so np.searchsorted is valid. Guard
+        # cheaply (~ms) and sort all three together if it ever isn't.
         if cells.size and not bool(np.all(cells[:-1] <= cells[1:])):
-            import pyarrow as pa
-            order     = np.argsort(cells, kind="stable")
-            cells     = cells[order]
-            names     = names.take(pa.array(order))
-            blacklist = blacklist[order]
-        names = names.combine_chunks()   # single Arrow array → O(1) indexing on a hit
-        _padus_h3_cache = _PadusIndex(cells, names, blacklist)
-        log.debug("PAD-US H3 index loaded: %d cells (columnar).", cells.size)
+            order      = np.argsort(cells, kind="stable")
+            cells      = cells[order]
+            name_codes = name_codes[order]
+            blacklist  = blacklist[order]
+        _padus_h3_cache = _PadusIndex(cells, name_codes, names, blacklist)
+        log.debug("PAD-US H3 index loaded: %d cells (numpy .npz).", cells.size)
     except Exception as exc:
         log.debug("PAD-US H3 index load failed: %s", exc)
         _padus_h3_cache = _PADUS_UNAVAILABLE
@@ -1390,7 +1422,7 @@ def _padus_h3_lookup(
     cells = index.cells
     i = int(np.searchsorted(cells, np.uint64(cell)))
     if i < cells.size and cells[i] == cell:
-        return (index.names[i].as_py(), bool(index.blacklist[i]))
+        return (index.names[int(index.name_codes[i])], bool(index.blacklist[i]))
     return None
 
 
@@ -1642,7 +1674,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     Each result/dome/best_available entry has:
       name, bortle_class, sqm, distance_miles, direction
 
-    Returns None if light pollution data is unavailable (rasterio not installed).
+    Returns None if light pollution data is unavailable (raster grid unreadable).
     """
     prof = _Profiler(_PROFILE)
     _funnel: dict = {}   # candidate counts per stage (logged at end when profiling)
@@ -1727,7 +1759,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
         _funnel["band_selected"] = len(dark_candidates)
 
-    # ── Light dome candidates (scipy blob detection on the same viirs_arr) ─────
+    # ── Light dome candidates (numpy blob detection on the same viirs_arr) ─────
     # A dome must be brighter than the origin by >=2 Bortle classes (dbortle >
     # origin_bortle and >= min(origin_bortle+2, 10)). The brightest possible blob is
     # Bortle 9, so for an origin already at Bortle 8-9 no dome can ever qualify —
@@ -1736,7 +1768,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _funnel["domes_raw"] = 0
     _dome_search = origin_bortle <= 7
     with prof.phase("light dome detection"):
-        if _HAS_SCIPY and viirs_arr is not None and _dome_search:
+        if viirs_arr is not None and _dome_search:
             raw_domes = _find_light_domes_from_array(
                 viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
                 tier_min_bortle=8,
