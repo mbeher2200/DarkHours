@@ -53,6 +53,10 @@ Temp/
 cache/*
 !cache/darkhours_padus_h3.parquet
 !cache/darkhours_padus_h3.npz
+# Routable OSM POI index (derived from OpenStreetMap, ODbL — © OpenStreetMap
+# contributors). IS the committed runtime index; Docker builds COPY it. Built by
+# scripts/osm_poi_builder.py from a Geofabrik .osm.pbf. See docs/OSM_POI_INDEX.md.
+!cache/osm_pois.npz
 
 # AWS CDK infrastructure build artefacts (added ahead of M4)
 cdk.out/

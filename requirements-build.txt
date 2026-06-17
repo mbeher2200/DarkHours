@@ -10,3 +10,4 @@ pyarrow
 fiona
 h3
 rasterio==1.5.0
+osmium          # pyosmium — parses .osm.pbf for scripts/osm_poi_builder.py
