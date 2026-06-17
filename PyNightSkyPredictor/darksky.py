@@ -623,29 +623,38 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     Uses Amazon Location GeoRoutes CalculateRouteMatrix (the modern, resource-less API)
     with DepartNow=True for traffic-aware ETAs.
 
+    Annotates drive_minutes (int | None) and drive_miles (road distance, int | None).
+
     Routes ONLY is_poi candidates: raw backcountry fallbacks have no established road
     access, so routing them wastes the API on an unreachable point. They get
-    drive_minutes=None (the frontend hides drive-time + offers a raw-coordinate map link).
+    drive_minutes=drive_miles=None (the frontend then hides the drive-time UI).
     """
     if not clusters:
         return
     # 1. Serve cached legs from a single batched route-matrix call's worth of history;
-    #    collect the misses. A cached _DRIVE_NO_ROUTE means "computed, no route" (≠ miss).
+    #    collect the misses. The cached value is {"m":min,"mi":road_miles} or the
+    #    _DRIVE_NO_ROUTE sentinel ("computed, no route" ≠ miss). Legacy int = minutes only.
     misses = []
     for c in clusters:
         if not c.get("is_poi"):
             c["drive_minutes"] = None      # never route a non-routable fallback pixel
+            c["drive_miles"] = None
             continue
         cached = cache.get(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]))
         if cached is not None:
-            c["drive_minutes"] = None if cached == _DRIVE_NO_ROUTE else cached
+            if cached == _DRIVE_NO_ROUTE:
+                c["drive_minutes"], c["drive_miles"] = None, None
+            elif isinstance(cached, dict):
+                c["drive_minutes"], c["drive_miles"] = cached.get("m"), cached.get("mi")
+            else:                          # legacy int cache entry: minutes only
+                c["drive_minutes"], c["drive_miles"] = cached, None
         else:
-            c["drive_minutes"] = None      # default until filled by the API below
+            c["drive_minutes"], c["drive_miles"] = None, None   # default until filled below
             misses.append(c)
     if not misses:
         return
     # 2. One GeoRoutes matrix call for just the uncached legs; cache each result. On
-    #    failure leave drive_minutes=None and DON'T cache, so a transient error isn't sticky.
+    #    failure leave the fields None and DON'T cache, so a transient error isn't sticky.
     try:
         client = _georoutes()
         resp = client.calculate_route_matrix(
@@ -657,12 +666,14 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
         )
         row = resp.get("RouteMatrix", [[]])[0]
         for i, c in enumerate(misses):
-            entry = row[i] if i < len(row) else {}
-            secs  = entry.get("Duration") if entry else None   # GeoRoutes: seconds
+            entry  = row[i] if i < len(row) else {}
+            secs   = entry.get("Duration") if entry else None   # GeoRoutes: seconds
+            meters = entry.get("Distance") if entry else None    # GeoRoutes: metres
             mins  = round(secs / 60) if secs is not None else None
-            c["drive_minutes"] = mins
+            miles = round(meters / 1609.34) if meters is not None else None
+            c["drive_minutes"], c["drive_miles"] = mins, miles
             cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
-                      mins if mins is not None else _DRIVE_NO_ROUTE,
+                      {"m": mins, "mi": miles} if mins is not None else _DRIVE_NO_ROUTE,
                       ttl_seconds=_DRIVE_CACHE_TTL)
     except Exception as e:
         log.debug("GeoRoutes route matrix failed: %s", e)
@@ -2197,6 +2208,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             # Keep existing distance-based sort for local backend
             for c in needs_drive:
                 c["drive_minutes"] = None
+                c["drive_miles"] = None
 
     _funnel["results_final"] = len(dark_clusters)
     _funnel["best_available"] = best_available is not None
