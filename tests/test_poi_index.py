@@ -183,6 +183,18 @@ def test_aws_drive_times_skips_non_poi():
     assert kwargs["RoutingBoundary"] == {"Unbounded": True}
 
 
+def test_dark_threshold_relaxes_for_dark_origins():
+    """One class darker, capped at 3 — dark origins no longer demand near-impossible Bortle 1."""
+    # (origin_bortle, expected dark_threshold)
+    assert ds._dark_threshold(1) == 1
+    assert ds._dark_threshold(2) == 1
+    assert ds._dark_threshold(3) == 2   # was 1 — the Sterling Forest fix (surfaces Bortle 2)
+    assert ds._dark_threshold(4) == 3   # was 2
+    assert ds._dark_threshold(5) == 3   # unchanged (brighter origins capped at 3)
+    assert ds._dark_threshold(8) == 3
+    assert ds._dark_threshold(9) == 3
+
+
 def test_offline_tier_name_poi_shortcircuits():
     """is_poi candidate → named offline (no Overpass/_settlement), unless blacklisted."""
     poi = {"lat": 38.5, "lon": -120.1, "name": "Shriner Lake Campground", "is_poi": True}

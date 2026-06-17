@@ -1697,6 +1697,21 @@ def _is_in_us(lat: float, lon: float) -> bool:
     return (18.0 <= lat <= 72.0) and (-180.0 <= lon <= -66.0)
 
 
+def _dark_threshold(origin_bortle: int) -> int:
+    """Bortle ceiling for 'darker than origin' candidates: one class darker, capped at 3.
+
+    Capped at Bortle 3 (the darkest we can reliably surface from a suburban origin) and
+    floored so a Bortle 2 origin still requires Bortle 1. A 2-class gap (origin-2) starved
+    already-dark origins — a Bortle 3 origin (e.g. Sterling Forest, NY) demanded Bortle 1,
+    which doesn't exist in the eastern US, dropping the reachable Bortle 2 Catskills sites.
+    One class darker surfaces them, ranked darkest-first; brighter origins (B5+) are
+    unchanged (still capped at 3). See docs/PERF_FINDNEARBY / the Sterling Forest case.
+    """
+    if origin_bortle <= 2:
+        return 1
+    return min(origin_bortle - 1, 3)
+
+
 def _offline_tier_name(
     c: dict,
     padus_index: "dict | None",
@@ -1941,11 +1956,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     origin_bortle = origin_info.get("bortle_class") or 5
     origin_sqm    = origin_info.get("sqm")
 
-    # Dark threshold: need to be meaningfully darker than origin
-    if origin_bortle <= 2:
-        dark_threshold = 1   # Bortle 2 → require Bortle 1
-    else:
-        dark_threshold = min(origin_bortle - 2, 3) # Bortle 3 is the darkest we can reliably surface from a suburban origin (Bortle 5+)
+    dark_threshold = _dark_threshold(origin_bortle)
 
     # Force the bounding box out to 150 miles to catch distant megacities regardless
     # of the user's requested driving radius.  Both dark-sky and dome detection read
