@@ -171,6 +171,69 @@ def _geocode_via_aws(name: str, query: str) -> dict | None:
     }
 
 
+def _suggest_via_aws(query: str, max_results: int) -> list[str]:
+    """Typeahead suggestions via AWS Location SearchPlaceIndexForSuggestions."""
+    from . import darksky  # reuse the process-wide pooled 'location' client
+    index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
+    try:
+        client = darksky._location()
+        resp = client.search_place_index_for_suggestions(
+            IndexName=index_name, Text=query, MaxResults=max_results,
+        )
+    except Exception as e:
+        log.error("AWS Location suggest error for %r: %s", query, e,
+                  extra={"service": "aws-location"})
+        raise RuntimeError(f"Suggestion error: {e}")
+    out: list[str] = []
+    for r in resp.get("Results", []):
+        txt = r.get("Text")
+        if txt and txt not in out:        # de-dup while preserving rank order
+            out.append(txt)
+    return out
+
+
+def _suggest_via_nominatim(query: str, max_results: int) -> list[str]:
+    """Typeahead suggestions via a Nominatim multi-result geocode (local backend).
+
+    Best-effort: a timeout/rate-limit returns no suggestions rather than raising,
+    so a slow geocoder never blocks typing.
+    """
+    try:
+        geolocator = Nominatim(user_agent=USER_AGENT)
+        results = geolocator.geocode(
+            _geocode_query(query), exactly_one=False, limit=max_results, timeout=10,
+        ) or []
+        _ph.record("nominatim", "ok")
+    except (GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimited) as e:
+        log.debug("Nominatim suggest failed for %r: %s", query, e)
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in results:
+        if r.address and r.address not in seen:
+            seen.add(r.address)
+            out.append(r.address)
+    return out
+
+
+def suggest(query: str, max_results: int = 5) -> list[str]:
+    """Return typeahead place suggestions for an autocomplete box.
+
+    aws backend   → AWS Location SearchPlaceIndexForSuggestions.
+    local backend → Nominatim multi-result geocode (best-effort).
+
+    Returns a list of human-readable suggestion strings (possibly empty). The
+    chosen string is resolved to coordinates later through the normal resolve()
+    path, so no PlaceId bookkeeping is needed here.
+    """
+    query = query.strip()
+    if not query:
+        return []
+    if ports.get_backend()._name == "aws":
+        return _suggest_via_aws(query, max_results)
+    return _suggest_via_nominatim(query, max_results)
+
+
 def resolve(name: str) -> tuple:
     """
     Resolve a location name to (lat, lon, display_name, tz_name).
