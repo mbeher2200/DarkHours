@@ -328,9 +328,13 @@ class TestAwsDriveTimes:
                     {"lat": 35.23, "lon": -111.07, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert [c["drive_minutes"] for c in clusters] == [56, 88]
+        # road distance (GeoRoutes Distance) is captured too: _matrix sets m*1000 metres
+        assert [c["drive_miles"] for c in clusters] == [round(56000 / 1609.34),
+                                                        round(88000 / 1609.34)]
         client.calculate_route_matrix.assert_called_once()
-        # both legs now cached
-        assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == 56
+        # both legs now cached as {minutes, road-miles}
+        assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == \
+            {"m": 56, "mi": round(56000 / 1609.34)}
 
     def test_full_cache_hit_skips_api(self, monkeypatch, _mem_cache):
         import PyNightSkyPredictor.darksky as ds
