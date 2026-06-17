@@ -50,7 +50,14 @@ from pathlib import Path
 
 import h3
 import numpy as np
-import osmium
+
+# osmium (pyosmium) is a BUILD-only dependency (requirements-build.txt), not installed in
+# the test/runtime envs. Import it lazily so this module is still importable for its pure
+# helpers (encode_poi_npz, POI_TYPE_LABELS, _classify) — e.g. from tests/test_poi_index.py.
+try:
+    import osmium
+except ImportError:
+    osmium = None
 
 RESOLUTION = 7   # ~5 km hex — matches the PAD-US index; used for build-time dedup
 OUT_DIR    = "cache"
@@ -278,6 +285,9 @@ def _filter_to_small_pbf(pbf_path: str, small_path: str) -> int:
 
 
 def build_index(pbf_path: str) -> None:
+    if osmium is None:
+        sys.exit("osmium (pyosmium) is required to build the index — "
+                 "pip install -r requirements-build.txt")
     small_path = os.path.join("Temp", "osm_pois_filtered.osm.pbf")
     os.makedirs("Temp", exist_ok=True)
     print(f"Pass 1: filtering POIs from {pbf_path} → {small_path} …", flush=True)
