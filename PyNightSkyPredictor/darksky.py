@@ -496,6 +496,10 @@ _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
 _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
 _DRIVE_NO_ROUTE  = -1            # sentinel: route matrix returned no duration for this leg
+# Drive-time legs use DepartNow (live-traffic) ETAs, so they're cached only briefly —
+# a 90-day cache would freeze a rush-hour snapshot. Short enough to keep traffic fresh,
+# long enough that a user's repeat searches within a planning session still hit cache.
+_DRIVE_CACHE_TTL = 3600          # 1 hour
 
 # PAD-US H3 spatial index — module-level lazy-load cache
 _PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
@@ -547,6 +551,8 @@ _GEOCODE_MAX_WORKERS = int(os.environ.get("PYNIGHTSKY_GEOCODE_WORKERS", "8"))
 # reverse-geocode fan-out. Double-checked locking guards the one-time construction.
 _location_client = None
 _location_client_lock = threading.Lock()
+_georoutes_client = None
+_georoutes_client_lock = threading.Lock()
 
 
 def _location():
@@ -571,10 +577,32 @@ def _location():
     return _location_client
 
 
+def _georoutes():
+    """Return the process-wide Amazon Location GeoRoutes client (drive-time matrix).
+
+    GeoRoutes is the modern, resource-less routing API (no route calculator to create);
+    it supports DepartNow traffic-aware ETAs. Separate from the legacy `location` client
+    (still used for place-index reverse-geocoding)."""
+    global _georoutes_client
+    if _georoutes_client is None:
+        with _georoutes_client_lock:
+            if _georoutes_client is None:
+                import boto3
+                from botocore.config import Config
+                region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+                _georoutes_client = boto3.client(
+                    "geo-routes",
+                    region_name=region,
+                    config=Config(retries={"max_attempts": 5, "mode": "adaptive"}),
+                )
+    return _georoutes_client
+
+
 def _reset_location_client() -> None:
-    """Drop the cached AWS Location client (used by tests, mirrors ports.reset_backend)."""
-    global _location_client
+    """Drop the cached AWS clients (used by tests, mirrors ports.reset_backend)."""
+    global _location_client, _georoutes_client
     _location_client = None
+    _georoutes_client = None
 
 
 def _drive_cache_key(olat: float, olon: float, dlat: float, dlon: float) -> str:
@@ -588,10 +616,12 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     AWS-backend only. Mutates in-place. Silently sets None on any API failure so the
     caller always has the field, just without a value.
 
-    Per-leg cached (origin→destination, rounded, 90-day TTL): dark-sky sites for a given
-    area are stable, so repeat searches skip the route-matrix call entirely; only the
-    cache-missing legs are sent to AWS. The matrix phase was ~2 s and previously uncached —
-    the dominant warm cost (see docs/PERF_FINDNEARBY.md).
+    Per-leg cached (origin→destination, rounded, short TTL): repeat searches within a
+    planning session skip the route-matrix call; only the cache-missing legs are sent to
+    AWS. The cache is short (_DRIVE_CACHE_TTL) because the ETAs are DepartNow/live-traffic.
+
+    Uses Amazon Location GeoRoutes CalculateRouteMatrix (the modern, resource-less API)
+    with DepartNow=True for traffic-aware ETAs.
 
     Routes ONLY is_poi candidates: raw backcountry fallbacks have no established road
     access, so routing them wastes the API on an unreachable point. They get
@@ -614,28 +644,28 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             misses.append(c)
     if not misses:
         return
-    # 2. One route-matrix call for just the uncached legs; cache each result. On failure
-    #    leave drive_minutes=None and DON'T cache, so a transient error isn't sticky.
-    calc_name = os.environ.get("PYNIGHTSKY_ROUTE_CALCULATOR", "pynightsky-route-calculator")
+    # 2. One GeoRoutes matrix call for just the uncached legs; cache each result. On
+    #    failure leave drive_minutes=None and DON'T cache, so a transient error isn't sticky.
     try:
-        client = _location()
+        client = _georoutes()
         resp = client.calculate_route_matrix(
-            CalculatorName=calc_name,
-            DeparturePositions=[[origin_lon, origin_lat]],
-            DestinationPositions=[[c["lon"], c["lat"]] for c in misses],
+            Origins=[{"Position": [origin_lon, origin_lat]}],
+            Destinations=[{"Position": [c["lon"], c["lat"]]} for c in misses],
+            RoutingBoundary={"Unbounded": True},
             TravelMode="Car",
+            DepartNow=True,                 # traffic-aware ETAs
         )
         row = resp.get("RouteMatrix", [[]])[0]
         for i, c in enumerate(misses):
             entry = row[i] if i < len(row) else {}
-            secs  = entry.get("DurationSeconds") if entry else None
+            secs  = entry.get("Duration") if entry else None   # GeoRoutes: seconds
             mins  = round(secs / 60) if secs is not None else None
             c["drive_minutes"] = mins
             cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
                       mins if mins is not None else _DRIVE_NO_ROUTE,
-                      ttl_seconds=_GEO_CACHE_TTL)
+                      ttl_seconds=_DRIVE_CACHE_TTL)
     except Exception as e:
-        log.debug("AWS route matrix failed: %s", e)
+        log.debug("GeoRoutes route matrix failed: %s", e)
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
