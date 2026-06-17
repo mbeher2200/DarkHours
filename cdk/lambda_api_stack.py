@@ -55,7 +55,8 @@ def _stage_worker_src() -> str:
     as raw-binary grids with numpy+boto3; the PAD-US index is a numpy .npz), so the
     worker fits a zip Lambda (~169 MB unzipped < 250 MB). We ship the engine source,
     apps (minus the web SPA), the de421.bsp ephemeris (inside PyNightSkyPredictor/),
-    the PAD-US .npz, and requirements.txt; bundling pip-installs the deps on top.
+    the PAD-US + OSM-POI .npz indexes, and requirements.txt; bundling pip-installs the
+    deps on top.
     """
     stage = _REPO / "cdk" / ".worker_build"
     if stage.exists():
@@ -65,7 +66,8 @@ def _stage_worker_src() -> str:
     shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
     shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
     (stage / "cache").mkdir()
-    shutil.copy(_REPO / "cache" / "darkhours_padus_h3.npz", stage / "cache" / "darkhours_padus_h3.npz")
+    for _npz in ("darkhours_padus_h3.npz", "osm_pois.npz"):
+        shutil.copy(_REPO / "cache" / _npz, stage / "cache" / _npz)
     shutil.copy(_REPO / "requirements.txt", stage / "requirements.txt")
     return str(stage)
 
