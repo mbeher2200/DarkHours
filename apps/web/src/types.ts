@@ -206,6 +206,8 @@ export interface NearbyPlace {
   lat: number
   lon: number
   drive_minutes: number | null
+  // Road distance (miles) from the routing API; null when not routed (raw fallback).
+  drive_miles?: number | null
   // POI-first reachability: true = a routable, pre-named OSM POI (show drive time + badge);
   // false/undefined = a raw backcountry pixel with no road access (hide drive time, offer a
   // map link to the raw coordinate). poi_type is the OSM category when is_poi is true.
