@@ -562,6 +562,10 @@ export default function App() {
         {' · '}Moon imagery:{' '}
         <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
         <br />
+        Nearby places:{' '}
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+        {' (ODbL)'}
+        <br />
         Source:{' '}
         <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
       </footer>

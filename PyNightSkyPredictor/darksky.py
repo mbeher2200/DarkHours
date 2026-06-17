@@ -501,6 +501,20 @@ _DRIVE_NO_ROUTE  = -1            # sentinel: route matrix returned no duration f
 _PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
 _PADUS_UNAVAILABLE = object()   # singleton: tried to load, file missing or unreadable
 _padus_h3_cache: "dict | object | None" = None  # None = not yet attempted
+
+# Routable OSM POI index — module-level lazy-load cache (mirrors the PAD-US loader).
+# Built by scripts/osm_poi_builder.py; lets find_nearby surface reachable, pre-named POIs
+# instead of raw wilderness pixels. See docs/OSM_POI_INDEX.md.
+_POI_H3_FILENAME = "osm_pois.npz"
+_POI_UNAVAILABLE = object()     # singleton: tried to load, file missing or unreadable
+_poi_h3_cache: "object | None" = None  # None = not yet attempted
+# poi_type code = index into this tuple (must match scripts/osm_poi_builder.POI_TYPE_LABELS).
+_POI_TYPE_LABELS = (
+    "parking", "viewpoint", "camp_site", "rest_area",
+    "caravan_site", "picnic_site", "ranger_station", "observatory", "attraction",
+    "information", "tourism", "pier", "lighthouse", "tower",
+    "summer_camp", "firepit", "beach_resort", "historic",
+)
 _OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests (overpass-api.de policy)
 _NOMINATIM_SLEEP = 1.1               # minimum seconds between Nominatim requests
 
@@ -578,6 +592,10 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     area are stable, so repeat searches skip the route-matrix call entirely; only the
     cache-missing legs are sent to AWS. The matrix phase was ~2 s and previously uncached —
     the dominant warm cost (see docs/PERF_FINDNEARBY.md).
+
+    Routes ONLY is_poi candidates: raw backcountry fallbacks have no established road
+    access, so routing them wastes the API on an unreachable point. They get
+    drive_minutes=None (the frontend hides drive-time + offers a raw-coordinate map link).
     """
     if not clusters:
         return
@@ -585,6 +603,9 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     #    collect the misses. A cached _DRIVE_NO_ROUTE means "computed, no route" (≠ miss).
     misses = []
     for c in clusters:
+        if not c.get("is_poi"):
+            c["drive_minutes"] = None      # never route a non-routable fallback pixel
+            continue
         cached = cache.get(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]))
         if cached is not None:
             c["drive_minutes"] = None if cached == _DRIVE_NO_ROUTE else cached
@@ -874,13 +895,19 @@ def _extract_dark_sky_candidates(
     origin_lon: float,
     radius_miles: float,
     dark_threshold: int,
+    poi_index: "_PoiIndex | None" = None,
 ) -> list:
     """
-    Pure numpy function — no I/O, no scipy dependency.
+    Pure numpy function — no I/O (the caller loads poi_index), no scipy dependency.
 
     Builds a composite Bortle array (VIIRS primary, Falchi fills VIIRS-zero pixels),
     applies a vectorised haversine radius mask, and returns candidate dicts
     compatible with the existing _cluster_points() input format.
+
+    POI-first reachability: when poi_index is given, the dark mask is intersected with
+    the routable OSM POI index; if any POI falls on a dark pixel, ONLY those POIs are
+    returned (is_poi=True, pre-named, routable). Raw backcountry pixels (is_poi=False)
+    are the fallback, returned only when no POI intersects.
 
     Pre-sorts by distance and caps at _MAX_ARRAY_EXTRACT candidates before
     materialising any Python objects, bounding _cluster_points to at most
@@ -967,6 +994,18 @@ def _extract_dark_sky_candidates(
     if candidate_rows.size == 0:
         return []
 
+    # ── POI-first reachability ────────────────────────────────────────────────
+    # If the caller supplied the routable OSM POI index, intersect it with the dark
+    # mask. When any POI sits on a dark pixel, surface ONLY POIs (already named +
+    # routable); raw backcountry pixels below are the fallback for POI-less dark areas.
+    if poi_index is not None:
+        poi_candidates = _extract_poi_candidates(
+            poi_index, dark_mask, bortle_arr, sqm_arr,
+            min_lat, max_lat, min_lon, max_lon, origin_lat, origin_lon,
+        )
+        if poi_candidates:
+            return poi_candidates
+
     # ── Pre-sort by distance and cap ─────────────────────────────────────────
     # _cluster_points is O(N²) in haversine calls; a rural 150-mile search can
     # yield 250 000+ dark pixels.  Sorting and slicing here keeps _cluster_points
@@ -1010,6 +1049,8 @@ def _extract_dark_sky_candidates(
                                   origin_lat, origin_lon,
                                   float(lat_grid[r, c]), float(lon_grid[r, c])),
             "name":           None,
+            "is_poi":         False,   # raw backcountry pixel: not a routable POI
+            "poi_type":       None,
         })
     return candidates
 
@@ -1453,6 +1494,151 @@ def _padus_h3_lookup(
     return None
 
 
+def _poi_h3_path() -> "Path | None":
+    """Resolve the OSM POI index (.npz) path: env override → repo layout → Lambda layout."""
+    env_override = os.environ.get("PYNIGHTSKY_POI_H3_PATH")
+    if env_override:
+        p = Path(env_override)
+        return p if p.exists() else None
+    for candidate in (
+        Path(__file__).parent.parent / "cache" / _POI_H3_FILENAME,
+        Path("/app/cache") / _POI_H3_FILENAME,
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+class _PoiIndex:
+    """Columnar OSM POI index: parallel arrays keyed by H3 res-7 cell (one routable POI
+    per cell). Unlike PAD-US it carries each POI's true coordinate (lats/lons), because
+    the POI is the routing destination — find_nearby projects these into the dark-sky
+    raster mask rather than binary-searching cells. Read from a compressed .npz with
+    numpy only. See scripts/osm_poi_builder.py and docs/OSM_POI_INDEX.md."""
+
+    __slots__ = ("cells", "lats", "lons", "name_codes", "names", "poi_types")
+
+    def __init__(self, cells, lats, lons, name_codes, names, poi_types):
+        self.cells = cells              # np.ndarray[uint64], ascending (build-time dedup key)
+        self.lats = lats                # np.ndarray[float32], the routable POI latitude
+        self.lons = lons                # np.ndarray[float32], the routable POI longitude
+        self.name_codes = name_codes    # np.ndarray[uint32], index into names, aligned
+        self.names = names              # list[str], unique names (dictionary values)
+        self.poi_types = poi_types      # np.ndarray[uint8], index into _POI_TYPE_LABELS
+
+
+def _load_poi_h3_index() -> "_PoiIndex | None":
+    """Lazy-load the routable OSM POI index once per process; cache the result.
+
+    Returns None (and caches that failure) if h3/numpy is unavailable, the .npz is
+    missing, or the read fails — callers degrade gracefully to raw-pixel extraction.
+    Mirrors _load_padus_h3_index so the worker prewarm primes both the same way.
+    """
+    global _poi_h3_cache
+    if _poi_h3_cache is _POI_UNAVAILABLE:
+        return None
+    if _poi_h3_cache is not None:
+        return _poi_h3_cache  # type: ignore[return-value]
+
+    if not _HAS_H3:
+        _poi_h3_cache = _POI_UNAVAILABLE
+        return None
+
+    path = _poi_h3_path()
+    if path is None:
+        log.debug("OSM POI index (.npz) not found; POI-first reachability disabled.")
+        _poi_h3_cache = _POI_UNAVAILABLE
+        return None
+
+    try:
+        import numpy as np
+        with np.load(path) as npz:
+            cells      = npz["cells"].astype(np.uint64, copy=False)
+            lats       = npz["lats"].astype(np.float32, copy=False)
+            lons       = npz["lons"].astype(np.float32, copy=False)
+            name_codes = npz["name_codes"].astype(np.uint32, copy=False)
+            poi_types  = npz["poi_types"].astype(np.uint8, copy=False)
+            names_blob = npz["names_blob"].tobytes()
+        names = names_blob.decode("utf-8").split("\x00") if names_blob else []
+        _poi_h3_cache = _PoiIndex(cells, lats, lons, name_codes, names, poi_types)
+        log.debug("OSM POI index loaded: %d POIs (numpy .npz).", cells.size)
+    except Exception as exc:
+        log.debug("OSM POI index load failed: %s", exc)
+        _poi_h3_cache = _POI_UNAVAILABLE
+        return None
+
+    return _poi_h3_cache  # type: ignore[return-value]
+
+
+def _extract_poi_candidates(
+    poi_index: "_PoiIndex",
+    dark_mask: "np.ndarray",
+    bortle_arr: "np.ndarray",
+    sqm_arr: "np.ndarray",
+    min_lat: float,
+    max_lat: float,
+    min_lon: float,
+    max_lon: float,
+    origin_lat: float,
+    origin_lon: float,
+) -> list:
+    """Return candidate dicts for POIs that fall on a dark pixel (is_poi=True).
+
+    Pure numpy + the in-memory index (no I/O). Bbox-prefilters the index to the search
+    window, projects each surviving POI to its raster pixel (the inverse of the
+    lat/lon linspace grids used to build dark_mask), and keeps those whose pixel is dark.
+    The POI's *true* coordinate is the destination; bortle/sqm are sampled at the pixel.
+    """
+    import numpy as np
+
+    rows, cols = dark_mask.shape
+    if rows == 0 or cols == 0 or poi_index.cells.size == 0:
+        return []
+
+    lats = poi_index.lats
+    lons = poi_index.lons
+    in_bbox = (lats >= min_lat) & (lats <= max_lat) & (lons >= min_lon) & (lons <= max_lon)
+    idx = np.where(in_bbox)[0]
+    if idx.size == 0:
+        return []
+
+    # Invert the grids: lat_vals = linspace(max_lat, min_lat, rows) (row 0 = max_lat),
+    # lon_vals = linspace(min_lon, max_lon, cols) (col 0 = min_lon).
+    plat = lats[idx]
+    plon = lons[idx]
+    if max_lat == min_lat or max_lon == min_lon:
+        return []
+    r = np.rint((max_lat - plat) / (max_lat - min_lat) * (rows - 1)).astype(np.int64)
+    c = np.rint((plon - min_lon) / (max_lon - min_lon) * (cols - 1)).astype(np.int64)
+    np.clip(r, 0, rows - 1, out=r)
+    np.clip(c, 0, cols - 1, out=c)
+
+    hit = dark_mask[r, c]
+    if not bool(hit.any()):
+        return []
+
+    sel = np.where(hit)[0]
+    candidates = []
+    for k in sel:
+        gi = int(idx[k])
+        plat_k = float(plat[k])
+        plon_k = float(plon[k])
+        rr, cc = int(r[k]), int(c[k])
+        _sqm = float(sqm_arr[rr, cc])
+        candidates.append({
+            "lat":            plat_k,
+            "lon":            plon_k,
+            "bortle_class":   int(bortle_arr[rr, cc]),
+            "sqm":            None if np.isnan(_sqm) else _sqm,
+            "distance_miles": round(_haversine_miles(origin_lat, origin_lon, plat_k, plon_k), 1),
+            "direction":      _bearing_label(origin_lat, origin_lon, plat_k, plon_k),
+            "name":           poi_index.names[int(poi_index.name_codes[gi])],
+            "is_poi":         True,
+            "poi_type":       _POI_TYPE_LABELS[int(poi_index.poi_types[gi])],
+        })
+    return candidates
+
+
 def _is_good_padus_name(unit_nm: "str | None") -> bool:
     """Return True if unit_nm is a meaningful display name for a PAD-US unit.
 
@@ -1497,6 +1683,18 @@ def _offline_tier_name(
     to call twice (prefetch planning + the main loop).
     """
     lat, lon = c["lat"], c["lon"]
+    # POI-first candidates already carry an OSM name and a routable coordinate, so skip
+    # Overpass/_settlement entirely. Still consult PAD-US: never route onto blacklisted
+    # (military/tribal/restricted) land even if OSM mapped a POI there.
+    if c.get("is_poi"):
+        if padus_index is not None:
+            try:
+                hit = _padus_h3_lookup(lat, lon, padus_index)
+                if hit is not None and hit[1]:
+                    return ("discard", None)
+            except Exception as exc:
+                log.debug("PAD-US H3 lookup failed for POI (%.4f, %.4f): %s", lat, lon, exc)
+        return ("name", c["name"])
     padus_verified = False
     if padus_index is not None:
         try:
@@ -1737,14 +1935,22 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             out_shape=viirs_arr.shape if viirs_arr is not None else None,
         )
 
+    # Routable OSM POI index (US searches only; prewarmed on the worker). When a POI
+    # falls on a dark pixel the extractor returns POIs (reachable, pre-named) instead of
+    # raw wilderness pixels — see _extract_dark_sky_candidates / _extract_poi_candidates.
+    with prof.phase("poi index load"):
+        _poi_index = _load_poi_h3_index() if _is_in_us(lat, lon) else None
+
     # ── Dark-sky candidates (pure numpy, no scipy required) ───────────────────
     with prof.phase("extract dark candidates"):
         dark_candidates = _extract_dark_sky_candidates(
             viirs_arr, falchi_arr,
             _min_lat, _max_lat, _min_lon, _max_lon,
             lat, lon, radius_miles, dark_threshold,
+            poi_index=_poi_index,
         )
     _funnel["extract_raw"] = len(dark_candidates)
+    _funnel["poi_first"] = bool(dark_candidates) and bool(dark_candidates[0].get("is_poi"))
 
     # all_darker: any pixel darker than origin — used only for best_available
     # when no proper dark clusters are found.  Computed lazily to avoid
@@ -1814,6 +2020,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                         "distance_miles": round(dist, 1),
                         "direction":      _bearing_label(lat, lon, dlat, dlon),
                         "name":           None,
+                        "is_poi":         False,   # domes are warnings, never destinations
+                        "poi_type":       None,
                     })
 
     _funnel["domes_pass_filter"] = len(dome_clusters)
@@ -1961,7 +2169,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             {"name": c.get("name"), "bortle": c["bortle_class"], "sqm": c.get("sqm"),
              "dist_mi": c["distance_miles"], "dir": c["direction"],
              "lat": round(c["lat"], 5), "lon": round(c["lon"], 5),
-             "drive_min": c.get("drive_minutes")}
+             "drive_min": c.get("drive_minutes"),
+             "is_poi": c.get("is_poi"), "poi_type": c.get("poi_type")}
             for c in dark_clusters
         ]
         _funnel["domes"] = [
