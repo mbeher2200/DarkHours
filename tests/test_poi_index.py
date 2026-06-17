@@ -162,22 +162,25 @@ def test_extract_dark_sky_returns_pois_when_intersecting(tmp_path, monkeypatch):
 
 
 def test_aws_drive_times_skips_non_poi():
-    """Raw fallback candidates are never routed; POIs are."""
+    """Raw fallback candidates are never routed; POIs are (GeoRoutes, DepartNow)."""
     poi = {"lat": 38.5, "lon": -120.1, "is_poi": True}
     raw = {"lat": 38.6, "lon": -120.2, "is_poi": False}
     with patch.object(ds, "cache") as mock_cache, \
-         patch.object(ds, "_location") as mock_loc:
+         patch.object(ds, "_georoutes") as mock_gr:
         mock_cache.get.return_value = None
-        mock_loc.return_value.calculate_route_matrix.return_value = {
-            "RouteMatrix": [[{"DurationSeconds": 1800}]]
+        mock_gr.return_value.calculate_route_matrix.return_value = {
+            "RouteMatrix": [[{"Duration": 1800, "Distance": 40000}]]
         }
         ds._aws_drive_times(40.0, -121.0, [poi, raw])
 
     assert raw["drive_minutes"] is None
     assert poi["drive_minutes"] == 30
-    # Exactly one destination (the POI) was sent to the matrix.
-    sent = mock_loc.return_value.calculate_route_matrix.call_args.kwargs["DestinationPositions"]
-    assert sent == [[-120.1, 38.5]]
+    kwargs = mock_gr.return_value.calculate_route_matrix.call_args.kwargs
+    # Exactly one destination (the POI) was sent, traffic-aware, GeoRoutes shape.
+    assert kwargs["Destinations"] == [{"Position": [-120.1, 38.5]}]
+    assert kwargs["Origins"] == [{"Position": [-121.0, 40.0]}]
+    assert kwargs["DepartNow"] is True
+    assert kwargs["RoutingBoundary"] == {"Unbounded": True}
 
 
 def test_offline_tier_name_poi_shortcircuits():
