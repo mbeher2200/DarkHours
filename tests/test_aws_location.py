@@ -323,7 +323,8 @@ class TestAwsDriveTimes:
         client = MagicMock()
         client.calculate_route_matrix.return_value = self._matrix(56, 88)
         monkeypatch.setattr(ds, "_location", lambda: client)
-        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True},
+                    {"lat": 35.23, "lon": -111.07, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert [c["drive_minutes"] for c in clusters] == [56, 88]
         client.calculate_route_matrix.assert_called_once()
@@ -336,7 +337,8 @@ class TestAwsDriveTimes:
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.23, -111.07)] = ds._DRIVE_NO_ROUTE
         client = MagicMock()
         monkeypatch.setattr(ds, "_location", lambda: client)
-        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True},
+                    {"lat": 35.23, "lon": -111.07, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert [c["drive_minutes"] for c in clusters] == [56, None]  # sentinel → None
         client.calculate_route_matrix.assert_not_called()
@@ -347,7 +349,8 @@ class TestAwsDriveTimes:
         client = MagicMock()
         client.calculate_route_matrix.return_value = self._matrix(88)  # only the miss
         monkeypatch.setattr(ds, "_location", lambda: client)
-        clusters = [{"lat": 35.41, "lon": -111.46}, {"lat": 35.23, "lon": -111.07}]
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True},
+                    {"lat": 35.23, "lon": -111.07, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert [c["drive_minutes"] for c in clusters] == [56, 88]
         # only the single uncached destination was sent
@@ -359,7 +362,7 @@ class TestAwsDriveTimes:
         client = MagicMock()
         client.calculate_route_matrix.side_effect = RuntimeError("throttled")
         monkeypatch.setattr(ds, "_location", lambda: client)
-        clusters = [{"lat": 35.41, "lon": -111.46}]
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert clusters[0]["drive_minutes"] is None
         assert _mem_cache == {}  # transient failure must not poison the cache

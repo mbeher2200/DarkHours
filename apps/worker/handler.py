@@ -46,6 +46,12 @@ def _prewarm() -> None:
         _ds._load_padus_h3_index()
     except Exception as _e:
         log.debug("PAD-US pre-warm failed: %s", _e)
+    # Routable OSM POI index (columnar load) used by find_nearby's POI-first extraction.
+    try:
+        from PyNightSkyPredictor import darksky as _ds
+        _ds._load_poi_h3_index()
+    except Exception as _e:
+        log.debug("OSM POI pre-warm failed: %s", _e)
     # DynamoDB connection pool (same warmup call the API uses).
     try:
         from PyNightSkyPredictor import ports as _p

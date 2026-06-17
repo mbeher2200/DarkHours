@@ -190,6 +190,13 @@ export interface ApiError {
 
 // ── Nearby dark-sky search ────────────────────────────────────────────────────
 
+// poi_type values mirror PyNightSkyPredictor _POI_TYPE_LABELS / osm_poi_builder.
+export type PoiType =
+  | 'parking' | 'viewpoint' | 'camp_site' | 'rest_area'
+  | 'caravan_site' | 'picnic_site' | 'ranger_station' | 'observatory' | 'attraction'
+  | 'information' | 'tourism' | 'pier' | 'lighthouse' | 'tower'
+  | 'summer_camp' | 'firepit' | 'beach_resort' | 'historic'
+
 export interface NearbyPlace {
   name: string | null
   bortle_class: number
@@ -199,6 +206,11 @@ export interface NearbyPlace {
   lat: number
   lon: number
   drive_minutes: number | null
+  // POI-first reachability: true = a routable, pre-named OSM POI (show drive time + badge);
+  // false/undefined = a raw backcountry pixel with no road access (hide drive time, offer a
+  // map link to the raw coordinate). poi_type is the OSM category when is_poi is true.
+  is_poi?: boolean
+  poi_type?: PoiType | null
 }
 
 export interface NearbyResult {
