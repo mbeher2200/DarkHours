@@ -274,6 +274,20 @@ def night(
     return night_report_to_dict(report)
 
 
+@app.get("/suggest")
+def suggest(q: str = Query(..., min_length=1, max_length=_MAX_NAME_LEN)):
+    """Typeahead place suggestions for the search box (autocomplete).
+
+    Returns {"suggestions": [str, ...]} — display strings the client feeds back
+    to /night as `location=` when one is picked. Best-effort: an empty list is a
+    valid response when nothing matches.
+    """
+    try:
+        return {"suggestions": _loc.suggest(q)}
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))   # geocoder unreachable
+
+
 def _accepted(job_id: str) -> JSONResponse:
     """202 with the job id + where to poll for the result."""
     return JSONResponse(

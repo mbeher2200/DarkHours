@@ -80,6 +80,31 @@ export async function fetchNearby(lat: number, lon: number, radius = 60): Promis
 }
 
 /**
+ * Typeahead place suggestions for the search box (autocomplete).
+ *
+ * Best-effort: any failure (network, non-2xx) resolves to an empty list so a
+ * flaky geocoder never disrupts typing. An aborted request (superseded by a
+ * newer keystroke) re-throws AbortError for the caller to ignore.
+ */
+export async function fetchSuggestions(q: string, signal?: AbortSignal): Promise<string[]> {
+  const p = new URLSearchParams({ q })
+  let res: Response
+  try {
+    res = await fetch(`/suggest?${p}`, { signal })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    return []
+  }
+  if (!res.ok) return []
+  try {
+    const body = (await res.json()) as { suggestions?: string[] }
+    return body.suggestions ?? []
+  } catch {
+    return []
+  }
+}
+
+/**
  * Fetch a single-night report. Calls the API with a RELATIVE URL so it is
  * same-origin in production (CloudFront) and proxied in dev (see vite.config.ts).
  */

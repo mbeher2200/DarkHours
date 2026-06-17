@@ -222,6 +222,16 @@ export function scoreLabel(score: number): string {
   return { excellent: 'Excellent', good: 'Good', fair: 'Fair', poor: 'Poor' }[scoreBand(score)]
 }
 
+// YYYY-MM-DD in the viewer's *local* timezone (not UTC). Using toISOString()
+// here would yield the UTC date, which is a day ahead once it's past evening in
+// the Americas — so the picker/initial load would jump to "tomorrow".
+export function toIsoDate(d: Date): string {
+  const year  = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day   = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toIsoDate(new Date())
 }

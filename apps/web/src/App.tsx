@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
-import { ApiRequestError, fetchNight, type NightQuery } from './api'
-import { todayIso, defaultImperial } from './format'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
+import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
+import { todayIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
@@ -67,8 +67,30 @@ export default function App() {
   const [searchHistory, setSearchHistory] = useState<HistoryEntry[]>(loadHistory)
   const [placeDropdown, setPlaceDropdown] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const placeInputRef = useRef<HTMLInputElement>(null)
   const dropdownItemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  // The label most recently picked from the dropdown — used to suppress the
+  // suggestion fetch that the resulting setPlace() would otherwise trigger.
+  const lastPickedRef = useRef<string | null>(null)
+
+  // Debounced autocomplete: fetch suggestions as the user types a place name.
+  // A 300ms debounce + 3-char minimum keeps the per-keystroke request count (and
+  // the AWS Location bill) low; each in-flight request is aborted when superseded.
+  useEffect(() => {
+    const q = place.trim()
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => {
+      if (mode !== 'place' || q.length < 3 || q === lastPickedRef.current) {
+        setSuggestions([])
+        return
+      }
+      fetchSuggestions(q, ctrl.signal)
+        .then(setSuggestions)
+        .catch(() => { /* aborted or failed — leave existing suggestions */ })
+    }, 300)
+    return () => { clearTimeout(timer); ctrl.abort() }
+  }, [place, mode])
 
   function toggleUnits(imp: boolean) {
     setImperial(imp)
@@ -190,7 +212,7 @@ export default function App() {
   function shiftDay(delta: number) {
     const d = new Date(date + 'T00:00:00')
     d.setDate(d.getDate() + delta)
-    setDate(d.toISOString().slice(0, 10))
+    setDate(toIsoDate(d))
   }
 
   function quickSearch(location: string) {
@@ -272,10 +294,43 @@ export default function App() {
         </div>
 
         {mode === 'place' ? (() => {
-          const filteredHistory = searchHistory.filter(h =>
-            !place.trim() || h.label.toLowerCase().includes(place.toLowerCase().trim())
-          )
-          const showDropdown = placeDropdown && filteredHistory.length > 0
+          const q = place.trim()
+          // While actively typing (≥3 chars) show live geocoder suggestions;
+          // otherwise fall back to filtered recent searches.
+          const useSuggest = q.length >= 3 && suggestions.length > 0
+          type Item =
+            | { kind: 'suggestion'; label: string }
+            | { kind: 'history'; label: string; entry: HistoryEntry }
+          const items: Item[] = useSuggest
+            ? suggestions.map(s => ({ kind: 'suggestion' as const, label: s }))
+            : searchHistory
+                .filter(h => !q || h.label.toLowerCase().includes(q.toLowerCase()))
+                .map(h => ({ kind: 'history' as const, label: h.label, entry: h }))
+          const showDropdown = placeDropdown && items.length > 0
+
+          const selectItem = (item: Item) => {
+            setPlaceDropdown(false)
+            setActiveIndex(-1)
+            const { wxUnavail, satUnavail } = availabilityFor(date)
+            if (item.kind === 'suggestion') {
+              lastPickedRef.current = item.label   // suppress the refetch from setPlace
+              setSuggestions([])
+              setMode('place')
+              setPlace(item.label)
+              runQuery({ location: item.label, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+              return
+            }
+            const h = item.entry
+            setMode(h.mode)
+            if (h.mode === 'place') {
+              setPlace(h.location!)
+              runQuery({ location: h.location!, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+            } else {
+              setLat(h.lat!)
+              setLon(h.lon!)
+              runQuery({ lat: Number(h.lat), lon: Number(h.lon), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+            }
+          }
           return (
           <div
             className="field place-field-wrap"
@@ -294,7 +349,7 @@ export default function App() {
                 type="text"
                 placeholder="e.g. Cherry Springs State Park"
                 value={place}
-                onChange={(e) => { setPlace(e.target.value); setActiveIndex(-1) }}
+                onChange={(e) => { setPlace(e.target.value); setActiveIndex(-1); setPlaceDropdown(true) }}
                 onFocus={() => setPlaceDropdown(true)}
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowDown' && showDropdown) {
@@ -311,7 +366,7 @@ export default function App() {
                 role="combobox"
                 aria-expanded={showDropdown}
                 aria-haspopup="listbox"
-                aria-controls="place-history-listbox"
+                aria-controls="place-listbox"
                 aria-autocomplete="list"
                 aria-activedescendant={activeIndex >= 0 ? `place-item-${activeIndex}` : undefined}
                 className={place ? 'has-clear' : ''}
@@ -335,14 +390,14 @@ export default function App() {
             </div>
             {showDropdown && (
               <div
-                id="place-history-listbox"
+                id="place-listbox"
                 className="place-dropdown"
                 role="listbox"
-                aria-label="Recent searches"
+                aria-label={useSuggest ? 'Place suggestions' : 'Recent searches'}
               >
-                {filteredHistory.map((h, i) => (
+                {items.map((item, i) => (
                   <button
-                    key={i}
+                    key={`${item.kind}-${i}`}
                     id={`place-item-${i}`}
                     ref={(el) => { dropdownItemRefs.current[i] = el }}
                     type="button"
@@ -350,26 +405,12 @@ export default function App() {
                     role="option"
                     aria-selected={activeIndex === i}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlaceDropdown(false)
-                      setActiveIndex(-1)
-                      setMode(h.mode)
-                      if (h.mode === 'place') {
-                        setPlace(h.location!)
-                        const { wxUnavail, satUnavail } = availabilityFor(date)
-                        runQuery({ location: h.location!, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
-                      } else {
-                        setLat(h.lat!)
-                        setLon(h.lon!)
-                        const { wxUnavail, satUnavail } = availabilityFor(date)
-                        runQuery({ lat: Number(h.lat), lon: Number(h.lon), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
-                      }
-                    }}
+                    onClick={() => selectItem(item)}
                     onKeyDown={(e) => {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault()
                         const next = i + 1
-                        if (next < filteredHistory.length) {
+                        if (next < items.length) {
                           setActiveIndex(next)
                           dropdownItemRefs.current[next]?.focus()
                         }
@@ -386,11 +427,16 @@ export default function App() {
                         setPlaceDropdown(false)
                         setActiveIndex(-1)
                         placeInputRef.current?.focus()
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault()
+                        selectItem(item)
                       }
                     }}
                   >
-                    <Clock size={12} strokeWidth={2} className="place-dropdown-icon" />
-                    <span className="place-dropdown-label">{h.label}</span>
+                    {item.kind === 'suggestion'
+                      ? <MapPin size={12} strokeWidth={2} className="place-dropdown-icon" />
+                      : <Clock size={12} strokeWidth={2} className="place-dropdown-icon" />}
+                    <span className="place-dropdown-label">{item.label}</span>
                   </button>
                 ))}
               </div>
