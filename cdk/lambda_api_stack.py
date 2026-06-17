@@ -151,7 +151,11 @@ class LambdaApiStack(Stack):
             f":place-index/{place_index.index_name}"
         )
         geo_policy = iam.PolicyStatement(
-            actions=["geo:SearchPlaceIndexForText", "geo:SearchPlaceIndexForPosition"],
+            actions=[
+                "geo:SearchPlaceIndexForText",        # forward geocode (resolve)
+                "geo:SearchPlaceIndexForPosition",    # reverse geocode (coords → name)
+                "geo:SearchPlaceIndexForSuggestions", # /suggest autocomplete
+            ],
             resources=[place_index_arn],
         )
         fn.add_to_role_policy(geo_policy)

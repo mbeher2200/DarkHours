@@ -35,9 +35,10 @@ function WmoIcon({ code, size = 19 }: { code: number | null; size?: number }) {
   return <Icon size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
 }
 
-// Alt/Az in standard format: "42° alt · 195° (S)"
+// Horizontal coordinates in the conventional order: azimuth (with compass point)
+// first, then altitude — e.g. "Az 195° S · Alt 42°".
 function fmtPos(altDeg: number, azDeg: number): string {
-  return `${Math.round(altDeg)}° alt · ${Math.round(azDeg)}° (${cardinal(azDeg)})`
+  return `Az ${Math.round(azDeg)}° ${cardinal(azDeg)} · Alt ${Math.round(altDeg)}°`
 }
 
 // ── Moon phase image (NASA SVS) ──────────────────────────────────────────────
@@ -204,7 +205,7 @@ function SatellitePasses({ report }: { report: NightReport }) {
     )
   }
 
-  const az = (deg: number) => `${deg.toFixed(0)}°(${cardinal(deg)})`
+  const az = (deg: number) => `${deg.toFixed(0)}° ${cardinal(deg)}`
 
   return (
     <>
