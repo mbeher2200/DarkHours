@@ -24,7 +24,7 @@ export PYNIGHTSKY_BACKEND=aws
 export PYNIGHTSKY_RASTER_BUCKET="${PYNIGHTSKY_RASTER_BUCKET:?set PYNIGHTSKY_RASTER_BUCKET to your raster bucket}"
 export PYNIGHTSKY_CACHE_TABLE="${PYNIGHTSKY_CACHE_TABLE:?set PYNIGHTSKY_CACHE_TABLE to your cache table}"
 export PYNIGHTSKY_PLACE_INDEX="${PYNIGHTSKY_PLACE_INDEX:-pynightsky-place-index}"
-export PYNIGHTSKY_ROUTE_CALCULATOR="${PYNIGHTSKY_ROUTE_CALCULATOR:-pynightsky-route-calculator}"
+# Drive times use the resource-less GeoRoutes API (no route-calculator name needed).
 export PYNIGHTSKY_PROFILE=1
 
 echo "Authenticated as: $(aws sts get-caller-identity --query Arn --output text)"

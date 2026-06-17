@@ -157,22 +157,14 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(geo_policy)
         fn.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
 
-        route_calc = location.CfnRouteCalculator(
-            self, "RouteCalculator",
-            calculator_name="pynightsky-route-calculator",
-            data_source="Esri",
-            pricing_plan="RequestBasedUsage",
-        )
-        route_calc_arn = (
-            f"arn:aws:geo:{self.region}:{self.account}"
-            f":route-calculator/{route_calc.calculator_name}"
-        )
+        # Drive times use Amazon Location GeoRoutes (CalculateRouteMatrix) — the modern,
+        # resource-less routing API (no route calculator to create), with DepartNow
+        # traffic-aware ETAs. The action takes no resource ARN, so it's scoped to "*".
         route_policy = iam.PolicyStatement(
-            actions=["geo:CalculateRouteMatrix"],
-            resources=[route_calc_arn],
+            actions=["geo-routes:CalculateRouteMatrix"],
+            resources=["*"],
         )
         fn.add_to_role_policy(route_policy)
-        fn.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
 
         # --- async jobs: SQS queue + zip-Lambda worker (M6.3) ---
         # Long /calendar+/trip computes run off the request path. The API enqueues a
@@ -226,7 +218,6 @@ class LambdaApiStack(Stack):
         worker.add_to_role_policy(geo_policy)
         worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
         worker.add_to_role_policy(route_policy)
-        worker.add_environment("PYNIGHTSKY_ROUTE_CALCULATOR", route_calc.calculator_name)
         worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
 
         # --- Scheduled worker warmup ping — keeps one worker container alive + primed ---
