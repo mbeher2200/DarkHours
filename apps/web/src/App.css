@@ -691,6 +691,35 @@ details summary {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+/* POI-first reachability affordances */
+.poi-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(127, 127, 127, 0.18));
+  vertical-align: middle;
+}
+.poi-remote {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fair);
+}
+.poi-maplink {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--good);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.poi-maplink:hover { text-decoration: underline; }
 
 /* ── targets table ────────────────────────────────────────────────────────── */
 .tg-table-wrap {
