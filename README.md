@@ -69,7 +69,7 @@ Every run produces a single-night report:
 
 `--satellites` adds a unified pass table for ISS, Hubble Telescope, Tiangong, and any currently raising Starlink trains. Each row shows rise, peak, and set times with altitude, azimuth, pass duration, and moon separation. Twilight passes are flagged `†`; passes ending in Earth's shadow are flagged `*`.
 
-`--show-nearby` adds a table of named darker sky areas and light domes within the search radius.
+`--show-nearby` adds a table of named darker sky areas and light domes within the search radius. The search is **POI-first**: when the routable OSM POI index is present (see [Offline Spatial Index (OSM POIs)](#offline-spatial-index-osm-pois)), it surfaces named, reachable destinations (trailhead parking, viewpoints, campsites, observatories, …) that sit on a dark pixel, rather than raw off-road coordinates; areas with no routable POI fall back to a plain coordinate, flagged as remote. It returns sky at least one Bortle class darker than the origin (capped at Bortle 3), so already-dark origins (e.g. a Bortle 3 site) still surface the reachable Bortle 2 areas nearby. Drive times and road distances are computed only on the cloud (AWS) deployment — see [Cloud Deployment](#cloud-deployment).
 
 `--all` is shorthand for `--weather --targets --satellites --show-nearby` in one flag.
 
@@ -340,7 +340,7 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
 | `PyNightSkyPredictor/targets.json` | Curated target catalog |
 | `PyNightSkyPredictor/config.py` | Configuration loader — merges `PyNightSkyPredictor/config.json` over built-in defaults (see [Configuration](#configuration) below) |
-| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); `find_nearby()` dark-sky search; `LocalRasterSource` adapter |
+| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource` adapter |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
 | `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
 | `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
@@ -423,6 +423,26 @@ python scripts/build_padus_index.py
 
 Output: `cache/darkhours_padus_h3.parquet` (~10 MB). Both `Temp/` and `cache/` are gitignored.
 
+### Offline Spatial Index (OSM POIs)
+
+`find_nearby()` is **POI-first**: dark-sky areas are surfaced as named, routable OpenStreetMap
+POIs (parking, viewpoints, campsites, rest areas, observatories, lighthouses, and more) rather
+than raw off-road pixels — so results are reachable, pre-named (no reverse-geocode), and carry a
+real coordinate to route to. This is driven by a compact H3 index, `cache/osm_pois.npz` (~0.7 MB,
+committed). To regenerate it:
+
+```bash
+pip install -r requirements-build.txt          # provides osmium (pyosmium) + h3
+scripts/update_pois.sh                          # download latest US extract, build, clean up
+# — or, against a .pbf you already have in Temp/:
+python scripts/osm_poi_builder.py Temp/us-260608.osm.pbf
+```
+
+The builder filters a Geofabrik US extract to named POIs of the indexed types, drops closed/junk
+entries, and keeps only those in dark (Bortle ≤ 4) areas so the index stays small. Source data is
+© OpenStreetMap contributors, licensed **ODbL** — keep that attribution visible wherever the data
+is used. Format and rules: [docs/OSM_POI_INDEX.md](docs/OSM_POI_INDEX.md).
+
 ### Configuration
 
 Drop a `PyNightSkyPredictor/config.json` to override the built-in defaults:
@@ -452,8 +472,9 @@ The repository includes an optional cloud-native deployment that exposes the eng
 **Stack:**
 - **Compute** — FastAPI on AWS Lambda (container image) fronted by CloudFront with WAFv2 rate limiting
 - **Storage** — DynamoDB for cache and geocode store; S3 for the VIIRS/Falchi rasters as Cloud-Optimized GeoTIFFs
-- **Frontend** — React/TypeScript SPA (Vite) served from S3 via CloudFront
-- **Resilience** — scheduled Lambda warmer for satellite TLEs; SQS + worker Lambda for async calendar/trip jobs
+- **Routing & geocoding** — Amazon Location **GeoRoutes** (`CalculateRouteMatrix`, traffic-aware via `DepartNow`) computes drive time + road distance to each reachable POI in `find_nearby`; AWS Location place index handles reverse-geocoding. Per-leg results are cached briefly (live-traffic ETAs)
+- **Frontend** — React/TypeScript SPA (Vite) served from S3 via CloudFront. The nearby-results view orders sites by drive time, shows road distance, and links Google Maps driving directions (origin → site) for each
+- **Resilience** — scheduled Lambda warmer for satellite TLEs; SQS + worker Lambda for async calendar/trip jobs (the worker also runs `find_nearby` and ships the PAD-US + OSM POI indexes)
 - **Observability** — structured JSON logs, X-Ray tracing, CloudWatch metric alarms
 
 **Repository layout:**
@@ -474,7 +495,7 @@ To run your own instance, deploy the CDK stacks against your own AWS account wit
 Requires the dev dependencies (`pip install -r requirements-dev.txt`).
 
 ```bash
-python -m pytest                  # Full suite — 304 tests
+python -m pytest                  # Full suite — 423 tests
 python -m pytest -m "not eph"     # Fast suite — no ephemeris file needed
 python -m pytest -v               # Verbose output
 ```
@@ -502,7 +523,8 @@ python -m pytest -v               # Verbose output
 |-----------|----------|
 | `test_adapters.py` | `LocalFileCache` vs `DynamoCache`, `LocalGeocodeStore` vs `DynamoGeocodeStore` contract parity (DynamoDB mocked via moto) |
 | `test_api.py` | HTTP API endpoints via FastAPI TestClient — healthz, error paths, `/night` success |
-| `test_aws_location.py` | AWS Location Service geocoding adapter — all boto3 calls mocked |
+| `test_aws_location.py` | AWS Location geocoding + GeoRoutes drive-time matrix (DepartNow, per-leg cache) — all boto3 calls mocked |
+| `test_poi_index.py` | POI-first `find_nearby` — OSM POI index loader/encoder round-trip, dark-mask intersection, naming/drive-time gates, dark-threshold |
 | `test_aws_smoke.py` | Opt-in integration smoke against real AWS (skipped unless `PYNIGHTSKY_BACKEND=aws` + credentials set) |
 | `test_warmer.py` | TLE warmer Lambda handler — `tle_provider` mocked, no network |
 | `test_jobs.py` | Async job lifecycle — in-memory cache, `run_job` and SQS mocked |
