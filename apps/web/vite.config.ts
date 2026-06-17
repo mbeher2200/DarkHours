@@ -8,7 +8,7 @@ import react from '@vitejs/plugin-react'
 // In dev there is no CloudFront, so the Vite dev server proxies those same API
 // paths to the live API origin. The origin is read from VITE_API_ORIGIN in a
 // gitignored .env.local (see .env.example) so the deployed URL stays out of the repo.
-const API_PATHS = ['/night', '/healthz', '/calendar', '/trip', '/jobs', '/nearby']
+const API_PATHS = ['/night', '/suggest', '/healthz', '/calendar', '/trip', '/jobs', '/nearby']
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
