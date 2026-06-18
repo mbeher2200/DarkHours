@@ -428,6 +428,7 @@ class LambdaApiStack(Stack):
             ),
             additional_behaviors={
                 "/night":    api_cached,
+                "/suggest":  api_cached,   # autocomplete: edge-cache by query string
                 "/healthz":  open_cached,
                 "/calendar": no_cache,
                 "/trip":     no_cache,
