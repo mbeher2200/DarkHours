@@ -33,15 +33,18 @@
   padding: 6px 11px;
   border-radius: 999px;
   background: var(--card);
-  border: 1px solid var(--card-border);
-  color: var(--text-dim);
+  /* Always red — a visual cue that this toggles red/night-vision mode. (In red
+     mode the button is .active and switches to the themed pure red below.) */
+  border: 1px solid rgba(227, 86, 80, 0.4);
+  color: #e35650;
   font: 500 12px var(--sans);
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
 }
 .night-vision-toggle:hover {
-  color: var(--text-h);
+  color: #ff6f66;
+  border-color: rgba(227, 86, 80, 0.7);
 }
 .night-vision-toggle.active {
   color: var(--poor);
