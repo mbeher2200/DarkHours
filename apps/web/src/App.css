@@ -10,8 +10,150 @@
 
 /* ── masthead ─────────────────────────────────────────────── */
 .masthead {
+  position: relative;
   text-align: center;
   margin-bottom: 12px;
+}
+
+/* ── Red Light (night-vision) mode ────────────────────────── */
+/* Hidden filter carrier — must occupy no space. */
+.redmode-svg {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.night-vision-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--text-dim);
+  font: 500 12px var(--sans);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.night-vision-toggle:hover {
+  color: var(--text-h);
+}
+.night-vision-toggle.active {
+  color: var(--poor);
+  border-color: var(--poor);
+}
+
+/* When active, the root carries .red-mode (set on <html>). We re-theme via the
+   CSS variables rather than a container `filter`: an ancestor filter doesn't
+   apply to GPU-composited descendants (dropdown/calendar animations, hover
+   transitions) for a frame, which flashed the un-themed blue. Plain colors
+   can't flash. Raster images — which variables can't reach — still get the
+   luminance→red matrix, but only on the leaf <img> (no animated descendants). */
+/* Night-vision palette. Rods (scotopic vision) lose sensitivity past ~620nm, so
+   the safe colour is PURE red channel (G=B=0 ≈ the sRGB red primary, ~611nm) —
+   any green/blue both reads "pink" and bleaches rhodopsin more. Brightness also
+   matters: small strokes (text/icons) can be a bit brighter for legibility, but
+   large fills (bars, buttons, score number) are kept dim. All values here are
+   #RR0000 / rgba(255,0,0,a) — strictly red. */
+html.red-mode {
+  --bg: #000000;          /* pure black emits nothing */
+  --card: #150000;
+  --card-border: rgba(255, 0, 0, 0.13);
+  --text-h: #e00000;      /* headings — brightest text, but thin strokes */
+  --text: #c20000;
+  --text-dim: #850000;
+  --accent: #d10000;
+  /* Bands are used as small score-number/label text → kept legible. The large
+     bar FILLS are capped dim separately below (a full "10" bar must not glare). */
+  --excellent: #d10000;
+  --good: #c40000;
+  --fair: #b40000;
+  --poor: #9a0000;
+  --field-bg: #120000;
+  --pop-bg: #190000;
+  --on-accent: #000000;   /* black ink on the (small) accent-filled controls */
+  /* Re-tint every low-alpha wash/separator red in one place (table separators,
+     row hovers, date-picker selection, etc.) — no more per-element blue leaks. */
+  --tint-rgb: 255, 0, 0;
+  --hairline-rgb: 255, 0, 0;
+  --surface-2: rgba(255, 0, 0, 0.14);
+}
+/* feColorMatrix already outputs pure red (G=B=0); no brightness boost so the
+   moon disc stays dim. */
+html.red-mode img {
+  filter: url(#red-night);
+}
+/* Text selection: the browser default (blue fill / white text) leaks cool light
+   and can't be themed by variables — set it explicitly to dim-red on red. */
+html.red-mode ::selection {
+  background: #5a0000;
+  color: #ff5a5a;
+}
+/* Cap rating-bar fills at a single dim red regardless of score — these are the
+   one wide, bright area that would otherwise glare as the value approaches 10. */
+html.red-mode .bar-fill,
+html.red-mode .bar-fill.band-excellent,
+html.red-mode .bar-fill.band-good,
+html.red-mode .bar-fill.band-fair,
+html.red-mode .bar-fill.band-poor {
+  background: #6a0000;
+}
+/* Overall-score card tint (was green/blue/purple rgba) → faint red. */
+html.red-mode .band-excellent,
+html.red-mode .band-good,
+html.red-mode .band-fair,
+html.red-mode .band-poor {
+  background: rgba(255, 0, 0, 0.05);
+}
+/* Links (incl. visited): otherwise they fall back to the browser's blue/purple. */
+html.red-mode a:link,
+html.red-mode a:visited {
+  color: var(--accent);
+}
+/* Submit: dim pure-red fill, legible red ink, dim red (not periwinkle) glow. */
+html.red-mode .submit {
+  background: linear-gradient(135deg, #420000 0%, #780000 100%);
+  color: #e00000;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+              0 4px 18px rgba(200, 0, 0, 0.18);
+}
+html.red-mode .submit:hover:not(:disabled) {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+              0 6px 24px rgba(200, 0, 0, 0.26);
+}
+html.red-mode .tip-bubble {
+  background: var(--pop-bg);
+  color: var(--text-h);
+  border-color: rgba(255, 0, 0, 0.22);
+}
+html.red-mode .card.error {
+  color: #e00000;
+  background: rgba(255, 0, 0, 0.07);
+}
+html.red-mode .dp-today-btn {
+  background: rgba(255, 0, 0, 0.1);
+}
+/* Ghost hover (subtle fill + legible ink) — a bright fill with dark ink read too
+   dark; keep the fill dim and the ink bright. */
+html.red-mode .dp-today-btn:hover {
+  background: rgba(255, 0, 0, 0.16);
+  color: var(--text-h);
+}
+html.red-mode .dp-footer {
+  border-top-color: rgba(255, 0, 0, 0.22);
+}
+html.red-mode .es-divider {
+  background: rgba(255, 0, 0, 0.2);
+}
+/* "Date changed — press Score the night" notice: blue tint/border → red. */
+html.red-mode .stale-notice {
+  background: rgba(255, 0, 0, 0.07);
+  border-color: rgba(255, 0, 0, 0.2);
 }
 .masthead h1 {
   font-size: 3.75rem;
@@ -106,7 +248,7 @@
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  background: #1a1f38;
+  background: var(--pop-bg);
   border: 1px solid var(--card-border);
   border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
@@ -123,7 +265,7 @@
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid rgba(35, 40, 67, 0.55);
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.55);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -135,12 +277,12 @@
 }
 .place-dropdown-item:hover,
 .place-dropdown-item:focus {
-  background: rgba(122, 162, 255, 0.09);
+  background: rgba(var(--tint-rgb), 0.09);
   color: var(--text-h);
   outline: none;
 }
 .place-dropdown-item[aria-selected="true"] {
-  background: rgba(122, 162, 255, 0.13);
+  background: rgba(var(--tint-rgb), 0.13);
   color: var(--text-h);
 }
 .place-dropdown-icon {
@@ -172,7 +314,7 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: #0e1120;
+  background: var(--field-bg);
   border: 1px solid var(--card-border);
   border-radius: 10px;
 }
@@ -203,7 +345,7 @@
 }
 .field input {
   padding: 11px 12px;
-  background: #0e1120;
+  background: var(--field-bg);
   border: 1px solid var(--card-border);
   border-radius: 9px;
   color: var(--text-h);
@@ -212,6 +354,25 @@
 .field input:focus {
   outline: none;
   border-color: var(--accent);
+}
+/* Theme the placeholder explicitly — otherwise the browser's default dark-scheme
+   placeholder is a light gray that reads white (and ignores red mode). */
+.field input::placeholder,
+.place-input-row input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;            /* Firefox lowers placeholder opacity by default */
+}
+/* Drop the native number spinners on the lat/lon inputs — they serve no purpose
+   here and their arrows don't follow the theme. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
 }
 .coords {
   display: grid;
@@ -274,7 +435,7 @@
   display: flex;
   gap: 2px;
   padding: 3px;
-  background: #0e1120;
+  background: var(--field-bg);
   border: 1px solid var(--card-border);
   border-radius: 8px;
   margin-left: auto;
@@ -309,7 +470,7 @@
   border: 0;
   border-radius: 10px;
   background: linear-gradient(135deg, #3a5ce8 0%, var(--accent) 100%);
-  color: #fff;
+  color: var(--on-accent);
   font: inherit;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -338,7 +499,7 @@
   flex-shrink: 0;
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  background: #0e1120;
+  background: var(--field-bg);
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
@@ -384,8 +545,8 @@
   margin-top: 4px;
 }
 .stale-notice {
-  background: rgba(122, 162, 255, 0.07);
-  border: 1px solid rgba(122, 162, 255, 0.18);
+  background: rgba(var(--tint-rgb), 0.07);
+  border: 1px solid rgba(var(--tint-rgb), 0.18);
   border-radius: 10px;
   padding: 10px 16px;
   font-size: 13px;
@@ -441,7 +602,7 @@
 }
 .band-good {
   border-color: var(--good);
-  background: rgba(122, 162, 255, 0.05);
+  background: rgba(var(--tint-rgb), 0.05);
 }
 .band-good .overall-num {
   color: var(--good);
@@ -478,7 +639,7 @@
 }
 .bar-track {
   height: 8px;
-  background: #0e1120;
+  background: var(--field-bg);
   border-radius: 5px;
   overflow: hidden;
 }
@@ -743,7 +904,7 @@ details summary {
 }
 .tg-table td {
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(35, 40, 67, 0.6);
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.6);
   color: var(--text);
   white-space: nowrap;
 }
@@ -863,7 +1024,7 @@ details summary {
 }
 
 .tg-group-hdr td {
-  background: #0e1120;
+  background: var(--field-bg);
   color: var(--text-dim);
   font-size: 12px;
   font-weight: 600;
@@ -930,7 +1091,7 @@ details summary {
 .wx-table td {
   /* B: tighter padding */
   padding: 7px 6px;
-  border-bottom: 1px solid rgba(35, 40, 67, 0.6);
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.6);
   color: var(--text);
   white-space: nowrap;
 }
@@ -1034,7 +1195,7 @@ details summary {
 
 .es-divider {
   height: 1px;
-  background: rgba(45, 52, 98, 0.5);
+  background: rgba(var(--hairline-rgb), 0.5);
 }
 
 .es-quickstart {
@@ -1070,8 +1231,8 @@ details summary {
 .es-qs-btn:hover {
   color: var(--text-h);
   border-color: var(--accent);
-  background: rgba(122, 162, 255, 0.07);
-  box-shadow: 0 0 0 1px rgba(122, 162, 255, 0.08);
+  background: rgba(var(--tint-rgb), 0.07);
+  box-shadow: 0 0 0 1px rgba(var(--tint-rgb), 0.08);
 }
 .es-qs-btn:active {
   transform: scale(0.98);
@@ -1088,7 +1249,7 @@ details summary {
   gap: 8px;
   width: 100%;
   padding: 11px 12px;
-  background: #0e1120;
+  background: var(--field-bg);
   border: 1px solid var(--card-border);
   border-radius: 9px;
   color: var(--text-h);
@@ -1113,7 +1274,7 @@ details summary {
   left: 0;
   width: min(100%, 340px);
   z-index: 60;
-  background: #1a1f38;
+  background: var(--pop-bg);
   border: 1px solid var(--card-border);
   border-radius: 14px;
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
@@ -1146,7 +1307,7 @@ details summary {
   transition: background 0.12s, color 0.12s;
 }
 .dp-nav-btn:hover {
-  background: rgba(122, 162, 255, 0.1);
+  background: rgba(var(--tint-rgb), 0.1);
   color: var(--text-h);
 }
 .dp-grid {
@@ -1188,7 +1349,7 @@ details summary {
   transition: background 0.1s, color 0.1s;
 }
 .dp-day:hover:not(.dp-disabled) {
-  background: rgba(122, 162, 255, 0.1);
+  background: rgba(var(--tint-rgb), 0.1);
   color: var(--text-h);
 }
 /* Today: accent ring */
@@ -1200,7 +1361,7 @@ details summary {
 /* Selected: solid fill */
 .dp-selected {
   background: var(--accent) !important;
-  color: #fff !important;
+  color: var(--on-accent) !important;
   font-weight: 700;
   box-shadow: none;
 }
@@ -1212,14 +1373,14 @@ details summary {
 .dp-footer {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(45, 52, 98, 0.55);
+  border-top: 1px solid rgba(var(--hairline-rgb), 0.55);
 }
 .dp-today-btn {
   width: 100%;
   padding: 9px 0;
   border: 1.5px solid var(--accent);
   border-radius: 8px;
-  background: rgba(99, 141, 255, 0.08);
+  background: rgba(var(--tint-rgb), 0.08);
   color: var(--accent);
   font: inherit;
   font-size: 13px;
@@ -1230,7 +1391,7 @@ details summary {
 }
 .dp-today-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ── responsive: ≤640px (phone landscape / large phone portrait) ─────────── */
@@ -1240,6 +1401,14 @@ details summary {
   }
   .masthead {
     margin-bottom: 10px;
+  }
+  /* Narrow screens: lift the toggle out of the corner (it would overlap the
+     title) into its own centered row above the wordmark. */
+  .night-vision-toggle {
+    position: static;
+    display: flex;
+    width: fit-content;
+    margin: 0 auto 12px;
   }
   .masthead h1 {
     font-size: 2.25rem;

@@ -56,6 +56,15 @@
   --card: #131722;         /* Slightly elevated surface */
   /* Using rgba for borders allows them to blend perfectly with the background */
   --card-border: rgba(255, 255, 255, 0.06);
+  --field-bg: #0e1120;     /* Recessed control surface (inputs, pills, tables) */
+  --pop-bg: #1a1f38;       /* Popovers: dropdown + calendar */
+  --on-accent: #ffffff;    /* Text/icon ink on the accent fill */
+  /* RGB triplets for low-alpha tints, so a theme can re-tint them wholesale via
+     rgba(var(--…), a). --tint = accent-ish hover/selection wash; --hairline =
+     table/section separators; --surface-2 = neutral badge fill. */
+  --tint-rgb: 122, 162, 255;
+  --hairline-rgb: 35, 40, 67;
+  --surface-2: rgba(127, 127, 127, 0.18);
 
   /* ── Typography ─────────────────────────────────────────────── */
   --text-h: #E2E8F0;       /* Near-white heading ink — commands the hierarchy ceiling */
