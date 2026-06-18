@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { todayIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
@@ -64,6 +64,7 @@ export default function App() {
   const [date, setDate] = useState(todayIso())
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
+  const [redMode, setRedMode] = useState<boolean>(() => localStorage.getItem('redMode') === '1')
   const [searchHistory, setSearchHistory] = useState<HistoryEntry[]>(loadHistory)
   const [placeDropdown, setPlaceDropdown] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -73,6 +74,13 @@ export default function App() {
   // The label most recently picked from the dropdown — used to suppress the
   // suggestion fetch that the resulting setPlace() would otherwise trigger.
   const lastPickedRef = useRef<string | null>(null)
+
+  // Red Light (night-vision) mode: toggle a root class that filters the whole
+  // app to red so blue/green light doesn't spoil dark adaptation. Persisted.
+  useEffect(() => {
+    document.documentElement.classList.toggle('red-mode', redMode)
+    localStorage.setItem('redMode', redMode ? '1' : '0')
+  }, [redMode])
 
   // Debounced autocomplete: fetch suggestions as the user types a place name.
   // A 300ms debounce + 3-char minimum keeps the per-keystroke request count (and
@@ -253,7 +261,32 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Luminance→red color matrix for Red Light (night-vision) mode. Hidden;
+          referenced by `filter: url(#red-night)` on .app when .red-mode is set.
+          Maps every pixel to (luma, 0, 0) so no blue/green light is emitted. */}
+      <svg className="redmode-svg" aria-hidden="true" focusable="false">
+        <filter id="red-night" colorInterpolationFilters="sRGB">
+          <feColorMatrix
+            type="matrix"
+            values="0.2126 0.7152 0.0722 0 0
+                    0      0      0      0 0
+                    0      0      0      0 0
+                    0      0      0      1 0"
+          />
+        </filter>
+      </svg>
+
       <header className="masthead">
+        <button
+          type="button"
+          className={`night-vision-toggle${redMode ? ' active' : ''}`}
+          onClick={() => setRedMode(v => !v)}
+          aria-pressed={redMode}
+          title="Red light mode — preserves night vision"
+        >
+          <Moon size={13} strokeWidth={2} fill={redMode ? 'currentColor' : 'none'} />
+          <span>Night vision</span>
+        </button>
 
         <h1>DarkHours</h1>
 
