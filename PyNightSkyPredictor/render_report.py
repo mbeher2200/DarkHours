@@ -134,6 +134,17 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
     lp = _lp_line(report)
     if lp:
         print(f"Light Pollution:    {lp}")
+    if report.light_dome:
+        _ld = report.light_dome
+        if _ld.get("sky_state") == "urban":
+            _ldl = "washed out in all directions"
+        elif _ld.get("domes"):
+            _ldl = (", ".join(f"{d['severity']} {d['direction']}" for d in _ld["domes"])
+                    + f"  ·  darkest {_ld['darkest_direction']}")
+        else:
+            _base = "uniform glow" if _ld.get("sky_state") == "bright" else "clear"
+            _ldl = f"{_base}  ·  darkest {_ld['darkest_direction']}"
+        print(f"Light Domes:        {_ldl}")
     tags = []
     if report.moon_special:
         tags.append(report.moon_special.title())

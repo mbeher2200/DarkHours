@@ -69,6 +69,11 @@ async def lifespan(app: FastAPI):
             except Exception as _e:
                 logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
             try:
+                from PyNightSkyPredictor import light_dome as _ld
+                _ld.load_lightdome_index()   # mmap/parse the ~MB light-dome H3 index once
+            except Exception as _e:
+                logging.getLogger(__name__).debug("Light-dome index pre-warm failed: %s", _e)
+            try:
                 jobs._sqs()   # build the boto3 SQS client off the first enqueue's path
             except Exception as _e:
                 logging.getLogger(__name__).debug("SQS pre-warm failed: %s", _e)
