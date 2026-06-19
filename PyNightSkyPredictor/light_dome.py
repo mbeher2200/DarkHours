@@ -51,8 +51,17 @@ changes.
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
 
 import numpy as np
+
+try:
+    import h3 as _h3_lib
+    _HAS_H3 = True
+except ImportError:  # h3 is a runtime dep, but degrade gracefully if absent
+    _h3_lib = None
+    _HAS_H3 = False
 
 # --- configuration ---------------------------------------------------------
 
@@ -458,3 +467,117 @@ def glow_toward(detailed: dict[str, dict], azimuth_deg: float, altitude_deg: flo
     if theta <= 0.0:
         return score if alt == 0.0 else 0.0
     return score / (1.0 + (alt / theta) ** 2)
+
+
+# ===========================================================================
+# Precomputed H3 index — DarkHours light-dome lookup for the initial page load
+# ===========================================================================
+# Light dome is a pure function of static VIIRS radiance + location, so it is
+# precomputed once into an H3 index (scripts/build_lightdome_index.py) and served
+# as an O(log n) lookup on the page-load path — no 150-mile raster read. Plumbing
+# mirrors darksky._PadusIndex / _load_padus_h3_index / _padus_h3_lookup.
+
+LIGHTDOME_H3_RESOLUTION = 6          # ~36 km^2/cell — CONUS index granularity
+_LIGHTDOME_H3_FILENAME = "lightdome_h3.npz"
+_LIGHTDOME_UNAVAILABLE = object()    # sentinel: tried to load, missing/unreadable
+_lightdome_index_cache = None        # None = not yet attempted
+
+
+def _lightdome_h3_path() -> "Path | None":
+    """Resolve the index .npz path: env override → repo cache → Lambda image path."""
+    env_override = os.environ.get("PYNIGHTSKY_LIGHTDOME_H3_PATH")
+    if env_override:
+        p = Path(env_override)
+        return p if p.exists() else None
+    for candidate in (
+        Path(__file__).parent.parent / "cache" / _LIGHTDOME_H3_FILENAME,
+        Path("/app/cache") / _LIGHTDOME_H3_FILENAME,
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+class LightDomeIndex:
+    """Columnar light-dome H3 index: a sorted uint64 cell array plus parallel raw
+    per-direction value arrays (scores, dome heights, mean distances). Lookups
+    binary-search the cell array; the summary is built at lookup time so a threshold
+    recalibration needs no rebuild. Read from a compressed .npz with numpy only."""
+
+    __slots__ = ("cells", "scores", "dome_heights", "mean_distances")
+
+    def __init__(self, cells, scores, dome_heights, mean_distances):
+        self.cells = cells                    # np.ndarray[uint64], ascending (N,)
+        self.scores = scores                  # np.ndarray[float] (N, 8), order = DIRS_8
+        self.dome_heights = dome_heights      # np.ndarray[float] (N, 8), degrees
+        self.mean_distances = mean_distances  # np.ndarray[float] (N, 8); -1.0 = no glow
+
+
+def load_lightdome_index() -> "LightDomeIndex | None":
+    """Lazy-load the light-dome H3 index once per process; cache the result.
+
+    Returns None (and caches that failure) if h3/numpy is unavailable, the .npz is
+    missing, or the read fails — callers degrade gracefully (no light-dome panel).
+    """
+    global _lightdome_index_cache
+    if _lightdome_index_cache is _LIGHTDOME_UNAVAILABLE:
+        return None
+    if _lightdome_index_cache is not None:
+        return _lightdome_index_cache  # type: ignore[return-value]
+
+    if not _HAS_H3:
+        _lightdome_index_cache = _LIGHTDOME_UNAVAILABLE
+        return None
+
+    path = _lightdome_h3_path()
+    if path is None:
+        _lightdome_index_cache = _LIGHTDOME_UNAVAILABLE
+        return None
+
+    try:
+        with np.load(path) as npz:
+            cells = npz["cells"].astype(np.uint64, copy=False)
+            scores = npz["scores"].astype(np.float32, copy=False)
+            dome_heights = npz["dome_heights"].astype(np.float32, copy=False)
+            mean_distances = npz["mean_distances"].astype(np.float32, copy=False)
+        # The .npz is written sorted by cell, so np.searchsorted is valid. Guard cheaply.
+        if cells.size and not bool(np.all(cells[:-1] <= cells[1:])):
+            order = np.argsort(cells, kind="stable")
+            cells, scores, dome_heights, mean_distances = (
+                cells[order], scores[order], dome_heights[order], mean_distances[order])
+        _lightdome_index_cache = LightDomeIndex(cells, scores, dome_heights, mean_distances)
+    except Exception:
+        _lightdome_index_cache = _LIGHTDOME_UNAVAILABLE
+        return None
+
+    return _lightdome_index_cache  # type: ignore[return-value]
+
+
+def lightdome_lookup(lat: float, lon: float, index: "LightDomeIndex | None" = None) -> "dict | None":
+    """Precomputed light-dome summary for (lat, lon), or None if outside coverage.
+
+    O(log n) binary search over the H3 index — safe on the initial page-load path (no
+    raster read). Returns the same shape as :func:`summarize_horizons`. The stored
+    ``-1.0`` mean-distance sentinel maps back to ``None``.
+    """
+    if index is None:
+        index = load_lightdome_index()
+    if index is None:
+        return None
+
+    cell = _h3_lib.str_to_int(_h3_lib.latlng_to_cell(lat, lon, LIGHTDOME_H3_RESOLUTION))
+    cells = index.cells
+    i = int(np.searchsorted(cells, np.uint64(cell)))
+    if i >= cells.size or cells[i] != cell:
+        return None
+
+    sc, dh, md = index.scores[i], index.dome_heights[i], index.mean_distances[i]
+    detailed = {
+        DIRS_8[k]: {
+            "score": float(sc[k]),
+            "dome_height_deg": float(dh[k]),
+            "mean_distance_mi": None if md[k] < 0.0 else float(md[k]),
+        }
+        for k in range(8)
+    }
+    return summarize_horizons(detailed)

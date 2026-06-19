@@ -57,6 +57,9 @@ cache/*
 # contributors). IS the committed runtime index; Docker builds COPY it. Built by
 # scripts/osm_poi_builder.py from a Geofabrik .osm.pbf. See docs/OSM_POI_INDEX.md.
 !cache/osm_pois.npz
+# Precomputed light-dome H3 index (CONUS, res 6). IS the committed runtime index;
+# the API/worker bundles COPY it. Built by scripts/build_lightdome_index.py.
+!cache/lightdome_h3.npz
 
 # AWS CDK infrastructure build artefacts (added ahead of M4)
 cdk.out/
