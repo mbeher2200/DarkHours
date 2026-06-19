@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from . import darksky as _ds
+from . import light_dome as _ld
 from . import moon_events as _me
 from . import ports as _ports
 from . import scoring
@@ -101,6 +102,9 @@ class NightReport:
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
     mw_summary:      dict | None = None   # milky_way_arch_summary output (MW targets only)
+
+    # Light dome — precomputed H3 index lookup (summarize_horizons shape); None outside coverage
+    light_dome: dict | None = None
 
     # Active meteor showers tonight (always populated)
     active_showers: list  = field(default_factory=list)
@@ -270,6 +274,10 @@ def assemble_night(
 
         # Collect darksky (S3 raster read — almost certainly done by now)
         ds_info = _ds_future.result()
+
+        # Light dome — precomputed H3 index lookup (O(log n), no raster read), so it's
+        # safe on the initial page-load path. None when outside the index coverage.
+        light_dome_info = _ld.lightdome_lookup(lat, lon)
 
         # Collect weather future (started at entry; may still be running if
         # Open-Meteo is slower than the Skyfield work above)
@@ -511,6 +519,7 @@ def assemble_night(
         dark_score=dark_score,
         light_pollution=ds_info,
         bortle_score=bortle_score,
+        light_dome=light_dome_info,
         weather_points=night_points,
         weather_score=weather_score,
         wx_source=wx_source,

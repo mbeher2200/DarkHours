@@ -29,6 +29,7 @@ COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
 COPY apps/ ./apps/
 COPY cache/darkhours_padus_h3.npz ./cache/darkhours_padus_h3.npz
 COPY cache/osm_pois.npz ./cache/osm_pois.npz
+COPY cache/lightdome_h3.npz ./cache/lightdome_h3.npz
 
 # Drop root (Lambda fs is read-only except /tmp, for any user).
 ENV HOME=/tmp

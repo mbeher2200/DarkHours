@@ -66,7 +66,7 @@ def _stage_worker_src() -> str:
     shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
     shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
     (stage / "cache").mkdir()
-    for _npz in ("darkhours_padus_h3.npz", "osm_pois.npz"):
+    for _npz in ("darkhours_padus_h3.npz", "osm_pois.npz", "lightdome_h3.npz"):
         shutil.copy(_REPO / "cache" / _npz, stage / "cache" / _npz)
     shutil.copy(_REPO / "requirements.txt", stage / "requirements.txt")
     return str(stage)
