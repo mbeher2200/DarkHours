@@ -596,6 +596,90 @@ input[type="number"]::-webkit-inner-spin-button {
 .overall .meta-k {
   min-width: 112px;
 }
+
+/* ── Light dome panel (all-sky fisheye) ─────────────────────── */
+/* Sits opposite the big score number in the score card; wraps below on mobile. */
+.lightdome-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.ld-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+}
+/* Disk on the left, caption + legend stacked to the right of it. */
+.ld-body {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+.ld-canvas {
+  display: block;
+}
+.ld-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+}
+.ld-state {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.ld-state-dark   { color: var(--excellent); border-color: rgba(52, 211, 153, 0.35); }
+.ld-state-domed  { color: var(--good);      border-color: rgba(96, 165, 250, 0.35); }
+.ld-state-bright { color: var(--fair);      border-color: rgba(167, 139, 250, 0.35); }
+.ld-state-urban  { color: var(--poor);      border-color: rgba(251, 113, 133, 0.40); }
+.ld-line {
+  font-size: 12px;
+  color: var(--text);
+}
+.ld-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ld-line b, .ld-sub b {
+  color: var(--text-h);
+  font-weight: 600;
+}
+.ld-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+.ld-legend-bar {
+  width: 64px;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #000 0%, var(--excellent) 22%, var(--good) 45%, var(--fair) 65%, var(--poor) 100%);
+}
+/* Red/night-vision mode: the canvas bakes literal RGB (CSS vars can't reach
+   getImageData), so recolour it with the same luminance→red matrix used on <img>.
+   The legend bar and state pills use literal greens/ambers — re-tint to pure red. */
+html.red-mode .ld-canvas { filter: url(#red-night); }
+html.red-mode .ld-legend-bar { background: #6a0000; }
+html.red-mode .ld-state-dark,
+html.red-mode .ld-state-domed,
+html.red-mode .ld-state-bright,
+html.red-mode .ld-state-urban {
+  color: var(--accent);
+  border-color: rgba(255, 0, 0, 0.4);
+}
+
 .band-excellent {
   border-color: var(--excellent);
   background: rgba(90, 209, 154, 0.05);
@@ -1490,5 +1574,18 @@ details summary {
   }
   .meta-v {
     padding-left: 0; /* Ensures the value text aligns perfectly under the label */
+  }
+  /* Light dome stacks below the score, centered and full-width; the caption
+     stacks under the disk again (too little width to sit beside it). */
+  .lightdome-panel {
+    width: 100%;
+    align-items: center;
+  }
+  .ld-body {
+    flex-direction: column;
+  }
+  .ld-caption {
+    align-items: center;
+    text-align: center;
   }
 }

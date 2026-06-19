@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace } from './types'
+import React, { useState, useRef, useEffect } from 'react'
+import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
@@ -865,6 +865,208 @@ function NearbyResults(
   )
 }
 
+// ── Light dome (all-sky fisheye) ─────────────────────────────────────────────
+// An all-sky heatmap of horizon light pollution: centre = zenith (dark), rim = the
+// 360° horizon, N at top. Each direction's horizon glow blooms upward by that
+// dome's apparent height, so a distant low metro dome hugs the rim while a near one
+// reaches higher. Mirrors the engine: glow(az,alt) = score(az)/(1+(alt/θ(az))²)
+// (PyNightSkyPredictor/light_dome.py glow_toward).
+
+const LD_DIRS: Direction[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+// Thresholds mirror light_dome.py (minor_threshold / major_threshold) so the colour
+// scale is comparable across sites: green→amber at MINOR, →red by MAJOR.
+const LD_MINOR = 0.25
+const LD_MAJOR = 3.0
+// Log-interpolated colour stops (RGB), keyed on the thresholds, using the app's own
+// quality ramp (excellent → good → fair → poor). The darkest end fades to BLACK — the
+// "excellent of excellent" = true darkness. Glow rises: black → green → blue → lilac → rose.
+const LD_STOPS: [number, [number, number, number]][] = [
+  [0,        [0, 0, 0]],        // darkness — the best (excellent-of-excellent)
+  [0.03,     [52, 211, 153]],   // --excellent green
+  [0.12,     [96, 165, 250]],   // --good blue
+  [LD_MINOR, [167, 139, 250]],  // --fair lilac — a minor dome
+  [0.9,      [251, 113, 133]],  // --poor rose
+  [LD_MAJOR, [225, 80, 100]],   // deep --poor — a major dome
+]
+// Bloom-legibility transform: real dome heights are ~1° (a sub-pixel rim sliver), so
+// for *display* we scale them up and floor them. This shapes the on-screen bloom, not
+// the physics. Directions with no flagged dome get a small default height.
+const LD_THETA_K = 5
+const LD_THETA_FLOOR_DEG = 6
+const LD_THETA_DEFAULT_DEG = 4
+const LD_SIZE = 168            // CSS px; disk + room for N/E/S/W labels
+
+function ldColor(v: number): [number, number, number] {
+  if (v <= LD_STOPS[0][0]) return LD_STOPS[0][1]
+  for (let i = 1; i < LD_STOPS.length; i++) {
+    const [hv, hc] = LD_STOPS[i]
+    if (v <= hv) {
+      const [lv, lc] = LD_STOPS[i - 1]
+      const t = (Math.log(Math.max(v, 1e-4)) - Math.log(Math.max(lv, 1e-4))) /
+                (Math.log(hv) - Math.log(Math.max(lv, 1e-4)))
+      const k = Math.max(0, Math.min(1, t))
+      return [lc[0] + (hc[0] - lc[0]) * k, lc[1] + (hc[1] - lc[1]) * k, lc[2] + (hc[2] - lc[2]) * k]
+    }
+  }
+  return LD_STOPS[LD_STOPS.length - 1][1]
+}
+
+// Tent-interpolate a per-direction array at an arbitrary azimuth (partition of unity
+// across the two nearest cardinals — same scheme as light_dome.glow_toward).
+function ldTent(arr: number[], azDeg: number): number {
+  const p = (((azDeg % 360) + 360) % 360) / 45
+  const lo = Math.floor(p) % 8
+  const hi = (lo + 1) % 8
+  const f = p - Math.floor(p)
+  return arr[lo] * (1 - f) + arr[hi] * f
+}
+
+function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; imperial: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Disk size; matched to the score card's content (the meta block) so the panel
+  // doesn't make the card taller. Capped at LD_SIZE; falls back to it pre-measure.
+  const [size, setSize] = useState(LD_SIZE)
+  const { sky_state, scores, darkest_direction, domes } = summary
+  // The darkest horizon is only a meaningful "point here" call when a darker side exists.
+  const showBest = sky_state === 'dark' || sky_state === 'domed'
+
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    const meta = panel.closest('.overall')?.querySelector('.meta') as HTMLElement | null
+    if (!meta) return
+    const measure = () => {
+      const titleH = (panel.querySelector('.ld-title') as HTMLElement | null)?.offsetHeight ?? 18
+      const avail = meta.offsetHeight - titleH - 8   // panel column gap
+      setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(meta)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    const W = Math.round(size * dpr)
+    canvas.width = W
+    canvas.height = W
+    canvas.style.width = `${size}px`
+    canvas.style.height = `${size}px`
+
+    // Per-direction glow and apparent dome height (real height for flagged domes).
+    const domeH: Partial<Record<Direction, number>> = {}
+    for (const d of domes) domeH[d.direction] = d.dome_height_deg
+    const scoreArr = LD_DIRS.map(d => scores[d] ?? 0)
+    const thetaArr = LD_DIRS.map(d =>
+      domeH[d] != null ? Math.max(domeH[d]! * LD_THETA_K, LD_THETA_FLOOR_DEG) : LD_THETA_DEFAULT_DEG)
+
+    // Pixel pass over the disk (device resolution; transform-independent putImageData).
+    const margin = Math.max(11, size * 0.095)   // room for the N/E/S/W labels
+    const cx = W / 2, cy = W / 2
+    const R = (size / 2 - margin) * dpr
+    const img = ctx.createImageData(W, W)
+    const buf = img.data
+    for (let y = 0; y < W; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4
+        const dx = x - cx, dy = y - cy
+        const rr = Math.sqrt(dx * dx + dy * dy)
+        if (rr > R) { buf[i + 3] = 0; continue }
+        const alt = 90 * (1 - rr / R)                       // centre = zenith, rim = horizon
+        const az = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360  // N up, clockwise
+        const sc = ldTent(scoreArr, az)
+        const th = ldTent(thetaArr, az)
+        const g = sc / (1 + (alt / th) ** 2)
+        const [r, gg, b] = ldColor(g)
+        const edge = Math.max(0, Math.min(1, (R - rr) / (1.5 * dpr)))  // soft rim AA
+        buf[i] = r; buf[i + 1] = gg; buf[i + 2] = b; buf[i + 3] = 255 * edge
+      }
+    }
+    ctx.putImageData(img, 0, 0)
+
+    // Decorations in CSS px.
+    ctx.scale(dpr, dpr)
+    const c = size / 2
+    const cssR = size / 2 - margin
+    ctx.lineWidth = 1
+    for (const rad of [cssR * 0.5, cssR * 0.83]) {
+      ctx.beginPath(); ctx.arc(c, c, rad, 0, Math.PI * 2)
+      ctx.strokeStyle = 'rgba(148,163,184,0.12)'; ctx.stroke()
+    }
+    ctx.beginPath(); ctx.arc(c, c, cssR, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(148,163,184,0.22)'; ctx.stroke()
+
+    const lab = margin * 0.45
+    ctx.fillStyle = '#94A3B8'
+    ctx.font = '600 10px Poppins, system-ui, sans-serif'
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText('N', c, lab); ctx.fillText('S', c, size - lab)
+    ctx.fillText('E', size - lab, c); ctx.fillText('W', lab, c)
+
+    if (showBest) {
+      const a = (LD_DIRS.indexOf(darkest_direction) * 45) * Math.PI / 180
+      ctx.fillStyle = '#34D399'
+      ctx.font = '700 12px Poppins, system-ui, sans-serif'
+      ctx.fillText('★', c + Math.sin(a) * (cssR - 8), c - Math.cos(a) * (cssR - 8))
+    }
+  }, [summary, scores, darkest_direction, domes, sky_state, showBest, size])
+
+  const fmtMi = (mi: number) => fmtDist(mi * 1.60934, imperial)
+  const top = domes[0]
+  const topDist = top?.mean_distance_mi != null ? `  ·  ${fmtMi(top.mean_distance_mi)}` : ''
+
+  const aria =
+    sky_state === 'urban' ? 'Urban sky: horizon washed out in all directions.'
+    : sky_state === 'bright' ? `Bright sky: uniform glow, darkest horizon to the ${darkest_direction}.`
+    : sky_state === 'domed' ? `${top?.label ?? 'Light dome'}. Darkest horizon to the ${darkest_direction}.`
+    : `Dark sky. Darkest horizon to the ${darkest_direction}.`
+
+  return (
+    <div className="lightdome-panel" ref={panelRef}>
+      <div className="ld-title">Horizon Glow</div>
+      <div className="ld-body">
+      <canvas ref={canvasRef} className="ld-canvas" role="img" aria-label={aria} />
+      <div className="ld-caption">
+        <span className={`ld-state ld-state-${sky_state}`}>
+          {sky_state === 'dark' ? 'Dark sky'
+            : sky_state === 'domed' ? 'Light dome'
+            : sky_state === 'bright' ? 'Bright sky'
+            : 'Urban sky'}
+        </span>
+        {sky_state === 'domed' && (
+          <>
+            <span className="ld-line">{top?.label}{topDist}</span>
+            <span className="ld-sub">Best view <b>{darkest_direction}</b></span>
+          </>
+        )}
+        {sky_state === 'dark' && (
+          <span className="ld-line">Darkest horizon <b>{darkest_direction}</b></span>
+        )}
+        {sky_state === 'bright' && (
+          <>
+            <span className="ld-line">Uniform glow, no single dome</span>
+            <span className="ld-sub">Darkest <b>{darkest_direction}</b>, still washed</span>
+          </>
+        )}
+        {sky_state === 'urban' && (
+          <span className="ld-line">Washed out in all directions</span>
+        )}
+        <span className="ld-legend" aria-hidden="true">
+          <span>dark</span><span className="ld-legend-bar" /><span>dome</span>
+        </span>
+      </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main report card ─────────────────────────────────────────────────────────
 
 export default function ReportCard({
@@ -993,6 +1195,7 @@ export default function ReportCard({
           icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={30} />}
         />
         </div>
+        {r.light_dome && <LightDomePanel summary={r.light_dome} imperial={imperial} />}
       </div>
 
       <div className="bars">
@@ -1004,7 +1207,7 @@ export default function ReportCard({
 
 
         <details className="nearby-section" open>
-        <summary>Find nearby dark sky</summary>
+        <summary>Find Sky nearby</summary>
         <div className="nearby-body">
           {nearbyState.phase === 'idle' && (
             <div className="nearby-radius-toggle">
