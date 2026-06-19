@@ -137,6 +137,32 @@ export interface MilkyWaySummary {
   core_max_alt_deg:     number
 }
 
+// ── Light dome (horizon glow) ─────────────────────────────────────────────────
+// Mirrors summarize_horizons() in PyNightSkyPredictor/light_dome.py. The per-direction
+// horizon-glow analysis served on the initial /night response (drives the score-card
+// fisheye panel; null outside CONUS coverage). Distinct from the find_nearby `light_domes`
+// list below, which names the actual bright cities (VIIRS blobs) you can see glowing.
+
+export type Direction = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW'
+
+export interface LightDome {
+  direction: Direction
+  severity: 'minor' | 'major'
+  score: number
+  label: string
+  mean_distance_mi: number | null
+  dome_height_deg: number
+}
+
+export interface LightDomeSummary {
+  // Site-level classification the UI branches on (see light_dome.py).
+  sky_state: 'dark' | 'bright' | 'domed' | 'urban'
+  scores: Record<Direction, number>   // glow index per cardinal direction
+  darkest_direction: Direction
+  darkest_score: number
+  domes: LightDome[]                   // worst-first; [] when none stand out
+}
+
 export interface NightReport {
   date: string
   lat: number
@@ -181,6 +207,7 @@ export interface NightReport {
   sat_network_error: boolean
   starlink_trains: StarlinkTrain[]
   sat_starlink_unavailable: boolean
+  light_dome: LightDomeSummary | null
 }
 
 /** A FastAPI error body: {"detail": "..."} */
