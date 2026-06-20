@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
+import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
@@ -1101,6 +1101,17 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
       setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
     })
     return () => cancelAnimationFrame(raf)
+    const meta = panel.closest('.overall')?.querySelector('.meta') as HTMLElement | null
+    if (!meta) return
+    const measure = () => {
+      const titleH = (panel.querySelector('.ld-title') as HTMLElement | null)?.offsetHeight ?? 18
+      const avail = meta.offsetHeight - titleH - 8   // panel column gap
+      setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(meta)
+    return () => ro.disconnect()
   }, [])
 
   useEffect(() => {
