@@ -1,5 +1,71 @@
 [
   {
+    "name": "Coma Star Cluster",
+    "type": "cluster",
+    "ra": "12h 22m 30s",
+    "dec": "+25° 51' 00\"",
+    "magnitude": 1.8,
+    "angular_size_arcmin": 275
+  },
+  {
+    "name": "Alpha Persei Cluster",
+    "type": "cluster",
+    "ra": "03h 26m 58s",
+    "dec": "+49° 07' 00\"",
+    "magnitude": 1.2,
+    "angular_size_arcmin": 185
+  },
+  {
+    "name": "Southern Pleiades",
+    "type": "cluster",
+    "ra": "10h 42m 58s",
+    "dec": "-64° 24' 00\"",
+    "magnitude": 1.9,
+    "angular_size_arcmin": 50
+  },
+  {
+    "name": "Rho Ophiuchi Complex",
+    "type": "nebula",
+    "ra": "16h 28m 06s",
+    "dec": "-24° 32' 30\"",
+    "magnitude": 4.6,
+    "surface_brightness": 14.0,
+    "angular_size_arcmin": 270
+  },
+  {
+    "name": "Ptolemy Cluster",
+    "type": "cluster",
+    "ra": "17h 53m 51s",
+    "dec": "-34° 47' 34\"",
+    "magnitude": 3.3,
+    "angular_size_arcmin": 80
+  },
+  {
+    "name": "Butterfly Cluster",
+    "type": "cluster",
+    "ra": "17h 40m 20s",
+    "dec": "-32° 15' 15\"",
+    "magnitude": 4.2,
+    "angular_size_arcmin": 25
+  },
+  {
+    "name": "Hyades",
+    "type": "cluster",
+    "ra": "04h 26m 54s",
+    "dec": "+15° 52' 00\"",
+    "magnitude": 0.5,
+    "angular_size_arcmin": 330
+  },
+  {
+    "name": "Tarantula Nebula",
+    "type": "nebula",
+    "ra": "05h 38m 38s",
+    "dec": "-69° 05' 42\"",
+    "magnitude": 8.0,
+    "surface_brightness": 12.0,
+    "angular_size_arcmin": 40
+  },
+  {
     "name": "Orion Nebula",
     "type": "nebula",
     "ra": "05h 35m 17s",

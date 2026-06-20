@@ -35,7 +35,8 @@ SAMPLE_INTERVAL_MIN    = 10
 PLANET_PRIME_MIN_ALT   = 20  # planets are bright enough to be prime at lower altitudes
 
 # Landscape prominence thresholds
-_SB_DIFFUSE_THRESHOLD    = 16.0   # mag/arcsec² — above this, requires narrowband filter
+_SB_DIFFUSE_THRESHOLD    = 16.0   # mag/arcsec² — nebulae above this require narrowband filter
+_GALAXY_SB_THRESHOLD     = 13.8   # mag/arcsec² — galaxy disk SB averaged over core+faint arms
 _ANGULAR_SIZE_MIN_ARCMIN = 9.0    # below this, too compact for wide-field landscape
 
 _CATALOG_PATH = Path(__file__).parent / "targets.json"
@@ -88,19 +89,25 @@ class VisibleTarget:
     landscape_suitability: str = "prominent"     # "prominent" | "diffuse" | "too_small"
 
 
-def _landscape_suitability(sb: "float | None", angular_size: "float | None") -> str:
+def _landscape_suitability(
+    sb: "float | None",
+    angular_size: "float | None",
+    ttype: str = "",
+) -> str:
     """
     Classify a target's suitability for wide-angle landscape astrophotography.
 
     Returns 'prominent' | 'diffuse' | 'too_small'.
-    - 'diffuse': surface brightness ≥ 16.0 mag/arcsec² — requires narrowband filter for DSLR
-    - 'too_small': angular_size < 9 arcmin — sub-pixel at 14–35mm focal lengths
-    - 'prominent': passes both thresholds; visible in standard wide-field shots
+    Galaxies use a tighter SB gate (13.8) than nebulae (16.0): catalog SB for
+    face-on spirals averages the bright nucleus over the faint disk, so objects
+    like M101 (14.8) or M33 (14.2) read acceptable in catalogs but are invisible
+    noise in a stationary wide-field exposure.
     Objects with no angular_size (planets, meteor showers, milky_way) default to 'prominent'.
     """
     if angular_size is None:
         return "prominent"
-    if sb is not None and sb >= _SB_DIFFUSE_THRESHOLD:
+    sb_threshold = _GALAXY_SB_THRESHOLD if ttype == "galaxy" else _SB_DIFFUSE_THRESHOLD
+    if sb is not None and sb >= sb_threshold:
         return "diffuse"
     if angular_size < _ANGULAR_SIZE_MIN_ARCMIN:
         return "too_small"
@@ -447,7 +454,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         return None
 
     angular_size = entry.get("angular_size_arcmin")
-    land_suit    = _landscape_suitability(entry.get("surface_brightness"), angular_size)
+    land_suit    = _landscape_suitability(entry.get("surface_brightness"), angular_size, ttype)
     return VisibleTarget(
         name=name, type=ttype, windows=windows, note=note,
         angular_size_arcmin=angular_size,
