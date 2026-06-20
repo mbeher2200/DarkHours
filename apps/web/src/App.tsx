@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X } from 'lucide-react'
+import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X, Eye, Sparkles, Compass } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { todayIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
@@ -508,6 +508,26 @@ export default function App() {
 
         <div className="scope-row">
           <div className="scope-strip">
+            <span className="scope-pill">
+              <Moon size={13} strokeWidth={2} />
+              Lunar
+            </span>
+            <span className="scope-pill">
+              <Eye size={13} strokeWidth={2} />
+              Light Pollution
+            </span>
+            <span className="scope-pill">
+              <Clock size={13} strokeWidth={2} />
+              Clear Dark Hours
+            </span>
+            <span className="scope-pill">
+              <Sparkles size={13} strokeWidth={2} />
+              Milky Way
+            </span>
+            <span className="scope-pill">
+              <Compass size={13} strokeWidth={2} />
+              Horizon Glow
+            </span>
             {wxForecastUnavailable ? (
               <Tip text="Weather forecast unavailable beyond 7 days">
                 <span className="scope-pill unavail">
@@ -523,7 +543,7 @@ export default function App() {
             )}
             <span className="scope-pill">
               <Star size={13} strokeWidth={2} />
-              Targets
+              Objects
             </span>
             {satUnavailable ? (
               <Tip text={isPastDate ? 'Satellite passes unavailable for past dates' : 'TLE accuracy degrades beyond 10 days: passes unreliable'}>
@@ -538,18 +558,6 @@ export default function App() {
                 Satellites
               </span>
             )}
-          </div>
-          <div className="units-toggle" role="group" aria-label="Unit system">
-            <button
-              type="button"
-              className={!imperial ? 'active' : ''}
-              onClick={() => toggleUnits(false)}
-            >°C / m/s</button>
-            <button
-              type="button"
-              className={imperial ? 'active' : ''}
-              onClick={() => toggleUnits(true)}
-            >°F / mph</button>
           </div>
         </div>
 
@@ -621,6 +629,7 @@ export default function App() {
           showTargets={reportTargets}
           showSatellites={reportSatellites}
           imperial={imperial}
+          onToggleUnits={toggleUnits}
         />
       )}
 

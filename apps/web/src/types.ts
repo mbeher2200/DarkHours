@@ -157,10 +157,11 @@ export interface LightDome {
 export interface LightDomeSummary {
   // Site-level classification the UI branches on (see light_dome.py).
   sky_state: 'dark' | 'bright' | 'domed' | 'urban'
-  scores: Record<Direction, number>   // glow index per cardinal direction
+  scores: Record<Direction, number>        // glow index per cardinal direction
+  dome_heights: Record<Direction, number>  // apparent dome height θ (degrees) per direction
   darkest_direction: Direction
   darkest_score: number
-  domes: LightDome[]                   // worst-first; [] when none stand out
+  domes: LightDome[]                       // worst-first; [] when none stand out
 }
 
 export interface NightReport {
@@ -240,6 +241,7 @@ export interface NearbyPlace {
   // map link to the raw coordinate). poi_type is the OSM category when is_poi is true.
   is_poi?: boolean
   poi_type?: PoiType | null
+  area_name?: string | null
 }
 
 export interface NearbyResult {

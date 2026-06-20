@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import type { NightReport, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
+import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
 import {
   formatTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
@@ -74,61 +74,104 @@ function MoonPhaseSvg({ phaseName, size = 22 }: {
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-function WeatherTable({ points, tz, imperial }: { points: WeatherPoint[]; tz: string; imperial: boolean }) {
+function WeatherTable({ points, events = [], tz, imperial }: {
+  points: WeatherPoint[]
+  events?: SkyEvent[]
+  tz: string
+  imperial: boolean
+}) {
   const hasTemp   = points.some(p => p.temperature_c   != null)
   const hasDew    = points.some(p => p.dew_point_c     != null)
   const hasSeeing = points.some(p => p.seeing_arcsec   != null)
   const hasTransp = points.some(p => p.transparency    != null)
+  const hasWx     = points.length > 0
+  const totalCols = 6 + (hasSeeing ? 1 : 0) + (hasTransp ? 1 : 0) + (hasTemp ? 1 : 0) + (hasDew ? 1 : 0)
+
+  type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number }
+  const rows: Row[] = [
+    ...events.map(ev => ({ kind: 'event' as const, ev, ts: new Date(ev.time).getTime() })),
+    ...points.map(pt => ({ kind: 'wx'    as const, pt, ts: new Date(pt.time).getTime() })),
+  ].sort((a, b) => a.ts - b.ts)
+
+  const ip = { size: 14, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
+  function evIcon(label: string) {
+    const l = label.toLowerCase()
+    if (l.includes('sunrise'))                           return <Sunrise {...ip} />
+    if (l.includes('sunset'))                            return <Sunset  {...ip} />
+    if (l.includes('moonrise') || l.includes('moonset')) return <Moon    {...ip} />
+    if (l.includes('astronomical night'))                return <Stars   {...ip} />
+    if (l.includes('twilight'))                          return <Star    {...ip} />
+    return null
+  }
 
   return (
     <details className="wx-details" open>
-      <summary>Weather ({points.length} hours)</summary>
+      <summary>Night Timeline{hasWx ? ` · Weather (${points.length} hours)` : ''}</summary>
       <div className="wx-table-wrap">
         <table className="wx-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Rating</th>
-              <th>Cloud</th>
-              {hasSeeing && <th>Seeing</th>}
-              {hasTransp && <th>Transparency</th>}
-              {hasTemp   && <th>Temp</th>}
-              {hasDew    && <th>Dew Pt</th>}
-              <th>Humidity</th>
-              <th>Wind</th>
-            </tr>
-          </thead>
-          <tbody>
-            {points.map((p, i) => (
-              <tr key={i}>
-                <td className="wx-time">{formatTime(p.time, tz)}</td>
-                <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <WmoIcon code={p.weather_code} />
-                    <span style={{ display: 'inline-block', minWidth: '2ch', textAlign: 'right' }}>{rateConditions(p)}</span>/10
-                  </span>
-                </td>
-                <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
-                {hasSeeing && (
-                  <td className="wx-num">
-                    {p.seeing_arcsec != null
-                      ? `${Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10 (${p.seeing_arcsec.toFixed(2)}")`
-                      : '—'}
-                  </td>
-                )}
-                {hasTransp && (
-                  <td className="wx-num">
-                    {p.transparency != null
-                      ? `${{ Excellent: 10, Good: 8, Fair: 4, Poor: 1 }[p.transparency] ?? 5}/10`
-                      : '—'}
-                  </td>
-                )}
-                {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
-                {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
-                <td className="wx-num">{p.humidity_pct != null ? `${p.humidity_pct}%` : '—'}</td>
-                <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
+          {hasWx && (
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Rating</th>
+                <th>Cloud</th>
+                {hasSeeing && <th>Seeing</th>}
+                {hasTransp && <th>Transparency</th>}
+                {hasTemp   && <th>Temp</th>}
+                {hasDew    && <th>Dew Pt</th>}
+                <th>Humidity</th>
+                <th>Wind</th>
               </tr>
-            ))}
+            </thead>
+          )}
+          <tbody>
+            {rows.map((row, i) => {
+              if (row.kind === 'event') {
+                const icon = evIcon(row.ev.label)
+                return (
+                  <tr key={`ev-${i}`} className="wx-ev-row">
+                    <td className="wx-time wx-ev-time">{formatTime(row.ev.time, tz)}</td>
+                    <td colSpan={hasWx ? totalCols - 1 : 1} className="wx-ev-content">
+                      <span className="wx-ev-inner">
+                        {icon && <span className="wx-ev-icon">{icon}</span>}
+                        <span className="wx-ev-label">{row.ev.label}</span>
+                      </span>
+                    </td>
+                  </tr>
+                )
+              }
+              const p = row.pt
+              return (
+                <tr key={`wx-${i}`}>
+                  <td className="wx-time">{formatTime(p.time, tz)}</td>
+                  <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <WmoIcon code={p.weather_code} />
+                      <span style={{ display: 'inline-block', minWidth: '2ch', textAlign: 'right' }}>{rateConditions(p)}</span>/10
+                    </span>
+                  </td>
+                  <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
+                  {hasSeeing && (
+                    <td className="wx-num">
+                      {p.seeing_arcsec != null
+                        ? `${Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10 (${p.seeing_arcsec.toFixed(2)}")`
+                        : '—'}
+                    </td>
+                  )}
+                  {hasTransp && (
+                    <td className="wx-num">
+                      {p.transparency != null
+                        ? `${{ Excellent: 10, Good: 8, Fair: 4, Poor: 1 }[p.transparency] ?? 5}/10`
+                        : '—'}
+                    </td>
+                  )}
+                  {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
+                  {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
+                  <td className="wx-num">{p.humidity_pct != null ? `${p.humidity_pct}%` : '—'}</td>
+                  <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -166,7 +209,7 @@ function MetaRow({ k, v, icon }: { k: string; v: string; icon?: React.ReactNode 
 
 // ── Satellite passes ─────────────────────────────────────────────────────────
 
-function SatellitePasses({ report }: { report: NightReport }) {
+function SatellitePasses({ report }: { report: NightReport; }) {
   const tz = report.tz_name
 
   // Unavailability notices
@@ -240,6 +283,7 @@ function SatellitePasses({ report }: { report: NightReport }) {
                 <th colSpan={3}>Set</th>
                 <th>Dur</th>
                 <th>Moon Sep</th>
+                {report.light_dome && <th>Glow</th>}
               </tr>
               <tr className="sat-subhdr">
                 <th></th>
@@ -247,6 +291,7 @@ function SatellitePasses({ report }: { report: NightReport }) {
                 <th>Time</th><th>Alt</th><th>Az</th>
                 <th>Time</th><th>Alt</th><th>Az</th>
                 <th></th><th></th>
+                {report.light_dome && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -258,6 +303,9 @@ function SatellitePasses({ report }: { report: NightReport }) {
                   : p.moon_sep_deg != null
                     ? `${p.moon_sep_deg.toFixed(1)}°`
                     : '—'
+                const satGlow = report.light_dome
+                  ? glowToward(report.light_dome, p.peak_az_deg, p.peak_alt_deg)
+                  : null
                 return (
                   <tr key={i}>
                     <td>{label}</td>
@@ -272,6 +320,11 @@ function SatellitePasses({ report }: { report: NightReport }) {
                     <td className="wx-num">{az(p.set_az_deg)}</td>
                     <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
                     <td className="wx-num">{moonStr}</td>
+                    {satGlow != null && (
+                      <td className="wx-num cond-glow" style={glowStyle(satGlow)}>
+                        {glowLabel(satGlow)}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -372,10 +425,11 @@ function MilkyWayCard({ summary, waypoints, report }: {
               <thead>
                 <tr>
                   <th>Waypoint</th>
-                  <th>Peak</th>
-                  <th>Arch angle</th>
-                  <th>Window</th>
+                  <th>Best Viewing Time</th>
+                  <th>Best Arch Angle</th>
                   <th className="tg-sky-col">Best Sky</th>
+                  <th className="tg-cond-col">Conditions</th>
+                  <th>Window</th>
                 </tr>
               </thead>
               <tbody>
@@ -389,6 +443,12 @@ function MilkyWayCard({ summary, waypoints, report }: {
                         report.illumination_pct, report.moonrise, report.moonset,
                         w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg)
                     : '—'
+                  const wxPt = w.peak_time && !report.wx_no_data && !report.wx_pending
+                    ? wxAtTime(report.weather_points, w.peak_time)
+                    : null
+                  const glow = report.light_dome && w.peak_alt_deg != null
+                    ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
+                    : null
                   return (
                     <tr key={t.name}>
                       <td>{t.name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
@@ -396,10 +456,11 @@ function MilkyWayCard({ summary, waypoints, report }: {
                         {w.peak_time ? `${formatTime(w.peak_time, tz)} @ ${fmtPos(w.peak_alt_deg!, w.peak_az_deg)}` : '—'}
                       </td>
                       <td className="wx-num">{archNote}</td>
+                      <td className={`tg-sky ${skyClass(sky)}`}>{sky}</td>
+                      <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
                       <td className="wx-num">
                         {w.peak_time ? `${formatTime(w.start, tz)} – ${formatTime(w.end, tz)}` : '—'}
                       </td>
-                      <td className={`tg-sky ${skyClass(sky)}`}>{sky}</td>
                     </tr>
                   )
                 })}
@@ -595,7 +656,8 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             <th>Target</th>
             <th>Best Viewing</th>
             <th className="tg-sky-col">Best Sky</th>
-            <th>Astro Window</th>
+            <th className="tg-cond-col">Conditions</th>
+            <th>Window</th>
           </tr>
         </thead>
         <tbody>
@@ -603,7 +665,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             if (row.kind === 'header') {
               return (
                 <tr key={row.key} className="tg-group-hdr">
-                  <td colSpan={4}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                  <td colSpan={5}>{TYPE_LABELS[row.type] ?? row.type}</td>
                 </tr>
               )
             }
@@ -617,25 +679,50 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
               && new Date(w.photo_cutoff) > new Date(w.start)
               && new Date(w.photo_cutoff) < new Date(w.end))
 
-            let bestView = '—'
+            // Fixed-width helpers — each piece gets a min-width span so columns
+            // stay consistent across rows regardless of digit count or direction length.
+            const Tt  = ({ t }: { t: string })    => <span className="tg-t">{formatTime(t, tz)}</span>
+            const Alt = ({ deg }: { deg: number }) => <span className="tg-alt">{Math.round(deg)}°</span>
+            const Az  = ({ az }: { az: number })   => <span className="tg-az">{Math.round(az)}°</span>
+            const Dir = ({ az }: { az: number })   => <span className="tg-dir">{cardinal(az)}</span>
+            const Sep = () => <span className="tg-p"> – </span>
+
+            let bestViewJsx: React.ReactNode = '—'
             if (w.peak_time && w.peak_alt_deg != null) {
               const bestTime = hasClip ? w.photo_cutoff! : w.peak_time
-              const bestAlt  = hasClip ? altAt(w.photo_cutoff!, w) : Math.round(w.peak_alt_deg)
-              bestView = `${formatTime(bestTime, tz)} @ ${fmtPos(bestAlt, w.peak_az_deg)}`
+              const bestAlt  = hasClip ? altAt(w.photo_cutoff!, w) : w.peak_alt_deg
+              bestViewJsx = (
+                <>
+                  <Tt t={bestTime} />
+                  <span className="tg-p"> @ Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
+                  <span className="tg-p"> · Alt </span><Alt deg={bestAlt} />
+                </>
+              )
             }
 
-            let winStr = '—'
+            let winJsx: React.ReactNode = '—'
             if (w.peak_time) {
-              const startStr = `${formatTime(w.start, tz)} @ ${w.start_alt_deg.toFixed(0)}°`
               if (hasClip) {
-                const clipAlt  = altAt(w.photo_cutoff!, w)
+                const clipAlt   = altAt(w.photo_cutoff!, w)
                 const visualEnd = w.visual_cutoff ?? w.end
-                const extraMs  = new Date(visualEnd).getTime() - new Date(w.photo_cutoff!).getTime()
-                const extraMin = Math.round(extraMs / 60000)
-                const visNote  = extraMin >= 10 ? `  +${extraMin}m visual` : ''
-                winStr = `${startStr} – ${formatTime(w.photo_cutoff!, tz)} @ ${clipAlt}°${visNote}`
+                const extraMs   = new Date(visualEnd).getTime() - new Date(w.photo_cutoff!).getTime()
+                const extraMin  = Math.round(extraMs / 60000)
+                winJsx = (
+                  <>
+                    <Tt t={w.start} /><span className="tg-p"> @ </span><Alt deg={w.start_alt_deg} />
+                    <Sep />
+                    <Tt t={w.photo_cutoff!} /><span className="tg-p"> @ </span><Alt deg={clipAlt} />
+                    {extraMin >= 10 && <span className="tg-p"> +{extraMin}m visual</span>}
+                  </>
+                )
               } else {
-                winStr = `${startStr} – ${formatTime(w.end, tz)} @ ${w.end_alt_deg.toFixed(0)}°`
+                winJsx = (
+                  <>
+                    <Tt t={w.start} /><span className="tg-p"> @ </span><Alt deg={w.start_alt_deg} />
+                    <Sep />
+                    <Tt t={w.end} /><span className="tg-p"> @ </span><Alt deg={w.end_alt_deg} />
+                  </>
+                )
               }
             }
 
@@ -654,17 +741,26 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
               ? moonUpAt(peakForSky, report.moonrise, report.moonset)
               : false
             const moonNoteText = moonNote
-              ? (moonIsUpAtPeak ? ' · moon up (minimal moon wash)' : ' · pre-moonrise')
+              ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
+              : null
+
+            // Conditions: weather rating icon + glow at target's azimuth/altitude
+            const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
+              ? wxAtTime(report.weather_points, peakForSky)
+              : null
+            const glow = report.light_dome && w.peak_alt_deg != null
+              ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
               : null
 
             return (
               <tr key={row.key}>
                 <td>{name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
-                <td className="wx-num">{bestView}</td>
+                <td className="wx-num">{bestViewJsx}</td>
                 <td className={`tg-sky ${skyCls}`}>
                   {sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
                 </td>
-                <td className="wx-num">{winStr}</td>
+                <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
+                <td className="wx-num">{winJsx}</td>
               </tr>
             )
           })}
@@ -721,15 +817,19 @@ function NearbyResults(
   }
   // Render a place name with a category badge (routable POIs) or a "Remote" tag (off-road
   // fallbacks), plus a Google Maps driving-directions link on every result.
-  const placeNode = (p: NearbyPlace) => (
-    <>
-      {placeStr(p)}
-      {p.is_poi
-        ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
-        : <span className="poi-remote">Remote</span>}
-      <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer">Directions ↗</a>
-    </>
-  )
+  const placeNode = (p: NearbyPlace) => {
+    const appLink = `?lat=${p.lat.toFixed(5)}&lon=${p.lon.toFixed(5)}`
+    return (
+      <>
+        <a className="poi-namelink" href={appLink}>{placeStr(p)}</a>
+        {p.area_name && <span className="poi-area">{p.area_name}</span>}
+        {p.is_poi
+          ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
+          : <span className="poi-remote">Remote</span>}
+        <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer">Directions ↗</a>
+      </>
+    )
+  }
 
   return (
     <>
@@ -921,6 +1021,62 @@ function ldTent(arr: number[], azDeg: number): number {
   return arr[lo] * (1 - f) + arr[hi] * f
 }
 
+// Mirrors light_dome.glow_toward(): score(az) / (1 + (alt/θ(az))²)
+function glowToward(summary: LightDomeSummary, azDeg: number, altDeg: number): number {
+  const scores8  = LD_DIRS.map(d => summary.scores[d] ?? 0)
+  const heights8 = LD_DIRS.map(d => summary.dome_heights[d] ?? 0)
+  const score    = ldTent(scores8, azDeg)
+  const theta    = ldTent(heights8, azDeg)
+  const alt      = Math.max(0, altDeg)
+  if (theta <= 0) return alt === 0 ? score : 0
+  return score / (1 + (alt / theta) ** 2)
+}
+
+function glowLabel(g: number): string {
+  if (g < 0.03)    return 'negligible'
+  if (g < LD_MINOR) return 'low'
+  if (g < LD_MAJOR) return 'moderate'
+  return 'high'
+}
+
+// CSS colour for a glow value, reusing the LD stop palette.
+// Negligible glow returns {} so the element inherits var(--text-dim) from CSS;
+// the LD ramp starts at black (the zero-glow "excellent" end) which is invisible
+// on dark backgrounds, so we only apply inline colour once the glow is meaningful.
+function glowStyle(g: number): React.CSSProperties {
+  if (g < 0.03) return {}
+  const [r, gr, b] = ldColor(g)
+  return { color: `rgb(${Math.round(r)},${Math.round(gr)},${Math.round(b)})` }
+}
+
+// Nearest hourly weather point to a given ISO time.
+function wxAtTime(points: WeatherPoint[], isoTime: string): WeatherPoint | null {
+  if (!points.length) return null
+  const t = new Date(isoTime).getTime()
+  return points.reduce((a, b) =>
+    Math.abs(new Date(a.time).getTime() - t) <= Math.abs(new Date(b.time).getTime() - t) ? a : b)
+}
+
+// Compact conditions badge: WMO weather icon + rating score + horizon glow label.
+// Used in both the prime targets table and the Milky Way waypoints table.
+function CondBadges({ wxPt, glow }: { wxPt: WeatherPoint | null; glow: number | null }) {
+  const rating = wxPt != null ? rateConditions(wxPt) : null
+  return (
+    <span className="cond-badges">
+      {wxPt != null && rating != null && (
+        <span className={`cond-badge wx-rating-${scoreBand(rating)}`}>
+          <WmoIcon code={wxPt.weather_code} size={13} />
+        </span>
+      )}
+      {glow != null && (
+        <span className="cond-badge cond-glow" style={glowStyle(glow)}>
+          Light dome {glowLabel(glow)}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; imperial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -934,17 +1090,17 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
   useEffect(() => {
     const panel = panelRef.current
     if (!panel) return
-    const meta = panel.closest('.overall')?.querySelector('.meta') as HTMLElement | null
-    if (!meta) return
-    const measure = () => {
+    // One-shot measure after DOM settles. A ResizeObserver on .meta caused a
+    // feedback loop: canvas resize → meta flex-width change → meta height change
+    // → observer fires → canvas resize → ... (visible as blinking at ~75% window width).
+    const raf = requestAnimationFrame(() => {
+      const meta = panel.closest('.overall')?.querySelector('.meta') as HTMLElement | null
+      if (!meta) return
       const titleH = (panel.querySelector('.ld-title') as HTMLElement | null)?.offsetHeight ?? 18
-      const avail = meta.offsetHeight - titleH - 8   // panel column gap
+      const avail = meta.offsetHeight - titleH - 8
       setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(meta)
-    return () => ro.disconnect()
+    })
+    return () => cancelAnimationFrame(raf)
   }, [])
 
   useEffect(() => {
@@ -1075,12 +1231,14 @@ export default function ReportCard({
   showTargets = false,
   showSatellites = false,
   imperial = false,
+  onToggleUnits,
 }: {
   report: NightReport
   showWeather?: boolean
   showTargets?: boolean
   showSatellites?: boolean
   imperial?: boolean
+  onToggleUnits?: (imp: boolean) => void
 }) {
   const [nearbyState, setNearbyState] = useState<
     | { phase: 'idle' }
@@ -1141,10 +1299,55 @@ export default function ReportCard({
   if (r.dark_cycle) {
     darkStr += `  ·  avg ${r.dark_cycle.mean_hours}h  ±${r.dark_cycle.stdev_hours}h over lunar cycle`
   }
+  // Intersect dark intervals with clear weather windows (cloud cover ≤ 50%).
+  // Each weather point covers the 1-hour window starting at its timestamp.
+  // Falls back to purely astronomical intervals when no weather data is present.
+  const CLOUD_CLEAR_THRESHOLD = 50
+  const clearDarkIntervals: [string, string][] | null = (() => {
+    const pts = r.weather_points.filter(p => p.cloud_cover_pct != null && p.cloud_cover_pct <= CLOUD_CLEAR_THRESHOLD)
+    if (!r.weather_points.length || !r.weather_points.some(p => p.cloud_cover_pct != null)) return null
+    if (!r.dark_intervals.length) return []
+    const HOUR_MS = 3600 * 1000
+    const raw: [number, number][] = []
+    for (const [ds, de] of r.dark_intervals) {
+      const dStart = new Date(ds).getTime()
+      const dEnd   = new Date(de).getTime()
+      for (const p of pts) {
+        const ps = new Date(p.time).getTime()
+        const pe = ps + HOUR_MS
+        const is = Math.max(dStart, ps)
+        const ie = Math.min(dEnd,   pe)
+        if (is < ie) raw.push([is, ie])
+      }
+    }
+    if (!raw.length) return []
+    raw.sort((a, b) => a[0] - b[0])
+    const merged: [number, number][] = [raw[0]]
+    for (let i = 1; i < raw.length; i++) {
+      const last = merged[merged.length - 1]
+      if (raw[i][0] <= last[1]) { last[1] = Math.max(last[1], raw[i][1]) }
+      else merged.push(raw[i])
+    }
+    return merged.map(([s, e]) => [new Date(s).toISOString(), new Date(e).toISOString()])
+  })()
+  const clearDarkHours = clearDarkIntervals
+    ? clearDarkIntervals.reduce((sum, [s, e]) => sum + (new Date(e).getTime() - new Date(s).getTime()) / 3_600_000, 0)
+    : null
+
   // Compact version for the score card — tonight's window only, no cycle average
-  const darkStrCard = r.dark_intervals.length > 0
-    ? `${formatHm(r.dark_hours)}  (${r.dark_intervals.map(([s, e]) => `${formatTime(s, tz)} – ${formatTime(e, tz)}`).join(',  ')} ${tzZ})`
-    : darkStr
+  const darkStrCard = (() => {
+    if (clearDarkIntervals === null) {
+      // No weather data — show purely astronomical dark window
+      return r.dark_intervals.length > 0
+        ? `${formatHm(r.dark_hours)}  (${r.dark_intervals.map(([s, e]) => `${formatTime(s, tz)} – ${formatTime(e, tz)}`).join(',  ')} ${tzZ})`
+        : darkStr
+    }
+    if (clearDarkIntervals.length === 0) {
+      return r.dark_intervals.length > 0 ? 'None (clouded out during dark window)' : darkStr
+    }
+    const spans = clearDarkIntervals.map(([s, e]) => `${formatTime(s, tz)} – ${formatTime(e, tz)}`).join(',  ')
+    return `${formatHm(clearDarkHours!)}  (${spans} ${tzZ})`
+  })()
 
   // Human-readable date
   const formattedDate = new Intl.DateTimeFormat('en-US', {
@@ -1159,11 +1362,32 @@ export default function ReportCard({
   return (
     <section className="card report">
       <header className="report-head">
-        <h2 className="place">{placePrimary}</h2>
-        {placeSecondary && <p className="place-sub">{placeSecondary}</p>}
-        <p className="when">
-          {formattedDate}  ·  {tzTitle(tz)}  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)
-        </p>
+        <div className="report-head-meta">
+          <h2 className="place">
+            {placePrimary}
+            <a
+              className="place-mappin"
+              href={`https://www.google.com/maps?q=${r.lat},${r.lon}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View on Google Maps"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/>
+              </svg>
+            </a>
+          </h2>
+          {placeSecondary && <p className="place-sub">{placeSecondary}</p>}
+          <p className="when">
+            {formattedDate}  ·  {tzTitle(tz)}  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)
+          </p>
+        </div>
+        {onToggleUnits && (
+          <div className="units-toggle" role="group" aria-label="Unit system">
+            <button type="button" className={!imperial ? 'active' : ''} onClick={() => onToggleUnits(false)}>°C / m/s</button>
+            <button type="button" className={imperial ? 'active' : ''} onClick={() => onToggleUnits(true)}>°F / mph</button>
+          </div>
+        )}
       </header>
 
       <div className={`overall band-${scoreBand(r.score)}`}>
@@ -1207,7 +1431,7 @@ export default function ReportCard({
 
 
         <details className="nearby-section" open>
-        <summary>Find Sky nearby</summary>
+        <summary>Find Sky Nearby</summary>
         <div className="nearby-body">
           {nearbyState.phase === 'idle' && (
             <div className="nearby-radius-toggle">
@@ -1227,33 +1451,13 @@ export default function ReportCard({
         </div>
       </details>
 
-      {r.events.length > 0 && (
-        <details className="events" open>
-          <summary>Night Timeline</summary>
-          <div className="ev-table">
-            {r.events.map((e, i) => {
-              const l = e.label.toLowerCase()
-              const ip = { size: 19, strokeWidth: 1.5, style: { flexShrink: 0, opacity: 0.7, verticalAlign: 'middle' } } as const
-              const icon = l.includes('sunrise')                    ? <Sunrise {...ip} />
-                         : l.includes('sunset')                     ? <Sunset  {...ip} />
-                         : l.includes('moonrise') || l.includes('moonset') ? <Moon {...ip} />
-                         : l.includes('astronomical night')         ? <Stars   {...ip} />
-                         : l.includes('twilight')                   ? <Star    {...ip} />
-                         : null
-              return (
-                <div key={i} className="ev-row">
-                  <span className="ev-time">{formatTime(e.time, tz)}</span>
-                  {icon && <span className="ev-icon">{icon}</span>}
-                  <span className="ev-label">{e.label}</span>
-                </div>
-              )
-            })}
-          </div>
-        </details>
-      )}
-
-      {showWeather && r.weather_points.length > 0 && (
-        <WeatherTable points={r.weather_points} tz={tz} imperial={imperial} />
+      {(r.events.length > 0 || (showWeather && r.weather_points.length > 0)) && (
+        <WeatherTable
+          points={showWeather ? r.weather_points : []}
+          events={r.events}
+          tz={tz}
+          imperial={imperial}
+        />
       )}
 
       {showTargets && (() => {
