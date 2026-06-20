@@ -1204,6 +1204,56 @@ details summary {
   font-size: 12px;
 }
 
+/* ── Blocked/unviable target rows ─────────────────────────────── */
+/* Use color demotion instead of opacity — opacity breaks contrast on dark field */
+.tg-row-blocked td {
+  color: var(--text-dim);  /* 5:1 guaranteed contrast on --card */
+}
+.tg-row-blocked {
+  filter: saturate(0.35);  /* desaturate hue; does not affect luminance/contrast */
+}
+
+/* Section divider before the unviable group */
+.tg-unviable-hdr td {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 12px 10px 4px;
+  border-top: 1px dashed rgba(var(--hairline-rgb), 0.5);
+  border-bottom: none;
+}
+
+/* Blocker reason chip */
+.tg-blocker-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* Clipped-window asterisk — hover tooltip on desktop, inline on touch */
+.tg-clip-indicator {
+  color: var(--text-dim);
+  cursor: help;
+  margin-left: 2px;
+  font-size: 10px;
+  vertical-align: super;
+}
+@media (hover: none) {
+  .tg-clip-indicator[data-tip]::after {
+    content: ' (' attr(data-tip) ')';
+    font-size: 10px;
+    color: var(--text-dim);
+    font-style: italic;
+    vertical-align: baseline;
+  }
+}
+
 /* ── Targets table: Conditions column ────────────────────────── */
 .tg-table th.tg-cond-col,
 .tg-table td.tg-cond-col {

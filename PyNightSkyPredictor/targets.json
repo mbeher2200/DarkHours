@@ -5,7 +5,8 @@
     "ra": "05h 35m 17s",
     "dec": "-05° 23' 28\"",
     "magnitude": 4.0,
-    "surface_brightness": 13.0
+    "surface_brightness": 13.0,
+    "angular_size_arcmin": 65
   },
   {
     "name": "Lagoon Nebula",
@@ -13,7 +14,8 @@
     "ra": "18h 03m 37s",
     "dec": "-24° 23' 12\"",
     "magnitude": 5.8,
-    "surface_brightness": 14.0
+    "surface_brightness": 14.0,
+    "angular_size_arcmin": 90
   },
   {
     "name": "Eagle Nebula",
@@ -21,7 +23,8 @@
     "ra": "18h 18m 48s",
     "dec": "-13° 49' 00\"",
     "magnitude": 6.4,
-    "surface_brightness": 14.5
+    "surface_brightness": 14.5,
+    "angular_size_arcmin": 7
   },
   {
     "name": "Swan Nebula",
@@ -29,7 +32,8 @@
     "ra": "18h 20m 26s",
     "dec": "-16° 10' 36\"",
     "magnitude": 6.0,
-    "surface_brightness": 14.0
+    "surface_brightness": 14.0,
+    "angular_size_arcmin": 11
   },
   {
     "name": "Trifid Nebula",
@@ -37,7 +41,8 @@
     "ra": "18h 02m 23s",
     "dec": "-23° 01' 48\"",
     "magnitude": 6.3,
-    "surface_brightness": 14.5
+    "surface_brightness": 14.5,
+    "angular_size_arcmin": 28
   },
   {
     "name": "Ring Nebula",
@@ -45,7 +50,8 @@
     "ra": "18h 53m 35s",
     "dec": "+33° 01' 45\"",
     "magnitude": 8.8,
-    "surface_brightness": 13.0
+    "surface_brightness": 13.0,
+    "angular_size_arcmin": 1.4
   },
   {
     "name": "Dumbbell Nebula",
@@ -53,7 +59,8 @@
     "ra": "19h 59m 36s",
     "dec": "+22° 43' 16\"",
     "magnitude": 7.4,
-    "surface_brightness": 13.5
+    "surface_brightness": 13.5,
+    "angular_size_arcmin": 8
   },
   {
     "name": "Veil Nebula",
@@ -61,7 +68,8 @@
     "ra": "20h 45m 38s",
     "dec": "+30° 42' 30\"",
     "magnitude": 7.0,
-    "surface_brightness": 17.0
+    "surface_brightness": 17.0,
+    "angular_size_arcmin": 180
   },
   {
     "name": "North America Nebula",
@@ -69,7 +77,8 @@
     "ra": "20h 58m 47s",
     "dec": "+44° 20' 00\"",
     "magnitude": 4.0,
-    "surface_brightness": 17.5
+    "surface_brightness": 17.5,
+    "angular_size_arcmin": 120
   },
   {
     "name": "Crab Nebula",
@@ -77,7 +86,8 @@
     "ra": "05h 34m 32s",
     "dec": "+22° 00' 52\"",
     "magnitude": 8.4,
-    "surface_brightness": 12.5
+    "surface_brightness": 12.5,
+    "angular_size_arcmin": 7
   },
   {
     "name": "Helix Nebula",
@@ -85,7 +95,8 @@
     "ra": "22h 29m 38s",
     "dec": "-20° 50' 13\"",
     "magnitude": 7.3,
-    "surface_brightness": 13.5
+    "surface_brightness": 13.5,
+    "angular_size_arcmin": 25
   },
   {
     "name": "Carina Nebula",
@@ -93,7 +104,8 @@
     "ra": "10h 43m 48s",
     "dec": "-59° 52' 04\"",
     "magnitude": 1.0,
-    "surface_brightness": 14.0
+    "surface_brightness": 14.0,
+    "angular_size_arcmin": 120
   },
   {
     "name": "Rosette Nebula",
@@ -101,7 +113,8 @@
     "ra": "06h 31m 55s",
     "dec": "+04° 56' 00\"",
     "magnitude": 5.5,
-    "surface_brightness": 17.0
+    "surface_brightness": 17.0,
+    "angular_size_arcmin": 80
   },
   {
     "name": "Andromeda Galaxy",
@@ -109,7 +122,8 @@
     "ra": "00h 42m 44s",
     "dec": "+41° 16' 09\"",
     "magnitude": 3.4,
-    "surface_brightness": 13.5
+    "surface_brightness": 13.5,
+    "angular_size_arcmin": 190
   },
   {
     "name": "Triangulum Galaxy",
@@ -117,7 +131,8 @@
     "ra": "01h 33m 51s",
     "dec": "+30° 39' 37\"",
     "magnitude": 5.7,
-    "surface_brightness": 14.2
+    "surface_brightness": 14.2,
+    "angular_size_arcmin": 70
   },
   {
     "name": "Whirlpool Galaxy",
@@ -125,7 +140,8 @@
     "ra": "13h 29m 53s",
     "dec": "+47° 11' 43\"",
     "magnitude": 8.4,
-    "surface_brightness": 13.0
+    "surface_brightness": 13.0,
+    "angular_size_arcmin": 11
   },
   {
     "name": "Sombrero Galaxy",
@@ -133,7 +149,8 @@
     "ra": "12h 39m 59s",
     "dec": "-11° 37' 23\"",
     "magnitude": 8.0,
-    "surface_brightness": 12.0
+    "surface_brightness": 12.0,
+    "angular_size_arcmin": 8.7
   },
   {
     "name": "Pinwheel Galaxy",
@@ -141,7 +158,8 @@
     "ra": "14h 03m 13s",
     "dec": "+54° 20' 57\"",
     "magnitude": 7.9,
-    "surface_brightness": 14.8
+    "surface_brightness": 14.8,
+    "angular_size_arcmin": 28
   },
   {
     "name": "Bode's Galaxy",
@@ -149,7 +167,8 @@
     "ra": "09h 55m 33s",
     "dec": "+69° 03' 55\"",
     "magnitude": 6.9,
-    "surface_brightness": 12.5
+    "surface_brightness": 12.5,
+    "angular_size_arcmin": 26
   },
   {
     "name": "Sculptor Galaxy",
@@ -157,7 +176,8 @@
     "ra": "00h 47m 33s",
     "dec": "-25° 17' 18\"",
     "magnitude": 7.1,
-    "surface_brightness": 13.0
+    "surface_brightness": 13.0,
+    "angular_size_arcmin": 40
   },
   {
     "name": "Centaurus A",
@@ -165,7 +185,8 @@
     "ra": "13h 25m 28s",
     "dec": "-43° 01' 09\"",
     "magnitude": 6.8,
-    "surface_brightness": 12.5
+    "surface_brightness": 12.5,
+    "angular_size_arcmin": 25
   },
   {
     "name": "Large Magellanic Cloud",
@@ -173,7 +194,8 @@
     "ra": "05h 23m 34s",
     "dec": "-69° 45' 22\"",
     "magnitude": 0.9,
-    "surface_brightness": 13.5
+    "surface_brightness": 13.5,
+    "angular_size_arcmin": 645
   },
   {
     "name": "Small Magellanic Cloud",
@@ -181,7 +203,8 @@
     "ra": "00h 52m 38s",
     "dec": "-72° 48' 01\"",
     "magnitude": 2.7,
-    "surface_brightness": 14.5
+    "surface_brightness": 14.5,
+    "angular_size_arcmin": 318
   },
   {
     "name": "Leo Triplet",
@@ -189,63 +212,72 @@
     "ra": "11h 20m 15s",
     "dec": "+12° 59' 29\"",
     "magnitude": 9.0,
-    "surface_brightness": 13.5
+    "surface_brightness": 13.5,
+    "angular_size_arcmin": 40
   },
   {
     "name": "Pleiades",
     "type": "cluster",
     "ra": "03h 47m 24s",
     "dec": "+24° 07' 00\"",
-    "magnitude": 1.6
+    "magnitude": 1.6,
+    "angular_size_arcmin": 110
   },
   {
     "name": "Hercules Cluster",
     "type": "cluster",
     "ra": "16h 41m 42s",
     "dec": "+36° 27' 36\"",
-    "magnitude": 5.8
+    "magnitude": 5.8,
+    "angular_size_arcmin": 20
   },
   {
     "name": "Omega Centauri",
     "type": "cluster",
     "ra": "13h 26m 47s",
     "dec": "-47° 28' 47\"",
-    "magnitude": 3.9
+    "magnitude": 3.9,
+    "angular_size_arcmin": 36
   },
   {
     "name": "Double Cluster",
     "type": "cluster",
     "ra": "02h 19m 00s",
     "dec": "+57° 07' 42\"",
-    "magnitude": 4.3
+    "magnitude": 4.3,
+    "angular_size_arcmin": 60
   },
   {
     "name": "Beehive Cluster",
     "type": "cluster",
     "ra": "08h 40m 22s",
     "dec": "+19° 41' 17\"",
-    "magnitude": 3.7
+    "magnitude": 3.7,
+    "angular_size_arcmin": 95
   },
   {
     "name": "47 Tucanae",
     "type": "cluster",
     "ra": "00h 24m 06s",
     "dec": "-72° 04' 52\"",
-    "magnitude": 4.0
+    "magnitude": 4.0,
+    "angular_size_arcmin": 30
   },
   {
     "name": "Wild Duck Cluster",
     "type": "cluster",
     "ra": "18h 51m 05s",
     "dec": "-06° 16' 00\"",
-    "magnitude": 6.3
+    "magnitude": 6.3,
+    "angular_size_arcmin": 14
   },
   {
     "name": "Jewel Box",
     "type": "cluster",
     "ra": "12h 53m 42s",
     "dec": "-60° 21' 24\"",
-    "magnitude": 4.2
+    "magnitude": 4.2,
+    "angular_size_arcmin": 10
   },
   {
     "name": "Galactic Core",
