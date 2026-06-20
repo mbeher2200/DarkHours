@@ -102,19 +102,20 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
 
   const darkRanges = darkIntervals?.map(([s, e]) => [new Date(s).getTime(), new Date(e).getTime()] as [number, number])
 
-  // Show "Moon below horizon" inline on the Sunset row when the moon starts the night
-  // below the horizon and rises later. Without this, the table gives zero moon context
-  // for the hours between sunset and moonrise, leaving users unsure if the moon is up.
-  const moonBelowAtSunset: boolean = (() => {
-    const hasMoonBeforeSunset = visibleEvents.some(e => {
-      const l = e.label.toLowerCase()
-      return (l.includes('moonrise') || l.includes('moonset')) && new Date(e.time).getTime() < sunsetTs
-    })
-    if (hasMoonBeforeSunset) return false
-    const firstMoonInWindow = visibleEvents
+  // Determine moon state at sunset so the Sunset row can always orient the user.
+  // Uses the full events array (moon events aren't window-clipped) and falls back to
+  // inferring state from the first post-sunset event when no pre-sunset event exists.
+  const moonStateAtSunset: 'above' | 'below' | null = (() => {
+    if (sunsetTs === -Infinity) return null
+    const allMoonEvents = events
       .filter(e => { const l = e.label.toLowerCase(); return l.includes('moonrise') || l.includes('moonset') })
-      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())[0]
-    return firstMoonInWindow?.label.toLowerCase().includes('moonrise') ?? false
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    if (allMoonEvents.length === 0) return null
+    const lastBefore = [...allMoonEvents].reverse().find(e => new Date(e.time).getTime() <= sunsetTs)
+    if (lastBefore) return lastBefore.label.toLowerCase().includes('moonrise') ? 'above' : 'below'
+    const firstAfter = allMoonEvents.find(e => new Date(e.time).getTime() > sunsetTs)
+    if (!firstAfter) return null
+    return firstAfter.label.toLowerCase().includes('moonrise') ? 'below' : 'above'
   })()
 
   type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number }
@@ -152,8 +153,8 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                 <th>Time</th>
                 <th>Conditions</th>
                 <th>Cloud</th>
+                {hasTransp && <th>Transp</th>}
                 {hasSeeing && <th>Seeing</th>}
-                {hasTransp && <th>Transparency</th>}
                 {hasTemp   && <th>Temp</th>}
                 {hasDew    && <th>Dew Pt</th>}
                 <th>Wind</th>
@@ -173,10 +174,10 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                       <span className="wx-ev-inner">
                         {icon && <span className="wx-ev-icon">{icon}</span>}
                         <span className="wx-ev-label">{row.ev.label}</span>
-                        {isSunset && moonBelowAtSunset && (
+                        {isSunset && moonStateAtSunset && (
                           <span className="wx-ev-moon-aside">
                             <Moon size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
-                            <span>Moon below horizon</span>
+                            <span>{moonStateAtSunset === 'above' ? 'Moon above horizon' : 'Moon below horizon'}</span>
                           </span>
                         )}
                       </span>
@@ -193,17 +194,17 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                     <WmoIcon code={p.weather_code} />
                   </td>
                   <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
-                  {hasSeeing && (
-                    <td className="wx-num">
-                      {p.seeing_arcsec != null
-                        ? `${Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10 (${p.seeing_arcsec.toFixed(2)}")`
-                        : '—'}
-                    </td>
-                  )}
                   {hasTransp && (
                     <td className="wx-num">
                       {p.transparency != null
                         ? `${{ Excellent: 10, Good: 8, Fair: 4, Poor: 1 }[p.transparency] ?? 5}/10`
+                        : '—'}
+                    </td>
+                  )}
+                  {hasSeeing && (
+                    <td className="wx-num">
+                      {p.seeing_arcsec != null
+                        ? `${Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10 (${p.seeing_arcsec.toFixed(2)}")`
                         : '—'}
                     </td>
                   )}
