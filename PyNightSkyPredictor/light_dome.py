@@ -429,6 +429,10 @@ def summarize_horizons(
     return {
         "sky_state": sky_state,
         "scores": {d: round(s, 3) for d, s in scores.items()},
+        "dome_heights": {
+            d: round(data[d].get("dome_height_deg", 0.0) if detailed else 0.0, 2)
+            for d in scores
+        },
         "darkest_direction": darkest_direction,
         "darkest_score": round(darkest_score, 3),
         "domes": domes,
