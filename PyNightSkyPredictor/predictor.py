@@ -121,6 +121,193 @@ class NightReport:
     sat_starlink_unavailable: bool = False  # True → Starlink group TLE fetch failed
 
 
+# ---------------------------------------------------------------------------
+# Phase 1: Condition-Driven Viability Engine
+# ---------------------------------------------------------------------------
+
+_CLOUD_BLOCK_PCT          = 70    # cloud_cover_pct > this → blocked
+_DOME_BLOCK_SCORE         = 0.25  # glow_toward() >= this → light_dome blocker (= MINOR_DOME_THRESHOLD)
+_WEATHER_GAP_SECS         = 5400  # 90 min nearest-neighbour tolerance (matches _merge_7timer)
+_MIN_VIABLE_MIN           = 30    # effective window must be at least this long to be viable
+_MOON_WASHOUT_RADIUS_DEG  = 45.0  # washout zone radius at 100% illumination;
+                                   # scales linearly → effective = 45° × (illum/100)
+
+
+def _apply_condition_vectors(
+    targets: list,
+    weather_points: list,
+    light_dome_info: "dict | None",
+    illumination_pct: float,
+) -> None:
+    """Post-process VisibleTarget list with atmospheric, dome, and lunar viability vectors.
+
+    Mutates TargetWindow and VisibleTarget fields in-place. Called after both the
+    target future and the weather future have resolved in assemble_night().
+    """
+    # Pre-build the detailed-format dict glow_toward() needs, reconstructed from
+    # the summarize_horizons() output (scores + dome_heights are already present).
+    detailed_for_glow = None
+    if light_dome_info is not None:
+        detailed_for_glow = {
+            d: {
+                "score": light_dome_info["scores"][d],
+                "dome_height_deg": light_dome_info["dome_heights"][d],
+            }
+            for d in _ld.DIRS_8
+        }
+
+    for target in targets:
+        for window in target.windows:
+            blockers: list[str] = []
+
+            # --- Atmospheric Vector (MCVI) -----------------------------------
+            # Collect candidate weather points bracketing this window.
+            gap = timedelta(seconds=_WEATHER_GAP_SECS)
+            candidates = [
+                p for p in weather_points
+                if window.start - gap <= p.time <= window.end + gap
+            ]
+
+            if not candidates:
+                # No weather data → fail-open: use geometric limits.
+                eff_start = window.start
+                eff_end   = window.end
+            else:
+                # Tag each candidate as viable (cloud + transparency only; no humidity).
+                def _wx_viable(p) -> bool:
+                    cloud_ok = (p.cloud_cover_pct is None or
+                                p.cloud_cover_pct <= _CLOUD_BLOCK_PCT)
+                    transp_ok = (p.transparency is None or
+                                 p.transparency != "Poor")
+                    return cloud_ok and transp_ok
+
+                tagged = [(p, _wx_viable(p)) for p in sorted(candidates, key=lambda p: p.time)]
+
+                # Build contiguous viable blocks from the tagged points.
+                viable_blocks: list[tuple] = []  # (block_start_time, block_end_time)
+                block_start = None
+                block_end   = None
+                for p, ok in tagged:
+                    if ok:
+                        if block_start is None:
+                            block_start = p.time
+                        block_end = p.time
+                    else:
+                        if block_start is not None:
+                            viable_blocks.append((block_start, block_end))
+                        block_start = block_end = None
+                if block_start is not None:
+                    viable_blocks.append((block_start, block_end))
+
+                if not viable_blocks:
+                    # Entire window is blocked.
+                    eff_start = eff_end = None
+                    # Determine which blocker types fired.
+                    cloud_fired = any(
+                        p.cloud_cover_pct is not None and p.cloud_cover_pct > _CLOUD_BLOCK_PCT
+                        for p, _ in tagged
+                    )
+                    transp_fired = any(
+                        p.transparency == "Poor"
+                        for p, _ in tagged
+                    )
+                    if cloud_fired:
+                        blockers.append("cloud")
+                    if transp_fired:
+                        blockers.append("transparency")
+                else:
+                    # Priority A: block containing peak_time.
+                    peak = window.peak_time or window.start
+                    optimal = next(
+                        (b for b in viable_blocks if b[0] <= peak <= b[1]),
+                        None,
+                    )
+                    if optimal is None:
+                        # Priority B: longest block.
+                        optimal = max(
+                            viable_blocks,
+                            key=lambda b: (b[1] - b[0]).total_seconds(),
+                        )
+
+                    # Truncate against physical and K&S photographic limits.
+                    start_candidates = [
+                        t for t in [window.start, window.photo_start, optimal[0]]
+                        if t is not None
+                    ]
+                    end_candidates = [
+                        t for t in [window.photo_cutoff, window.end, optimal[1]]
+                        if t is not None
+                    ]
+                    eff_start = max(start_candidates)
+                    eff_end   = min(end_candidates)
+
+            window.effective_start = eff_start
+            window.effective_end   = eff_end
+
+            # --- Light Dome Vector -------------------------------------------
+            if detailed_for_glow is not None:
+                glow = _ld.glow_toward(
+                    detailed_for_glow,
+                    window.peak_az_deg,
+                    window.peak_alt_deg,
+                )
+                window.dome_glow_at_peak = round(glow, 4)
+                if glow >= _DOME_BLOCK_SCORE:
+                    blockers.append("light_dome")
+            else:
+                window.dome_glow_at_peak = None
+
+            # --- Lunar Proximity Vector --------------------------------------
+            # Geometric proximity check: target within (radius × illum/100)°
+            # of the moon triggers "moon_washout". Distinct from the K&S
+            # photometric model used for photo_cutoff — this labels the
+            # "pointing directly at the moon" case for the Phase 2 UI badge.
+            if (illumination_pct > KS_CRESCENT_EXEMPTION_PCT
+                    and window.moon_sep_at_peak_deg is not None):
+                effective_radius = _MOON_WASHOUT_RADIUS_DEG * (illumination_pct / 100.0)
+                if window.moon_sep_at_peak_deg < effective_radius:
+                    blockers.append("moon_washout")
+
+            window.blockers = blockers
+
+            # --- Best Time ---------------------------------------------------
+            if eff_start is None or eff_end is None:
+                window.best_time = None
+            else:
+                peak = window.peak_time or window.start
+                if eff_start <= peak <= eff_end:
+                    window.best_time = peak
+                else:
+                    # Snap to the effective boundary nearest the celestial peak.
+                    dist_start = abs((peak - eff_start).total_seconds())
+                    dist_end   = abs((peak - eff_end).total_seconds())
+                    window.best_time = eff_start if dist_start <= dist_end else eff_end
+
+            # --- Weather score at best time ----------------------------------
+            if window.best_time is not None and weather_points:
+                nearest = min(
+                    weather_points,
+                    key=lambda p: abs((p.time - window.best_time).total_seconds()),
+                )
+                if abs((nearest.time - window.best_time).total_seconds()) <= _WEATHER_GAP_SECS:
+                    window.weather_score_at_best = wx.rate_conditions(nearest)
+
+        # --- VisibleTarget viability rollup ----------------------------------
+        best_w = max(target.windows, key=lambda w: w.peak_alt_deg)
+        if best_w.effective_start is None or best_w.effective_end is None:
+            target.viability = "blocked"
+        else:
+            eff_duration_min = (
+                (best_w.effective_end - best_w.effective_start).total_seconds() / 60
+            )
+            if eff_duration_min < _MIN_VIABLE_MIN:
+                target.viability = "blocked"
+            elif best_w.blockers:
+                target.viability = "degraded"
+            else:
+                target.viability = "ok"
+
+
 def assemble_night(
     lat: float,
     lon: float,
@@ -476,6 +663,10 @@ def assemble_night(
 
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
+
+    # --- Phase 1: Condition Vectors — apply after weather + targets resolved ---
+    if fetch_targets and target_list:
+        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination)
 
     # --- Overall rating ---
     _tc = time.monotonic()
