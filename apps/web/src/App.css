@@ -85,6 +85,13 @@ html.red-mode {
   --tint-rgb: 255, 0, 0;
   --hairline-rgb: 255, 0, 0;
   --surface-2: rgba(255, 0, 0, 0.14);
+  --ev-sun:   var(--text-dim);
+  --ev-moon:  var(--text-dim);
+  --ev-astro: var(--text-dim);
+}
+html.red-mode .wx-table tr.wx-row-astro td,
+html.red-mode .wx-table tr.wx-row-astro td.wx-time {
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 13%, var(--card));
 }
 /* feColorMatrix already outputs pure red (G=B=0); no brightness boost so the
    moon disc stays dim. */
@@ -1295,9 +1302,9 @@ details summary {
 }
 /* Time cell: restore padding, solid bg for sticky cover, accent border to mark event rows */
 .wx-ev-row td.wx-ev-time {
-  padding: 5px 6px 5px 0;
+  padding: 3px 6px 3px 0;
   background: var(--card);
-  border-left: 2px solid rgba(var(--tint-rgb), 0.35);
+  border-left: 1.5px solid rgba(var(--tint-rgb), 0.35);
 }
 /* Label cell: sticky immediately after the time column */
 .wx-ev-content {
@@ -1309,8 +1316,8 @@ details summary {
 .wx-ev-inner {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 6px;
+  gap: 5px;
+  padding: 3px 6px;
 }
 .wx-ev-icon {
   display: inline-flex;
@@ -1319,8 +1326,46 @@ details summary {
   opacity: 0.8;
 }
 .wx-ev-label {
-  color: var(--text);
-  font-size: 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+/* Moon-below-horizon aside appended inline to the Sunset row */
+.wx-ev-moon-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ev-moon);
+  font-size: 11px;
+  font-style: italic;
+  margin-left: 10px;
+  opacity: 0.85;
+}
+.wx-ev-moon-aside::before {
+  content: '·';
+  margin-right: 2px;
+  color: var(--text-dim);
+  opacity: 0.5;
+  font-style: normal;
+}
+
+/* Celestial event type coloring */
+.wx-ev-row.wx-ev-sun .wx-ev-icon  { color: var(--ev-sun);   opacity: 1; }
+.wx-ev-row.wx-ev-sun .wx-ev-label { color: var(--ev-sun); }
+.wx-ev-row.wx-ev-sun td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-sun) 45%, transparent); }
+
+.wx-ev-row.wx-ev-moon .wx-ev-icon  { color: var(--ev-moon);  opacity: 1; }
+.wx-ev-row.wx-ev-moon .wx-ev-label { color: var(--ev-moon); }
+.wx-ev-row.wx-ev-moon td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-moon) 45%, transparent); }
+
+.wx-ev-row.wx-ev-astro .wx-ev-icon  { color: var(--ev-astro); opacity: 1; }
+.wx-ev-row.wx-ev-astro .wx-ev-label { color: var(--ev-astro); }
+.wx-ev-row.wx-ev-astro td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-astro) 45%, transparent); }
+/* Astronomical night phase banding — tint source must be mid-lightness or the
+   mix disappears into the dark card background. */
+.wx-table tr.wx-row-astro td,
+.wx-table tr.wx-row-astro td.wx-time {
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 13%, var(--card));
 }
 .wx-table-wrap {
   overflow-x: auto;
