@@ -4,7 +4,7 @@
 # tiled raw-binary grids with numpy + boto3 (rasterio is build-only, not installed here).
 # Pinned by digest for reproducible builds; Dependabot (docker ecosystem) bumps it
 # when AWS republishes the tag, which is how we pick up base-OS security patches.
-FROM amazonlinux:2023@sha256:267b42d61c8eb5537270b62ec97b73bb104708d9245d343b5eeb1d92f0f65d3d
+FROM amazonlinux:2023@sha256:d09f1353c3c0844852cff7bf103498a205532f5bca444e1ed6406e3c5402bb26
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
