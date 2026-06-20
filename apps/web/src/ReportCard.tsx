@@ -88,9 +88,7 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
   const visiblePoints = points.filter(p => { const t = new Date(p.time).getTime(); return t >= sunsetTs && t <= sunriseTs })
   const visibleEvents = events.filter(e => {
     const t = new Date(e.time).getTime()
-    const l = e.label.toLowerCase()
-    const isMoonEvent = l.includes('moonrise') || l.includes('moonset')
-    return isMoonEvent || (t >= sunsetTs && t <= sunriseTs)
+    return t >= sunsetTs && t <= sunriseTs
   })
 
   const hasTemp   = visiblePoints.some(p => p.temperature_c   != null)
