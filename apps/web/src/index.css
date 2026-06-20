@@ -81,6 +81,11 @@
   /* ── Typography Scale ───────────────────────────────────────── */
   --sans: 'Poppins', system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ── Timeline event accent colors ──────────────────────────── */
+  --ev-sun:   oklch(0.80 0.14 63);   /* warm amber: sunrise / sunset */
+  --ev-moon:  oklch(0.74 0.07 248);  /* cool silver-blue: moonrise / moonset */
+  --ev-astro: oklch(0.60 0.16 272);  /* deep indigo: astronomical night begins/ends */
 }
 
 *, *::before, *::after {
