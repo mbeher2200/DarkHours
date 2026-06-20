@@ -5,6 +5,7 @@ import pytest
 from PyNightSkyPredictor.targets import (
     _landscape_suitability,
     _SB_DIFFUSE_THRESHOLD,
+    _GALAXY_SB_THRESHOLD,
     _ANGULAR_SIZE_MIN_ARCMIN,
 )
 
@@ -99,3 +100,35 @@ def test_moon_scale_null_compact():
 
 def test_moon_scale_null_input():
     assert _moon_scale_label(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Galaxy-specific SB gate
+# ---------------------------------------------------------------------------
+
+def test_galaxy_diffuse_pinwheel():
+    # Pinwheel (M101): SB 14.8 ≥ 13.8 → diffuse
+    assert _landscape_suitability(14.8, 28, "galaxy") == "diffuse"
+
+def test_galaxy_diffuse_triangulum():
+    # Triangulum (M33): SB 14.2 ≥ 13.8 → diffuse
+    assert _landscape_suitability(14.2, 70, "galaxy") == "diffuse"
+
+def test_galaxy_diffuse_at_boundary():
+    # Boundary is inclusive: SB == 13.8 → diffuse
+    assert _landscape_suitability(13.8, 40, "galaxy") == "diffuse"
+
+def test_galaxy_prominent_below_boundary():
+    assert _landscape_suitability(13.7, 40, "galaxy") == "prominent"
+
+def test_galaxy_prominent_andromeda():
+    # Andromeda: SB 13.5 < 13.8 → prominent
+    assert _landscape_suitability(13.5, 190, "galaxy") == "prominent"
+
+def test_nebula_not_gated_by_galaxy_threshold():
+    # SB 14.5 is filtered for galaxies but NOT for nebulae (16.0 threshold)
+    assert _landscape_suitability(14.5, 60, "nebula") == "prominent"
+
+def test_smc_filtered_by_galaxy_gate():
+    # SMC: SB 14.5, size 318' — enormous but below galaxy SB floor
+    assert _landscape_suitability(14.5, 318, "galaxy") == "diffuse"

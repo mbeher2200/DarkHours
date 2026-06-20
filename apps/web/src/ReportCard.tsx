@@ -74,26 +74,56 @@ function MoonPhaseSvg({ phaseName, size = 22 }: {
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-function WeatherTable({ points, events = [], tz, imperial }: {
+function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
   imperial: boolean
+  darkIntervals?: [string, string][]
 }) {
-  const hasTemp   = points.some(p => p.temperature_c   != null)
-  const hasDew    = points.some(p => p.dew_point_c     != null)
-  const hasSeeing = points.some(p => p.seeing_arcsec   != null)
-  const hasTransp = points.some(p => p.transparency    != null)
-  const hasWx     = points.length > 0
-  const totalCols = 6 + (hasSeeing ? 1 : 0) + (hasTransp ? 1 : 0) + (hasTemp ? 1 : 0) + (hasDew ? 1 : 0)
+  // Clip the table to the sunset→sunrise window. Events/points outside this
+  // range are daytime and not useful once the astro-night band conveys darkness.
+  const sunsetTs  = (() => { const e = events.find(e => e.label.toLowerCase().includes('sunset'));  return e ? new Date(e.time).getTime() : -Infinity })()
+  const sunriseTs = (() => { const e = events.find(e => e.label.toLowerCase().includes('sunrise')); return e ? new Date(e.time).getTime() :  Infinity })()
+  const visiblePoints = points.filter(p => { const t = new Date(p.time).getTime(); return t >= sunsetTs && t <= sunriseTs })
+  const visibleEvents = events.filter(e => {
+    const t = new Date(e.time).getTime()
+    const l = e.label.toLowerCase()
+    const isMoonEvent = l.includes('moonrise') || l.includes('moonset')
+    return isMoonEvent || (t >= sunsetTs && t <= sunriseTs)
+  })
+
+  const hasTemp   = visiblePoints.some(p => p.temperature_c   != null)
+  const hasDew    = visiblePoints.some(p => p.dew_point_c     != null)
+  const hasSeeing = visiblePoints.some(p => p.seeing_arcsec   != null)
+  const hasTransp = visiblePoints.some(p => p.transparency    != null)
+  const hasWx     = visiblePoints.length > 0
+  const totalCols = 5 + (hasSeeing ? 1 : 0) + (hasTransp ? 1 : 0) + (hasTemp ? 1 : 0) + (hasDew ? 1 : 0)
+
+  const darkRanges = darkIntervals?.map(([s, e]) => [new Date(s).getTime(), new Date(e).getTime()] as [number, number])
+
+  // Show "Moon below horizon" inline on the Sunset row when the moon starts the night
+  // below the horizon and rises later. Without this, the table gives zero moon context
+  // for the hours between sunset and moonrise, leaving users unsure if the moon is up.
+  const moonBelowAtSunset: boolean = (() => {
+    const hasMoonBeforeSunset = visibleEvents.some(e => {
+      const l = e.label.toLowerCase()
+      return (l.includes('moonrise') || l.includes('moonset')) && new Date(e.time).getTime() < sunsetTs
+    })
+    if (hasMoonBeforeSunset) return false
+    const firstMoonInWindow = visibleEvents
+      .filter(e => { const l = e.label.toLowerCase(); return l.includes('moonrise') || l.includes('moonset') })
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())[0]
+    return firstMoonInWindow?.label.toLowerCase().includes('moonrise') ?? false
+  })()
 
   type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number }
   const rows: Row[] = [
-    ...events.map(ev => ({ kind: 'event' as const, ev, ts: new Date(ev.time).getTime() })),
-    ...points.map(pt => ({ kind: 'wx'    as const, pt, ts: new Date(pt.time).getTime() })),
+    ...visibleEvents.map(ev => ({ kind: 'event' as const, ev, ts: new Date(ev.time).getTime() })),
+    ...visiblePoints.map(pt => ({ kind: 'wx'    as const, pt, ts: new Date(pt.time).getTime() })),
   ].sort((a, b) => a.ts - b.ts)
 
-  const ip = { size: 14, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
+  const ip = { size: 12, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
   function evIcon(label: string) {
     const l = label.toLowerCase()
     if (l.includes('sunrise'))                           return <Sunrise {...ip} />
@@ -103,23 +133,29 @@ function WeatherTable({ points, events = [], tz, imperial }: {
     if (l.includes('twilight'))                          return <Star    {...ip} />
     return null
   }
+  function evClass(label: string): string {
+    const l = label.toLowerCase()
+    if (l.includes('sunrise') || l.includes('sunset')) return 'wx-ev-sun'
+    if (l.includes('moonrise') || l.includes('moonset')) return 'wx-ev-moon'
+    if (l.includes('astronomical night')) return 'wx-ev-astro'
+    return ''
+  }
 
   return (
     <details className="wx-details" open>
-      <summary>Night Timeline{hasWx ? ` · Weather (${points.length} hours)` : ''}</summary>
+      <summary>Night Timeline{hasWx ? ` · Weather (${visiblePoints.length} hours)` : ''}</summary>
       <div className="wx-table-wrap">
         <table className="wx-table">
           {hasWx && (
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Rating</th>
+                <th>Conditions</th>
                 <th>Cloud</th>
                 {hasSeeing && <th>Seeing</th>}
                 {hasTransp && <th>Transparency</th>}
                 {hasTemp   && <th>Temp</th>}
                 {hasDew    && <th>Dew Pt</th>}
-                <th>Humidity</th>
                 <th>Wind</th>
               </tr>
             </thead>
@@ -127,28 +163,34 @@ function WeatherTable({ points, events = [], tz, imperial }: {
           <tbody>
             {rows.map((row, i) => {
               if (row.kind === 'event') {
-                const icon = evIcon(row.ev.label)
+                const icon    = evIcon(row.ev.label)
+                const cls     = evClass(row.ev.label)
+                const isSunset = row.ev.label.toLowerCase().includes('sunset')
                 return (
-                  <tr key={`ev-${i}`} className="wx-ev-row">
+                  <tr key={`ev-${i}`} className={`wx-ev-row${cls ? ` ${cls}` : ''}`}>
                     <td className="wx-time wx-ev-time">{formatTime(row.ev.time, tz)}</td>
                     <td colSpan={hasWx ? totalCols - 1 : 1} className="wx-ev-content">
                       <span className="wx-ev-inner">
                         {icon && <span className="wx-ev-icon">{icon}</span>}
                         <span className="wx-ev-label">{row.ev.label}</span>
+                        {isSunset && moonBelowAtSunset && (
+                          <span className="wx-ev-moon-aside">
+                            <Moon size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                            <span>Moon below horizon</span>
+                          </span>
+                        )}
                       </span>
                     </td>
                   </tr>
                 )
               }
               const p = row.pt
+              const isAstro = darkRanges?.some(([s, e]) => row.ts >= s && row.ts <= e) ?? false
               return (
-                <tr key={`wx-${i}`}>
+                <tr key={`wx-${i}`} className={isAstro ? 'wx-row-astro' : undefined}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
                   <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <WmoIcon code={p.weather_code} />
-                      <span style={{ display: 'inline-block', minWidth: '2ch', textAlign: 'right' }}>{rateConditions(p)}</span>/10
-                    </span>
+                    <WmoIcon code={p.weather_code} />
                   </td>
                   <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
                   {hasSeeing && (
@@ -167,7 +209,6 @@ function WeatherTable({ points, events = [], tz, imperial }: {
                   )}
                   {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
                   {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
-                  <td className="wx-num">{p.humidity_pct != null ? `${p.humidity_pct}%` : '—'}</td>
                   <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
                 </tr>
               )
@@ -1580,6 +1621,7 @@ export default function ReportCard({
           events={r.events}
           tz={tz}
           imperial={imperial}
+          darkIntervals={r.dark_intervals}
         />
       )}
 
