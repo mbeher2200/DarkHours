@@ -4,7 +4,7 @@
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +33,10 @@ DEFAULT_MOON_MIN_SEP   = float(_c["moon_min_separation_deg"])
 DEFAULT_MOON_MAX_ILLUM = float(_c["moon_max_illumination_pct"])
 SAMPLE_INTERVAL_MIN    = 10
 PLANET_PRIME_MIN_ALT   = 20  # planets are bright enough to be prime at lower altitudes
+
+# Landscape prominence thresholds
+_SB_DIFFUSE_THRESHOLD    = 16.0   # mag/arcsec² — above this, requires narrowband filter
+_ANGULAR_SIZE_MIN_ARCMIN = 9.0    # below this, too compact for wide-field landscape
 
 _CATALOG_PATH = Path(__file__).parent / "targets.json"
 
@@ -64,6 +68,13 @@ class TargetWindow:
     visual_cutoff: "datetime | None" = None    # last sample where visual observation is viable
     photo_start: "datetime | None" = None      # first viable sample (set when moon delays window start)
     ks_computed: bool = False                  # True when K&S was run and the full window is viable
+    # Phase 1: Condition Vectors (set by predictor._apply_condition_vectors)
+    effective_start: "datetime | None" = None  # MCVI lower bound; UI binds displayed window here
+    effective_end: "datetime | None" = None    # MCVI upper bound; condition-gated window end
+    best_time: "datetime | None" = None        # recommended observation moment within effective window
+    blockers: list = field(default_factory=list)  # ["cloud","transparency","light_dome","moon_washout"]
+    weather_score_at_best: "int | None" = None    # rate_conditions() score at best_time
+    dome_glow_at_peak: "float | None" = None      # glow_toward() at (peak_az_deg, peak_alt_deg)
 
 
 @dataclass
@@ -72,6 +83,28 @@ class VisibleTarget:
     type: str
     windows: list      # list[TargetWindow]
     note: str | None   # e.g. "3 days before peak" for meteor showers
+    viability: str = "ok"  # "ok" | "degraded" | "blocked" — set by _apply_condition_vectors
+    angular_size_arcmin: "float | None" = None   # from catalog; None for planets/meteors/MW
+    landscape_suitability: str = "prominent"     # "prominent" | "diffuse" | "too_small"
+
+
+def _landscape_suitability(sb: "float | None", angular_size: "float | None") -> str:
+    """
+    Classify a target's suitability for wide-angle landscape astrophotography.
+
+    Returns 'prominent' | 'diffuse' | 'too_small'.
+    - 'diffuse': surface brightness ≥ 16.0 mag/arcsec² — requires narrowband filter for DSLR
+    - 'too_small': angular_size < 9 arcmin — sub-pixel at 14–35mm focal lengths
+    - 'prominent': passes both thresholds; visible in standard wide-field shots
+    Objects with no angular_size (planets, meteor showers, milky_way) default to 'prominent'.
+    """
+    if angular_size is None:
+        return "prominent"
+    if sb is not None and sb >= _SB_DIFFUSE_THRESHOLD:
+        return "diffuse"
+    if angular_size < _ANGULAR_SIZE_MIN_ARCMIN:
+        return "too_small"
+    return "prominent"
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +446,13 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         )
         return None
 
-    return VisibleTarget(name=name, type=ttype, windows=windows, note=note)
+    angular_size = entry.get("angular_size_arcmin")
+    land_suit    = _landscape_suitability(entry.get("surface_brightness"), angular_size)
+    return VisibleTarget(
+        name=name, type=ttype, windows=windows, note=note,
+        angular_size_arcmin=angular_size,
+        landscape_suitability=land_suit,
+    )
 
 
 # ---------------------------------------------------------------------------

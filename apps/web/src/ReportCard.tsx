@@ -346,12 +346,31 @@ function SatellitePasses({ report }: { report: NightReport; }) {
 
 // ── Targets helpers ──────────────────────────────────────────────────────────
 
+// nebula / galaxy / cluster are collapsed into a single display group ("dso")
+// so the targets table shows a clean unlabeled DSO block followed by Planets.
+const DSO_TYPES = new Set(['nebula', 'galaxy', 'cluster'])
+
 const TYPE_ORDER: Record<string, number> = {
-  meteor_shower: 0, cluster: 1, planet: 2, nebula: 3, galaxy: 4,
+  meteor_shower: 0,
+  dso:           1,  // nebula + galaxy + cluster
+  planet:        2,
 }
 const TYPE_LABELS: Record<string, string> = {
-  meteor_shower: 'Meteor Showers', cluster: 'Clusters',
-  planet: 'Planets', nebula: 'Nebulae', galaxy: 'Galaxies',
+  meteor_shower: 'Meteor Showers',
+  // 'dso' has no label — after prominence filtering the list is short enough
+  planet: 'Planets',
+}
+
+const MOON_ARCMIN = 30
+
+function moonScaleLabel(arcmin: number | null | undefined): string | null {
+  if (arcmin == null) return null
+  const ratio = arcmin / MOON_ARCMIN
+  if (ratio >= 1.5) return `${Math.round(ratio)}x Moon`
+  if (ratio >= 1.0) return '1x Moon'
+  if (ratio >= 0.5) return '½ Moon'
+  if (ratio >= 0.3) return '⅓ Moon'
+  return null
 }
 
 // ── Milky Way card ───────────────────────────────────────────────────────────
@@ -608,44 +627,223 @@ function MeteorShowerCard({ target, zhr, report }: {
   )
 }
 
+// ── Blocker badge (Phase 2) ───────────────────────────────────────────────────
+
+function BlockerBadge({ blockers }: { blockers: string[] }) {
+  let label = 'Unavailable Tonight'
+  if (blockers.includes('cloud') || blockers.includes('transparency'))
+    label = 'Obscured by Clouds'
+  else if (blockers.includes('moon_washout'))
+    label = 'Washed Out by Moon'
+  else if (blockers.includes('light_dome'))
+    label = 'Lost in Light Dome'
+  return <span className="tg-blocker-badge">[ {label} ]</span>
+}
+
+function clipTooltip(w: TargetWindow, tz: string): string {
+  const b = w.blockers ?? []
+  const end = w.effective_end
+  if (b.includes('cloud') || b.includes('transparency'))
+    return `Window clipped by cloud cover${end ? ` at ${formatTime(end, tz)}` : ''}`
+  if (b.includes('moon_washout')) return 'Window limited by moonlight'
+  if (b.includes('light_dome'))   return 'Viewing constrained by horizon glow'
+  return 'Window clipped by conditions'
+}
+
+function clipReasonShort(w: TargetWindow): string {
+  const b = w.blockers ?? []
+  if (b.includes('cloud') || b.includes('transparency')) return 'cloud'
+  if (b.includes('moon_washout')) return 'moon'
+  if (b.includes('light_dome'))   return 'dome'
+  return 'conditions'
+}
+
+// ── TargetsTable ──────────────────────────────────────────────────────────────
+
 function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: NightReport }) {
   const tz = report.tz_name
 
-  // Milky Way + meteor showers rendered separately as cards; rest filtered to prime
-  const nonMW = targets
+  // Milky Way + meteor showers rendered separately as cards; rest filtered to prime prominent
+  const allPrime = targets
     .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
     .filter(t => isPrime(t, report.dark_intervals))
+    .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
 
-  const sorted = [...nonMW].sort((a, b) => {
-    const ao = TYPE_ORDER[a.type] ?? 99
-    const bo = TYPE_ORDER[b.type] ?? 99
-    if (ao !== bo) return ao - bo
-    const at = bestWindow(a).peak_time ?? ''
-    const bt = bestWindow(b).peak_time ?? ''
-    return at.localeCompare(bt)
-  })
+  const viable   = allPrime.filter(t => t.viability !== 'blocked')
+  const unviable = allPrime.filter(t => t.viability === 'blocked')
 
-  // Group by type
-  const groups: { type: string; targets: VisibleTarget[] }[] = []
-  for (const t of sorted) {
-    const last = groups[groups.length - 1]
-    if (last && last.type === t.type) last.targets.push(t)
-    else groups.push({ type: t.type, targets: [t] })
-  }
+  if (allPrime.length === 0) return null
 
-  // Flatten groups into a single list of row descriptors for the table
+  // Shared sort + group logic.
+  // nebula / galaxy / cluster are normalized to 'dso' so they render as one unlabeled block.
   type RowItem =
     | { kind: 'header'; type: string; key: string }
-    | { kind: 'target'; target: VisibleTarget; key: string }
+    | { kind: 'target'; target: VisibleTarget; key: string; blocked?: boolean }
 
-  if (sorted.length === 0) return null
+  const displayType = (t: VisibleTarget) => DSO_TYPES.has(t.type) ? 'dso' : t.type
 
-  const rows: RowItem[] = []
-  for (const g of groups) {
-    rows.push({ kind: 'header', type: g.type, key: `hdr-${g.type}` })
-    for (const t of g.targets) {
-      rows.push({ kind: 'target', target: t, key: `${g.type}-${t.name}` })
+  function sortAndGroup(list: VisibleTarget[], blocked = false): RowItem[] {
+    const sorted = [...list].sort((a, b) => {
+      const ao = TYPE_ORDER[displayType(a)] ?? 99
+      const bo = TYPE_ORDER[displayType(b)] ?? 99
+      if (ao !== bo) return ao - bo
+      const at = bestWindow(a).peak_time ?? ''
+      const bt = bestWindow(b).peak_time ?? ''
+      return at.localeCompare(bt)
+    })
+    const groups: { type: string; targets: VisibleTarget[] }[] = []
+    for (const t of sorted) {
+      const dt   = displayType(t)
+      const last = groups[groups.length - 1]
+      if (last && last.type === dt) last.targets.push(t)
+      else groups.push({ type: dt, targets: [t] })
     }
+    const rows: RowItem[] = []
+    for (const g of groups) {
+      if (TYPE_LABELS[g.type]) {
+        rows.push({ kind: 'header', type: g.type, key: `hdr-${blocked ? 'blocked-' : ''}${g.type}` })
+      }
+      for (const t of g.targets) {
+        rows.push({ kind: 'target', target: t, key: `${g.type}-${t.name}`, blocked })
+      }
+    }
+    return rows
+  }
+
+  const viableRows   = sortAndGroup(viable, false)
+  const unviableRows = sortAndGroup(unviable, true)
+
+  function renderTargetRow(t: VisibleTarget, key: string, blocked: boolean) {
+    const w         = bestWindow(t)
+    const name      = t.type === 'meteor_shower' ? `${t.name} Meteor Shower` : t.name
+    const sizeLabel = moonScaleLabel(t.angular_size_arcmin)
+
+    // photo_cutoff clips both Best Viewing and Astro Window (mirrors CLI)
+    const hasClip = !!(w.photo_cutoff
+      && new Date(w.photo_cutoff) > new Date(w.start)
+      && new Date(w.photo_cutoff) < new Date(w.end))
+
+    // Fixed-width helpers — each piece gets a min-width span so columns
+    // stay consistent across rows regardless of digit count or direction length.
+    const Tt  = ({ t }: { t: string })    => <span className="tg-t">{formatTime(t, tz)}</span>
+    const Alt = ({ deg }: { deg: number }) => <span className="tg-alt">{Math.round(deg)}°</span>
+    const Az  = ({ az }: { az: number })   => <span className="tg-az">{Math.round(az)}°</span>
+    const Dir = ({ az }: { az: number })   => <span className="tg-dir">{cardinal(az)}</span>
+    const Sep = () => <span className="tg-p"> – </span>
+
+    if (blocked) {
+      // Blocked rows: show blocker badge instead of timing data
+      const wxPt = w.peak_time && !report.wx_no_data && !report.wx_pending
+        ? wxAtTime(report.weather_points, w.peak_time)
+        : null
+      const glow = report.light_dome && w.peak_alt_deg != null
+        ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
+        : null
+      return (
+        <tr key={key} className="tg-row-blocked">
+          <td>
+            {name}
+            {t.note    && <span className="tg-note"> · {t.note}</span>}
+            {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
+          </td>
+          <td className="wx-num"><BlockerBadge blockers={t.windows[0]?.blockers ?? []} /></td>
+          <td className="tg-sky">—</td>
+          <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
+          <td className="wx-num">—</td>
+        </tr>
+      )
+    }
+
+    // Best Viewing: prefer backend best_time, fall back to photo_cutoff/peak
+    let bestViewJsx: React.ReactNode = '—'
+    if (w.peak_time && w.peak_alt_deg != null) {
+      const effectiveBestTime = w.best_time ?? (hasClip ? w.photo_cutoff! : w.peak_time)
+      const effectiveBestAlt  = altAt(effectiveBestTime, w)
+      bestViewJsx = (
+        <>
+          <Tt t={effectiveBestTime} />
+          <span className="tg-p"> @ Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
+          <span className="tg-p"> · Alt </span><Alt deg={effectiveBestAlt} />
+        </>
+      )
+    }
+
+    // Window: use effective_start/effective_end from condition vectors when available
+    let winJsx: React.ReactNode = '—'
+    if (w.peak_time) {
+      const rawEnd    = hasClip ? w.photo_cutoff! : w.end
+      const effStart  = w.effective_start ?? w.start
+      const effEnd    = w.effective_end   ?? rawEnd
+      const effStartAlt = altAt(effStart, w)
+      const effEndAlt   = altAt(effEnd, w)
+      const isClipped = effStart > w.start || effEnd < rawEnd
+
+      // Visual-observation extension beyond photo_cutoff (preserved from original logic)
+      const visualExtJsx = hasClip && w.visual_cutoff ? (() => {
+        const extraMin = Math.round(
+          (new Date(w.visual_cutoff).getTime() - new Date(w.photo_cutoff!).getTime()) / 60000
+        )
+        return extraMin >= 10 ? <span className="tg-p"> +{extraMin}m visual</span> : null
+      })() : null
+
+      winJsx = (
+        <>
+          <Tt t={effStart} /><span className="tg-p"> @ </span><Alt deg={effStartAlt} />
+          <Sep />
+          <Tt t={effEnd} /><span className="tg-p"> @ </span><Alt deg={effEndAlt} />
+          {isClipped && (
+            <span
+              className="tg-clip-indicator"
+              title={clipTooltip(w, tz)}
+              data-tip={clipReasonShort(w)}
+            >*</span>
+          )}
+          {visualExtJsx}
+        </>
+      )
+    }
+
+    const peakForSky = w.best_time ?? (hasClip ? w.photo_cutoff! : w.peak_time)
+    const sky = peakForSky
+      ? skyCondition(
+          peakForSky, report.dark_intervals, report.night_start, report.night_end,
+          report.illumination_pct, report.moonrise, report.moonset,
+          w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+        )
+      : '—'
+
+    const skyCls = skyClass(sky)
+    const moonNote = w.moon_interference && !sky.startsWith('Moon')
+    const moonIsUpAtPeak = peakForSky
+      ? moonUpAt(peakForSky, report.moonrise, report.moonset)
+      : false
+    const moonNoteText = moonNote
+      ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
+      : null
+
+    // Conditions: weather rating icon + glow at target's azimuth/altitude
+    const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
+      ? wxAtTime(report.weather_points, peakForSky)
+      : null
+    const glow = report.light_dome && w.peak_alt_deg != null
+      ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
+      : null
+
+    return (
+      <tr key={key}>
+        <td>
+          {name}
+          {t.note    && <span className="tg-note"> · {t.note}</span>}
+          {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
+        </td>
+        <td className="wx-num">{bestViewJsx}</td>
+        <td className={`tg-sky ${skyCls}`}>
+          {sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
+        </td>
+        <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
+        <td className="wx-num">{winJsx}</td>
+      </tr>
+    )
   }
 
   return (
@@ -661,7 +859,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           </tr>
         </thead>
         <tbody>
-          {rows.map(row => {
+          {viableRows.map(row => {
             if (row.kind === 'header') {
               return (
                 <tr key={row.key} className="tg-group-hdr">
@@ -669,101 +867,26 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
                 </tr>
               )
             }
-
-            const t    = row.target
-            const w    = bestWindow(t)
-            const name = t.type === 'meteor_shower' ? `${t.name} Meteor Shower` : t.name
-
-            // photo_cutoff clips both Best Viewing and Astro Window (mirrors CLI)
-            const hasClip = !!(w.photo_cutoff
-              && new Date(w.photo_cutoff) > new Date(w.start)
-              && new Date(w.photo_cutoff) < new Date(w.end))
-
-            // Fixed-width helpers — each piece gets a min-width span so columns
-            // stay consistent across rows regardless of digit count or direction length.
-            const Tt  = ({ t }: { t: string })    => <span className="tg-t">{formatTime(t, tz)}</span>
-            const Alt = ({ deg }: { deg: number }) => <span className="tg-alt">{Math.round(deg)}°</span>
-            const Az  = ({ az }: { az: number })   => <span className="tg-az">{Math.round(az)}°</span>
-            const Dir = ({ az }: { az: number })   => <span className="tg-dir">{cardinal(az)}</span>
-            const Sep = () => <span className="tg-p"> – </span>
-
-            let bestViewJsx: React.ReactNode = '—'
-            if (w.peak_time && w.peak_alt_deg != null) {
-              const bestTime = hasClip ? w.photo_cutoff! : w.peak_time
-              const bestAlt  = hasClip ? altAt(w.photo_cutoff!, w) : w.peak_alt_deg
-              bestViewJsx = (
-                <>
-                  <Tt t={bestTime} />
-                  <span className="tg-p"> @ Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
-                  <span className="tg-p"> · Alt </span><Alt deg={bestAlt} />
-                </>
-              )
-            }
-
-            let winJsx: React.ReactNode = '—'
-            if (w.peak_time) {
-              if (hasClip) {
-                const clipAlt   = altAt(w.photo_cutoff!, w)
-                const visualEnd = w.visual_cutoff ?? w.end
-                const extraMs   = new Date(visualEnd).getTime() - new Date(w.photo_cutoff!).getTime()
-                const extraMin  = Math.round(extraMs / 60000)
-                winJsx = (
-                  <>
-                    <Tt t={w.start} /><span className="tg-p"> @ </span><Alt deg={w.start_alt_deg} />
-                    <Sep />
-                    <Tt t={w.photo_cutoff!} /><span className="tg-p"> @ </span><Alt deg={clipAlt} />
-                    {extraMin >= 10 && <span className="tg-p"> +{extraMin}m visual</span>}
-                  </>
-                )
-              } else {
-                winJsx = (
-                  <>
-                    <Tt t={w.start} /><span className="tg-p"> @ </span><Alt deg={w.start_alt_deg} />
-                    <Sep />
-                    <Tt t={w.end} /><span className="tg-p"> @ </span><Alt deg={w.end_alt_deg} />
-                  </>
-                )
-              }
-            }
-
-            const peakForSky = hasClip ? w.photo_cutoff! : w.peak_time
-            const sky = peakForSky
-              ? skyCondition(
-                  peakForSky, report.dark_intervals, report.night_start, report.night_end,
-                  report.illumination_pct, report.moonrise, report.moonset,
-                  w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
-                )
-              : '—'
-
-            const skyCls = skyClass(sky)
-            const moonNote = w.moon_interference && !sky.startsWith('Moon')
-            const moonIsUpAtPeak = peakForSky
-              ? moonUpAt(peakForSky, report.moonrise, report.moonset)
-              : false
-            const moonNoteText = moonNote
-              ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
-              : null
-
-            // Conditions: weather rating icon + glow at target's azimuth/altitude
-            const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
-              ? wxAtTime(report.weather_points, peakForSky)
-              : null
-            const glow = report.light_dome && w.peak_alt_deg != null
-              ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
-              : null
-
-            return (
-              <tr key={row.key}>
-                <td>{name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
-                <td className="wx-num">{bestViewJsx}</td>
-                <td className={`tg-sky ${skyCls}`}>
-                  {sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
-                </td>
-                <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
-                <td className="wx-num">{winJsx}</td>
-              </tr>
-            )
+            return renderTargetRow(row.target, row.key, false)
           })}
+
+          {unviable.length > 0 && (
+            <>
+              <tr className="tg-unviable-hdr">
+                <td colSpan={5}>Unavailable Tonight</td>
+              </tr>
+              {unviableRows.map(row => {
+                if (row.kind === 'header') {
+                  return (
+                    <tr key={row.key} className="tg-group-hdr tg-row-blocked">
+                      <td colSpan={5}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                    </tr>
+                  )
+                }
+                return renderTargetRow(row.target, row.key, true)
+              })}
+            </>
+          )}
         </tbody>
       </table>
     </div>
@@ -1462,14 +1585,20 @@ export default function ReportCard({
 
       {showTargets && (() => {
         const showerTargets  = r.visible_targets.filter(t => t.type === 'meteor_shower')
-        const primeCount     = r.visible_targets.filter(t => isPrime(t, r.dark_intervals)).length
+        const primeDSOs      = r.visible_targets
+          .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
+          .filter(t => isPrime(t, r.dark_intervals))
+          .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
+        const viableCount    = primeDSOs.filter(t => t.viability !== 'blocked').length
+        const blockedCount   = primeDSOs.filter(t => t.viability === 'blocked').length
         const hasAnything    = r.visible_targets.length > 0
 
         return (
         <details className="targets" open>
           <summary>
-            Prime Targets
-            {primeCount > 0 ? ` (${primeCount})` : ''}
+            Iconic Sky Features
+            {viableCount > 0 ? ` (${viableCount})` : ''}
+            {blockedCount > 0 ? ` · ${blockedCount} blocked` : ''}
           </summary>
           {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
@@ -1502,7 +1631,7 @@ export default function ReportCard({
                   </div>
                 )}
                 <TargetsTable targets={r.visible_targets} report={r} />
-                {primeCount === 0 && !r.mw_summary && showerTargets.length === 0 && (
+                {primeDSOs.length === 0 && !r.mw_summary && showerTargets.length === 0 && (
                   <p className="sat-notice" style={{ paddingTop: 10 }}>
                     {r.dark_intervals.length === 0
                       ? 'No astronomical darkness this night — moon prevents dark-sky observing.'
