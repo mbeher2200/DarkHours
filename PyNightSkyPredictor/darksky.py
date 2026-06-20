@@ -1743,13 +1743,22 @@ def _offline_tier_name(
     # Overpass/_settlement entirely. Still consult PAD-US: never route onto blacklisted
     # (military/tribal/restricted) land even if OSM mapped a POI there.
     if c.get("is_poi"):
+        _padus_area: "str | None" = None
         if padus_index is not None:
             try:
                 hit = _padus_h3_lookup(lat, lon, padus_index)
-                if hit is not None and hit[1]:
-                    return ("discard", None)
+                if hit is not None:
+                    unit_nm, is_blacklisted = hit
+                    if is_blacklisted:
+                        return ("discard", None)
+                    if _is_good_padus_name(unit_nm):
+                        _padus_area = unit_nm
             except Exception as exc:
                 log.debug("PAD-US H3 lookup failed for POI (%.4f, %.4f): %s", lat, lon, exc)
+        if _padus_area is None and natural_areas:
+            _padus_area = _best_area_name_for_cluster(lat, lon, natural_areas)
+        if _padus_area:
+            c["area_name"] = _padus_area
         return ("name", c["name"])
     padus_verified = False
     if padus_index is not None:
