@@ -1225,12 +1225,6 @@ details summary {
 }
 .cond-glow { font-size: 11px; }
 
-/* On very narrow viewports hide the Conditions column; it's a nice-to-have
-   and the table is already wide. */
-@media (max-width: 540px) {
-  .tg-cond-col { display: none; }
-}
-
 .colophon {
   text-align: center;
   color: var(--text-dim);
