@@ -435,6 +435,15 @@
     "surface_brightness": 17.5,
     "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core"
   },
+  {
+    "name": "Scorpius Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 351,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "Southern Scorpius star cloud (NGC 6231 region) — fills the Core→Norma gap; low on the southern horizon from northern latitudes, near-zenith from the southern hemisphere"
+  },
   {"name": "Mercury", "type": "planet", "min_elevation": 10},
   {"name": "Venus",   "type": "planet", "min_elevation": 10},
   {"name": "Mars",    "type": "planet", "min_elevation": 10},
