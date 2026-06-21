@@ -1423,7 +1423,8 @@ function wxAtTime(points: WeatherPoint[], isoTime: string): WeatherPoint | null 
     Math.abs(new Date(a.time).getTime() - t) <= Math.abs(new Date(b.time).getTime() - t) ? a : b)
 }
 
-// Compact conditions badge: WMO weather icon + rating score + horizon glow label.
+// Commenting out.
+/* Compact conditions badge: WMO weather icon + rating score + horizon glow label.
 // Used in both the prime targets table and the Milky Way waypoints table.
 function CondBadges({ wxPt, glow }: { wxPt: WeatherPoint | null; glow: number | null }) {
   const rating = wxPt != null ? rateConditions(wxPt) : null
@@ -1441,7 +1442,7 @@ function CondBadges({ wxPt, glow }: { wxPt: WeatherPoint | null; glow: number | 
       )}
     </span>
   )
-}
+}*/
 
 function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; imperial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
