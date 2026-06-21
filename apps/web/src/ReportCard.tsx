@@ -1423,6 +1423,7 @@ function wxAtTime(points: WeatherPoint[], isoTime: string): WeatherPoint | null 
     Math.abs(new Date(a.time).getTime() - t) <= Math.abs(new Date(b.time).getTime() - t) ? a : b)
 }
 
+// Commenting out.
 /* Compact conditions badge: WMO weather icon + rating score + horizon glow label.
 // Used in both the prime targets table and the Milky Way waypoints table.
 function CondBadges({ wxPt, glow }: { wxPt: WeatherPoint | null; glow: number | null }) {
