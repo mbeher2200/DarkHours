@@ -157,23 +157,23 @@ class TestMwTheoreticalCoreMax:
 
 class TestMwMaxVisible:
     def test_equator_sees_all_waypoints(self):
-        """From lat=0 all 10 waypoints (|Dec| ≤ 80°) are theoretically visible."""
-        assert mw_max_visible(0) == 10
+        """From lat=0 all 11 waypoints (|Dec| ≤ 80°) are theoretically visible."""
+        assert mw_max_visible(0) == 11
 
     def test_high_north_sees_fewer(self):
-        """lat=70 — four waypoints with southern Decs are never above 10°."""
+        """lat=70 — five waypoints with southern Decs are never above 10°."""
         result = mw_max_visible(70)
         assert result < 8, f"lat=70 should see fewer than 8 waypoints, got {result}"
 
     def test_high_north_exact_count(self):
-        """lat=70 sees exactly 6 of the 10 waypoints."""
+        """lat=70 sees exactly 6 of the 11 waypoints (Scorpius dec=-37° unreachable)."""
         assert mw_max_visible(70) == 6
 
-    def test_count_never_exceeds_10(self):
-        """No latitude can see more than 10 waypoints (there are only 10)."""
+    def test_count_never_exceeds_total(self):
+        """No latitude can see more than 11 waypoints (there are only 11)."""
         for lat in range(-90, 91, 5):
             result = mw_max_visible(lat)
-            assert result <= 10, f"mw_max_visible({lat}) returned {result} > 10"
+            assert result <= 11, f"mw_max_visible({lat}) returned {result} > 11"
 
     def test_count_never_negative(self):
         for lat in range(-90, 91, 5):
