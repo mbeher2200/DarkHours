@@ -1223,11 +1223,6 @@ details summary {
   stroke-width: 0.75;
   opacity: 0.5;
 }
-.mw-dome-arch {
-  stroke: var(--text);
-  stroke-width: 2;
-  stroke-opacity: 0.9;
-}
 .mw-dome-core {
   fill: var(--excellent);
 }

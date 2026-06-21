@@ -346,111 +346,40 @@
     "angular_size_arcmin": 10
   },
   {
-    "name": "Galactic Core",
-    "type": "milky_way",
-    "galactic_l": 0,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 17.0,
-    "description": "Sagittarius A* — brightest, richest region of the summer Milky Way"
+    "name": "Mercury",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Scutum Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 36,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 17.5,
-    "description": "Rich star cloud in the Scutum-Centaurus arm — brilliant naked-eye patch"
+    "name": "Venus",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Cygnus Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 72,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 18.0,
-    "description": "Northern Cross / Cygnus X region — overhead in summer for northern observers, extremely rich"
+    "name": "Mars",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Cepheus Cloud",
-    "type": "milky_way",
-    "galactic_l": 108,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 18.5,
-    "description": "Cepheus OB associations and IC 1396 — bridge between the summer and winter Milky Way"
+    "name": "Jupiter",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Perseus/Cassiopeia",
-    "type": "milky_way",
-    "galactic_l": 144,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 19.0,
-    "description": "Double Cluster and Cassiopeia W — one of the brightest winter Milky Way sections"
+    "name": "Saturn",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Galactic Anticenter",
-    "type": "milky_way",
-    "galactic_l": 180,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 19.5,
-    "description": "Auriga/Gemini — the point directly opposite the galactic core"
+    "name": "Uranus",
+    "type": "planet",
+    "min_elevation": 10
   },
   {
-    "name": "Monoceros",
-    "type": "milky_way",
-    "galactic_l": 216,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 19.0,
-    "description": "Rosette Nebula region and winter southern band — symmetric counterpart to Scutum"
+    "name": "Neptune",
+    "type": "planet",
+    "min_elevation": 10
   },
-  {
-    "name": "Puppis Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 252,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 18.0,
-    "description": "Puppis/Vela — southern counterpart to the Cygnus Star Cloud; spectacular from southern latitudes"
-  },
-  {
-    "name": "Carina Arm",
-    "type": "milky_way",
-    "galactic_l": 288,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 17.5,
-    "description": "Carina–Sagittarius arm — contains Eta Carinae; most spectacular MW region for southern hemisphere observers"
-  },
-  {
-    "name": "Norma Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 324,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 17.5,
-    "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core"
-  },
-  {
-    "name": "Scorpius Star Cloud",
-    "type": "milky_way",
-    "galactic_l": 351,
-    "galactic_b": 0,
-    "min_elevation": 10,
-    "surface_brightness": 17.5,
-    "description": "Southern Scorpius star cloud (NGC 6231 region) — fills the Core→Norma gap; low on the southern horizon from northern latitudes, near-zenith from the southern hemisphere"
-  },
-  {"name": "Mercury", "type": "planet", "min_elevation": 10},
-  {"name": "Venus",   "type": "planet", "min_elevation": 10},
-  {"name": "Mars",    "type": "planet", "min_elevation": 10},
-  {"name": "Jupiter", "type": "planet", "min_elevation": 10},
-  {"name": "Saturn",  "type": "planet", "min_elevation": 10},
-  {"name": "Uranus",  "type": "planet", "min_elevation": 10},
-  {"name": "Neptune", "type": "planet", "min_elevation": 10},
   {
     "name": "Quadrantids",
     "type": "meteor_shower",
@@ -540,5 +469,131 @@
     "peak_day": 22,
     "active_window_days": 6,
     "peak_zhr": 10
+  },
+  {
+    "name": "Galactic Core",
+    "type": "milky_way",
+    "galactic_l": 0,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 17.0,
+    "description": "Sagittarius A* — brightest, richest region of the summer Milky Way; nuclear bulge of the galaxy"
+  },
+  {
+    "name": "Scutum Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 27,
+    "galactic_b": -3,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "Rich star cloud in the Scutum-Centaurus arm — brilliant naked-eye patch adjacent to the core"
+  },
+  {
+    "name": "Aquila Rift",
+    "type": "milky_way",
+    "galactic_l": 45,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 18.0,
+    "description": "Dark dust lane in Aquila that visually splits the summer Milky Way into two parallel streams; bridges Scutum and Cygnus"
+  },
+  {
+    "name": "Cygnus Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 80,
+    "galactic_b": 1,
+    "min_elevation": 10,
+    "surface_brightness": 18.0,
+    "description": "Northern Cross / Cygnus X region — overhead in summer for northern observers, extremely rich in star clusters and nebulae"
+  },
+  {
+    "name": "Cepheus Cloud",
+    "type": "milky_way",
+    "galactic_l": 105,
+    "galactic_b": 3,
+    "min_elevation": 10,
+    "surface_brightness": 18.5,
+    "description": "Cepheus OB associations and IC 1396 — circumpolar for mid-northern observers; bridge between the summer and winter Milky Way"
+  },
+  {
+    "name": "Cassiopeia/Perseus",
+    "type": "milky_way",
+    "galactic_l": 135,
+    "galactic_b": -1,
+    "min_elevation": 10,
+    "surface_brightness": 19.0,
+    "description": "Double Cluster and the Cassiopeia W — one of the brightest winter Milky Way sections, circumpolar from northern latitudes"
+  },
+  {
+    "name": "Galactic Anticenter",
+    "type": "milky_way",
+    "galactic_l": 180,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 19.5,
+    "description": "Auriga/Gemini — the point directly opposite the galactic core; winter showpiece for northern observers"
+  },
+  {
+    "name": "Monoceros",
+    "type": "milky_way",
+    "galactic_l": 210,
+    "galactic_b": -2,
+    "min_elevation": 10,
+    "surface_brightness": 19.0,
+    "description": "Rosette Nebula region and winter southern band — symmetric counterpart to Scutum on the opposite side of the anticenter"
+  },
+  {
+    "name": "Puppis Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 245,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 18.0,
+    "description": "Dense star cloud in Puppis — southern counterpart to the Cygnus Star Cloud; spectacular from the southern hemisphere"
+  },
+  {
+    "name": "Vela Supernova Region",
+    "type": "milky_way",
+    "galactic_l": 265,
+    "galactic_b": -3,
+    "min_elevation": 10,
+    "surface_brightness": 18.5,
+    "description": "Gum Nebula and Vela supernova remnant — fills the southern gap between Puppis and Carina; barely visible above 20°N latitude"
+  },
+  {
+    "name": "Carina Nebula & Cloud",
+    "type": "milky_way",
+    "galactic_l": 287,
+    "galactic_b": -1,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "Eta Carinae Nebula and surrounding star cloud — arguably the most spectacular Milky Way region in the southern hemisphere"
+  },
+  {
+    "name": "Crux & Coalsack",
+    "type": "milky_way",
+    "galactic_l": 302,
+    "galactic_b": 0,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "The Southern Cross and the Coal Sack dark nebula — iconic southern hemisphere features; invisible north of ~25°N latitude"
+  },
+  {
+    "name": "Norma Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 330,
+    "galactic_b": -2,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "One of the sky's densest star clouds — connects the southern arm back toward the galactic core region"
+  },
+  {
+    "name": "Scorpius Star Cloud",
+    "type": "milky_way",
+    "galactic_l": 347,
+    "galactic_b": -2,
+    "min_elevation": 10,
+    "surface_brightness": 17.5,
+    "description": "NGC 6231 region in southern Scorpius — bridge between the galactic core and Norma; low from northern latitudes, near-zenith from the southern hemisphere"
   }
 ]
