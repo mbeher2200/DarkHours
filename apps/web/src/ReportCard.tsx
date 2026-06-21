@@ -361,8 +361,8 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
                     <td className="wx-num">{moonStr}</td>
                     {satGlow != null && (
-                      <td className="wx-num cond-glow" style={glowStyle(satGlow)}>
-                        {glowLabel(satGlow)}
+                      <td className="wx-num cond-glow" style={satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
+                        {satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
                       </td>
                     )}
                   </tr>
@@ -415,6 +415,250 @@ function moonScaleLabel(arcmin: number | null | undefined): string | null {
 
 // ── Milky Way card ───────────────────────────────────────────────────────────
 
+// Waypoints disclosure — closed by default with Phase 3 density reductions applied inside.
+function WaypointsAccordion({ waypoints, summary, report }: {
+  waypoints: VisibleTarget[]
+  summary: MilkyWaySummary
+  report: NightReport
+}) {
+  const tz = report.tz_name
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+
+  useEffect(() => {
+    const el = detailsRef.current
+    if (!el) return
+    const handler = () => {
+      if (el.open) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+    el.addEventListener('toggle', handler)
+    return () => el.removeEventListener('toggle', handler)
+  }, [])
+
+  return (
+    <details ref={detailsRef} className="mw-waypoints-detail">
+      <summary className="mw-waypoints-summary">
+        Arch Waypoints ({summary.n_visible})
+      </summary>
+      <div className="tg-table-wrap mw-waypoints-table-wrap">
+        <table className="tg-table">
+          <thead>
+            <tr>
+              <th>Waypoint</th>
+              <th>Peak</th>
+              <th>Window</th>
+            </tr>
+          </thead>
+          <tbody>
+            {waypoints.map(t => {
+              const w = bestWindow(t)
+              if (!w.peak_time || w.peak_alt_deg == null) {
+                return (
+                  <tr key={t.name}>
+                    <td>{t.name}</td>
+                    <td className="wx-num">—</td>
+                    <td className="wx-num">—</td>
+                  </tr>
+                )
+              }
+              const archAngle = w.arch_angle_deg
+              const archBadge = archAngle != null && (archAngle < 35 || archAngle >= 60)
+                ? <span className="tg-note"> · {archAngle.toFixed(0)}° {archAngle >= 60 ? 'steep' : 'flat'}</span>
+                : null
+              const glow = report.light_dome
+                ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
+                : null
+              const showGlow = glow != null && glow >= 0.03
+              return (
+                <tr key={t.name}>
+                  <td>
+                    {t.name}
+                    {showGlow && (
+                      <span className="tg-glow-inline cond-glow" style={glowStyle(glow!)}>
+                        {` · glow ${glowLabel(glow!)}`}
+                      </span>
+                    )}
+                  </td>
+                  <td className="wx-num">
+                    <span className="tg-t">{formatTime(w.peak_time, tz)}</span>
+                    <span className="tg-p"> (Alt </span>
+                    <span className="tg-alt">{Math.round(w.peak_alt_deg)}°</span>
+                    <span className="tg-p"> · Az </span>
+                    <span className="tg-az">{Math.round(w.peak_az_deg)}°</span>
+                    <span className="tg-p"> </span>
+                    <span className="tg-dir">{cardinal(w.peak_az_deg)}</span>
+                    <span className="tg-p">)</span>
+                    {archBadge}
+                  </td>
+                  <td className="wx-num">
+                    <span className="tg-t">{formatTime(w.start, tz)}</span>
+                    <span className="tg-p"> – </span>
+                    <span className="tg-t">{formatTime(w.end, tz)}</span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
+  const text = type === 'penalty' ? 'Moon interference: moderate' : 'Window moon-limited'
+  return <span className="mw-moon-badge">[ {text} ]</span>
+}
+
+// Physical structural order along the Milky Way band (galactic longitude).
+// Connecting waypoints in this order prevents zig-zag crossing lines at the zenith.
+const GALACTIC_ORDER = [
+  'Galactic Anticenter',
+  'Perseus/Cassiopeia',
+  'Cepheus Cloud',
+  'Cygnus Star Cloud',
+  'Scutum Star Cloud',
+  'Galactic Core',
+  'Scorpius Star Cloud',  // l=351° — physically between Core (l=0°) and Norma (l=324°)
+  'Norma Star Cloud',
+  'Carina Arm',
+  'Puppis Star Cloud',
+  'Monoceros',
+]
+
+// Orthographic projection of the sky dome, camera centered on the galactic core azimuth.
+// The core appears at the horizontal center; the arch sweeps up and to the sides.
+function MilkyWayDome({ summary, waypoints }: { summary: MilkyWaySummary; waypoints: VisibleTarget[] }) {
+  if (summary.core_peak_alt_deg == null || summary.core_peak_alt_deg <= 0) {
+    return <div className="mw-dome-absent">Arch below horizon tonight</div>
+  }
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+
+  // Camera looks toward the core's azimuth — core projects to x=100 (horizontal center)
+  const centerAz = summary.core_peak_az_deg
+
+  const project = (alt: number, az: number) => {
+    const altRad = toRad(alt)
+    const azRad  = toRad(az - centerAz)
+    return {
+      x: 100 + 100 * Math.cos(altRad) * Math.sin(azRad),
+      y: 100 - 100 * Math.sin(altRad),
+      isFront: Math.cos(azRad) >= 0,
+    }
+  }
+
+  const wpPts = waypoints
+    .map(wp => {
+      const w = bestWindow(wp)
+      return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg }
+    })
+    .filter(p => p.alt > 0)
+    .sort((a, b) => {
+      const ai = GALACTIC_ORDER.indexOf(a.name)
+      const bi = GALACTIC_ORDER.indexOf(b.name)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
+
+  const wpFront = wpPts
+    .map(p => ({ wp: p, proj: project(p.alt, p.az) }))
+    .filter(({ proj }) => proj.isFront)
+
+  // The galactic plane continues past the last catalog waypoint to and below the horizon.
+  // Extend the arch to alt=0 at the near-horizon terminals so the line visually reaches
+  // the horizon rather than stopping 10–20° above it.
+  const archPoints: { x: number; y: number; isFront: boolean }[] = []
+  if (wpFront.length > 0 && wpFront[0].wp.alt < 40) {
+    const hp = project(0, wpFront[0].wp.az)
+    if (hp.isFront) archPoints.push(hp)
+  }
+  wpFront.forEach(({ proj }) => archPoints.push(proj))
+  if (wpFront.length > 0 && wpFront[wpFront.length - 1].wp.alt < 40) {
+    const hp = project(0, wpFront[wpFront.length - 1].wp.az)
+    if (hp.isFront) archPoints.push(hp)
+  }
+
+  const pointsString = archPoints.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const corePos = project(summary.core_peak_alt_deg, summary.core_peak_az_deg)
+
+  // Altitude rings: in orthographic projection, all points at the same altitude have the
+  // same y, and x tapers symmetrically — giving natural curved-ring feel.
+  const rings = [30, 60].map(alt => ({
+    alt,
+    hw: parseFloat((100 * Math.cos(toRad(alt))).toFixed(1)),
+    y:  parseFloat((100 - 100 * Math.sin(toRad(alt))).toFixed(1)),
+  }))
+
+  // Cardinal direction ticks at every 45° within the ±90° visible hemisphere
+  const cardinalTicks = [-90, -45, 0, 45, 90].map(dAz => ({
+    x: parseFloat((100 + 100 * Math.sin(toRad(dAz))).toFixed(1)),
+    label: cardinal((centerAz + dAz + 360) % 360),
+    dAz,
+  }))
+
+  return (
+    <div className="mw-dome-wrap">
+      <svg viewBox="0 0 200 114" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        {/* Altitude rings (tapered — narrower near zenith) */}
+        {rings.map(({ alt, hw, y }) => (
+          <g key={alt}>
+            <line x1={100 - hw} y1={y} x2={100 + hw} y2={y} className="mw-dome-ring" strokeDasharray="2,3" />
+            <text x={100 - hw - 3} y={y + 3.5} className="mw-dome-label" textAnchor="end">{alt}°</text>
+          </g>
+        ))}
+        {/* Half-dome horizon arc */}
+        <path d="M 0,100 A 100,100 0 0,1 200,100" className="mw-dome-horizon-arc" fill="none" />
+        {/* Horizon baseline */}
+        <line x1="0" y1="100" x2="200" y2="100" className="mw-dome-horizon" />
+        {/* Arch polyline through galactic-order waypoints */}
+        {archPoints.length > 1 && (
+          <polyline
+            points={pointsString}
+            className="mw-dome-arch"
+            fill="none"
+            strokeLinejoin="round"
+          />
+        )}
+        {/* Galactic core dot */}
+        {corePos.isFront && (
+          <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="3.5" className="mw-dome-core" />
+        )}
+        {/* Cardinal direction ticks and labels along the horizon */}
+        {cardinalTicks.map(({ x, label, dAz }) => {
+          const anchor = dAz === -90 ? 'start' : dAz === 90 ? 'end' : 'middle'
+          const lx = dAz === -90 ? Math.max(x, 3) : dAz === 90 ? Math.min(x, 197) : x
+          return (
+            <g key={dAz}>
+              <line x1={x} y1="100" x2={x} y2="104" className="mw-dome-tick" />
+              <text x={lx} y="112" className="mw-dome-label" textAnchor={anchor}>{label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function MilkyWayAbsent({ report: r }: { report: NightReport }) {
+  const coreMaxAlt = Math.max(0, 90 - Math.abs(r.lat - (-28.9)))
+  const bortle     = r.light_pollution?.bortle_class ?? 0
+  const bortleDesc = r.light_pollution?.bortle_desc  ?? 'bright sky'
+
+  let reason: string
+  if (coreMaxAlt < 10) {
+    reason = `Galactic core never rises above 10° from this latitude (max ${coreMaxAlt.toFixed(0)}° altitude)`
+  } else if (bortle >= 6) {
+    reason = `${bortleDesc} (Bortle ${bortle}) — light pollution prevents Milky Way visibility here`
+  } else if (bortle >= 4) {
+    reason = `Suburban skies (Bortle ${bortle}) are too bright for Milky Way visibility here`
+  } else if (r.dark_intervals.length === 0) {
+    reason = `Bright moon (${r.illumination_pct.toFixed(0)}%) is up all night — no dark sky window`
+  } else {
+    reason = 'Galactic core is below the horizon during tonight\'s dark window'
+  }
+
+  return <p className="mw-absent-reason">{reason}</p>
+}
+
 function MilkyWayCard({ summary, waypoints, report }: {
   summary: MilkyWaySummary
   waypoints: VisibleTarget[]
@@ -432,15 +676,18 @@ function MilkyWayCard({ summary, waypoints, report }: {
 
   return (
     <div className="mw-card">
-      {/* Score row */}
+      {/* Score row: scores on left, dome visualization on right */}
       <div className="mw-score-row">
-        <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
-        <div className="mw-sub-scores">
-          <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
-          <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
-          <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
-          {s.moon_penalised && <span className="mw-moon-flag">· moon penalty</span>}
+        <div className="mw-score-left">
+          <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
+          <div className="mw-sub-scores">
+            <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
+            <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
+            <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
+            {s.moon_penalised && <MoonBadge type="penalty" />}
+          </div>
         </div>
+        <MilkyWayDome summary={s} waypoints={waypoints} />
       </div>
 
       {/* Arch window row */}
@@ -449,7 +696,7 @@ function MilkyWayCard({ summary, waypoints, report }: {
         <span>
           {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
           {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-          {s.moon_limited && <span className="mw-moon-flag">  · moon-limited</span>}
+          {s.moon_limited && <MoonBadge type="limited" />}
         </span>
       </div>
 
@@ -473,60 +720,9 @@ function MilkyWayCard({ summary, waypoints, report }: {
         </span>
       </div>
 
-      {/* Waypoints table */}
+      {/* Waypoints accordion — closed by default; apply Phase 3 density reductions inside */}
       {waypoints.length > 0 && (
-        <div className="mw-waypoints">
-          <div className="mw-waypoints-label">
-            Waypoints visible: {s.n_visible} of {s.n_max_possible} possible ({s.n_total} total)
-          </div>
-          <div className="tg-table-wrap">
-            <table className="tg-table">
-              <thead>
-                <tr>
-                  <th>Waypoint</th>
-                  <th>Best Viewing Time</th>
-                  <th>Best Arch Angle</th>
-                  <th className="tg-sky-col">Best Sky</th>
-                  <th className="tg-cond-col">Conditions</th>
-                  <th>Window</th>
-                </tr>
-              </thead>
-              <tbody>
-                {waypoints.map(t => {
-                  const w = bestWindow(t)
-                  const archNote = w.arch_angle_deg != null
-                    ? `${w.arch_angle_deg.toFixed(0)}° (${w.arch_angle_deg >= 60 ? 'steep' : w.arch_angle_deg >= 35 ? 'moderate' : 'flat'})`
-                    : '—'
-                  const sky = w.peak_time
-                    ? skyCondition(w.peak_time, report.dark_intervals, report.night_start, report.night_end,
-                        report.illumination_pct, report.moonrise, report.moonset,
-                        w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg)
-                    : '—'
-                  const wxPt = w.peak_time && !report.wx_no_data && !report.wx_pending
-                    ? wxAtTime(report.weather_points, w.peak_time)
-                    : null
-                  const glow = report.light_dome && w.peak_alt_deg != null
-                    ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
-                    : null
-                  return (
-                    <tr key={t.name}>
-                      <td>{t.name}{t.note ? <span className="tg-note"> · {t.note}</span> : null}</td>
-                      <td className="wx-num">
-                        {w.peak_time ? `${formatTime(w.peak_time, tz)} @ ${fmtPos(w.peak_alt_deg!, w.peak_az_deg)}` : '—'}
-                      </td>
-                      <td className="wx-num">{archNote}</td>
-                      <td className={`tg-sky ${skyClass(sky)}`}>{sky}</td>
-                      <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
-                      <td className="wx-num">
-                        {w.peak_time ? `${formatTime(w.start, tz)} – ${formatTime(w.end, tz)}` : '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <WaypointsAccordion waypoints={waypoints} summary={s} report={report} />
       )}
     </div>
   )
@@ -758,7 +954,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
     const name      = t.type === 'meteor_shower' ? `${t.name} Meteor Shower` : t.name
     const sizeLabel = moonScaleLabel(t.angular_size_arcmin)
 
-    // photo_cutoff clips both Best Viewing and Astro Window (mirrors CLI)
+    // photo_cutoff clips both Peak and Window (mirrors CLI)
     const hasClip = !!(w.photo_cutoff
       && new Date(w.photo_cutoff) > new Date(w.start)
       && new Date(w.photo_cutoff) < new Date(w.end))
@@ -771,39 +967,82 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
     const Dir = ({ az }: { az: number })   => <span className="tg-dir">{cardinal(az)}</span>
     const Sep = () => <span className="tg-p"> – </span>
 
+    const peakForSky = blocked
+      ? null
+      : (w.best_time ?? (hasClip ? w.photo_cutoff! : w.peak_time))
+
+    // Conditions: weather icon and glow inline in Target cell
+    const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
+      ? wxAtTime(report.weather_points, peakForSky)
+      : null
+    const glow = report.light_dome && w.peak_alt_deg != null
+      ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
+      : null
+
+    const targetCell = (
+      <td>
+        {name}
+        {t.note    && <span className="tg-note"> · {t.note}</span>}
+        {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
+        {wxPt && (
+          <span className="tg-wx-inline">
+            <WmoIcon code={wxPt.weather_code} size={12} />
+          </span>
+        )}
+        {glow != null && glow >= 0.03 && (
+          <span className="tg-glow-inline cond-glow" style={glowStyle(glow)}>
+            {` · glow ${glowLabel(glow)}`}
+          </span>
+        )}
+      </td>
+    )
+
     if (blocked) {
-      // Blocked rows: show blocker badge instead of timing data
-      const wxPt = w.peak_time && !report.wx_no_data && !report.wx_pending
-        ? wxAtTime(report.weather_points, w.peak_time)
-        : null
-      const glow = report.light_dome && w.peak_alt_deg != null
-        ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
-        : null
       return (
         <tr key={key} className="tg-row-blocked">
-          <td>
-            {name}
-            {t.note    && <span className="tg-note"> · {t.note}</span>}
-            {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
-          </td>
-          <td className="wx-num"><BlockerBadge blockers={t.windows[0]?.blockers ?? []} /></td>
-          <td className="tg-sky">—</td>
-          <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
+          {targetCell}
+          <td><BlockerBadge blockers={t.windows[0]?.blockers ?? []} /></td>
           <td className="wx-num">—</td>
         </tr>
       )
     }
 
-    // Best Viewing: prefer backend best_time, fall back to photo_cutoff/peak
-    let bestViewJsx: React.ReactNode = '—'
+    // Peak cell: time · Alt · Az · Dir + sky badge when non-dark
+    let peakJsx: React.ReactNode = '—'
     if (w.peak_time && w.peak_alt_deg != null) {
       const effectiveBestTime = w.best_time ?? (hasClip ? w.photo_cutoff! : w.peak_time)
       const effectiveBestAlt  = altAt(effectiveBestTime, w)
-      bestViewJsx = (
+
+      const sky = peakForSky
+        ? skyCondition(
+            peakForSky, report.dark_intervals, report.night_start, report.night_end,
+            report.illumination_pct, report.moonrise, report.moonset,
+            w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+          )
+        : '—'
+      const skyCls = skyClass(sky)
+      const moonNote = w.moon_interference && !sky.startsWith('Moon')
+      const moonIsUpAtPeak = peakForSky
+        ? moonUpAt(peakForSky, report.moonrise, report.moonset)
+        : false
+      const moonNoteText = moonNote
+        ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
+        : null
+      const showSkyBadge = sky !== 'Dark sky' && sky !== '—'
+
+      peakJsx = (
         <>
           <Tt t={effectiveBestTime} />
-          <span className="tg-p"> @ Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
           <span className="tg-p"> · Alt </span><Alt deg={effectiveBestAlt} />
+          <span className="tg-p"> Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
+          {showSkyBadge && (
+            <span className={`tg-sky-inline ${skyCls}`}>
+              {' '}{sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
+            </span>
+          )}
+          {!showSkyBadge && moonNoteText && (
+            <span className="tg-moon-note">{' '}{moonNoteText}</span>
+          )}
         </>
       )
     }
@@ -843,44 +1082,10 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
       )
     }
 
-    const peakForSky = w.best_time ?? (hasClip ? w.photo_cutoff! : w.peak_time)
-    const sky = peakForSky
-      ? skyCondition(
-          peakForSky, report.dark_intervals, report.night_start, report.night_end,
-          report.illumination_pct, report.moonrise, report.moonset,
-          w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
-        )
-      : '—'
-
-    const skyCls = skyClass(sky)
-    const moonNote = w.moon_interference && !sky.startsWith('Moon')
-    const moonIsUpAtPeak = peakForSky
-      ? moonUpAt(peakForSky, report.moonrise, report.moonset)
-      : false
-    const moonNoteText = moonNote
-      ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
-      : null
-
-    // Conditions: weather rating icon + glow at target's azimuth/altitude
-    const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
-      ? wxAtTime(report.weather_points, peakForSky)
-      : null
-    const glow = report.light_dome && w.peak_alt_deg != null
-      ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
-      : null
-
     return (
       <tr key={key}>
-        <td>
-          {name}
-          {t.note    && <span className="tg-note"> · {t.note}</span>}
-          {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
-        </td>
-        <td className="wx-num">{bestViewJsx}</td>
-        <td className={`tg-sky ${skyCls}`}>
-          {sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
-        </td>
-        <td className="tg-cond-col"><CondBadges wxPt={wxPt} glow={glow} /></td>
+        {targetCell}
+        <td className="wx-num">{peakJsx}</td>
         <td className="wx-num">{winJsx}</td>
       </tr>
     )
@@ -892,9 +1097,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
         <thead>
           <tr>
             <th>Target</th>
-            <th>Best Viewing</th>
-            <th className="tg-sky-col">Best Sky</th>
-            <th className="tg-cond-col">Conditions</th>
+            <th>Peak</th>
             <th>Window</th>
           </tr>
         </thead>
@@ -903,7 +1106,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             if (row.kind === 'header') {
               return (
                 <tr key={row.key} className="tg-group-hdr">
-                  <td colSpan={5}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                  <td colSpan={3}>{TYPE_LABELS[row.type] ?? row.type}</td>
                 </tr>
               )
             }
@@ -913,13 +1116,13 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           {unviable.length > 0 && (
             <>
               <tr className="tg-unviable-hdr">
-                <td colSpan={5}>Unavailable Tonight</td>
+                <td colSpan={3}>Unavailable Tonight</td>
               </tr>
               {unviableRows.map(row => {
                 if (row.kind === 'header') {
                   return (
                     <tr key={row.key} className="tg-group-hdr tg-row-blocked">
-                      <td colSpan={5}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                      <td colSpan={3}>{TYPE_LABELS[row.type] ?? row.type}</td>
                     </tr>
                   )
                 }
@@ -1231,9 +1434,9 @@ function CondBadges({ wxPt, glow }: { wxPt: WeatherPoint | null; glow: number | 
           <WmoIcon code={wxPt.weather_code} size={13} />
         </span>
       )}
-      {glow != null && (
+      {glow != null && glow > 0 && (
         <span className="cond-badge cond-glow" style={glowStyle(glow)}>
-          Light dome {glowLabel(glow)}
+          {glow >= 0.03 ? `Light dome ${glowLabel(glow)}` : null}
         </span>
       )}
     </span>
@@ -1644,16 +1847,17 @@ export default function ReportCard({
           {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
             : <>
-                {r.mw_summary && (
-                  <div className="mw-section">
-                    <div className="mw-section-label">Milky Way</div>
-                    <MilkyWayCard
-                      summary={r.mw_summary}
-                      waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
-                      report={r}
-                    />
-                  </div>
-                )}
+                <div className="mw-section">
+                  <div className="mw-section-label">Milky Way</div>
+                  {r.mw_summary
+                    ? <MilkyWayCard
+                        summary={r.mw_summary}
+                        waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
+                        report={r}
+                      />
+                    : <MilkyWayAbsent report={r} />
+                  }
+                </div>
                 {showerTargets.length > 0 && (
                   <div className="ms-section">
                     <div className="mw-section-label">
@@ -1671,12 +1875,18 @@ export default function ReportCard({
                     </div>
                   </div>
                 )}
+                {primeDSOs.length > 0 && (
+                  <>
+                    <div className="iconic-section-divider" />
+                    <div className="mw-section-label iconic-targets-label">
+                      Deep Sky Targets{primeDSOs.some(t => t.type === 'planet') ? ' & Planets' : ''}
+                    </div>
+                  </>
+                )}
                 <TargetsTable targets={r.visible_targets} report={r} />
-                {primeDSOs.length === 0 && !r.mw_summary && showerTargets.length === 0 && (
+                {primeDSOs.length === 0 && showerTargets.length === 0 && (
                   <p className="sat-notice" style={{ paddingTop: 10 }}>
-                    {r.dark_intervals.length === 0
-                      ? 'No astronomical darkness this night — moon prevents dark-sky observing.'
-                      : 'No targets meet prime criteria (DSOs ≥40°, planets ≥20° peak altitude, ≥1h window) this night.'}
+                    No deep-sky targets meet prime criteria (≥40° altitude, ≥1h window) this night.
                   </p>
                 )}
               </>
