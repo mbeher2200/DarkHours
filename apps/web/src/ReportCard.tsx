@@ -514,7 +514,7 @@ function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
 // Physical order along the galactic plane by longitude (counterclockwise).
 // Anticenter (l=180°) is the midpoint; northern arm descends toward Core,
 // southern arm continues through the SH showpieces back toward Core.
-const GALACTIC_ORDER = [
+/*const GALACTIC_ORDER = [
   'Galactic Anticenter',     // l=180°
   'Cassiopeia/Perseus',      // l=135°
   'Cepheus Cloud',           // l=105°
@@ -529,7 +529,7 @@ const GALACTIC_ORDER = [
   'Vela Supernova Region',   // l=265°
   'Puppis Star Cloud',       // l=245°
   'Monoceros',               // l=210°
-]
+]*/
 
 // Catmull-Rom → cubic Bezier conversion for smooth interpolation through waypoints.
 function catmullRomToBezier(pts: { x: number; y: number }[]): string {
