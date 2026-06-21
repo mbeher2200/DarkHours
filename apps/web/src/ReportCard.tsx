@@ -511,31 +511,119 @@ function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
 
 // Physical structural order along the Milky Way band (galactic longitude).
 // Connecting waypoints in this order prevents zig-zag crossing lines at the zenith.
+// Physical order along the galactic plane by longitude (counterclockwise).
+// Anticenter (l=180°) is the midpoint; northern arm descends toward Core,
+// southern arm continues through the SH showpieces back toward Core.
 const GALACTIC_ORDER = [
-  'Galactic Anticenter',
-  'Perseus/Cassiopeia',
-  'Cepheus Cloud',
-  'Cygnus Star Cloud',
-  'Scutum Star Cloud',
-  'Galactic Core',
-  'Scorpius Star Cloud',  // l=351° — physically between Core (l=0°) and Norma (l=324°)
-  'Norma Star Cloud',
-  'Carina Arm',
-  'Puppis Star Cloud',
-  'Monoceros',
+  'Galactic Anticenter',     // l=180°
+  'Cassiopeia/Perseus',      // l=135°
+  'Cepheus Cloud',           // l=105°
+  'Cygnus Star Cloud',       // l=80°
+  'Aquila Rift',             // l=45°
+  'Scutum Star Cloud',       // l=27°
+  'Galactic Core',           // l=0°
+  'Scorpius Star Cloud',     // l=347°
+  'Norma Star Cloud',        // l=330°
+  'Crux & Coalsack',         // l=302°
+  'Carina Nebula & Cloud',   // l=287°
+  'Vela Supernova Region',   // l=265°
+  'Puppis Star Cloud',       // l=245°
+  'Monoceros',               // l=210°
 ]
 
+// Catmull-Rom → cubic Bezier conversion for smooth interpolation through waypoints.
+function catmullRomToBezier(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ''
+  if (pts.length === 2)
+    return `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L ${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`
+  let d = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[Math.min(pts.length - 1, i + 2)]
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    const cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    const cp2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+// IAU (1958) galactic → ICRS rotation matrix (mirrors milky_way.py exactly).
+const _GAL_TO_ICRS = [
+  [-0.0548755604, +0.4941094279, -0.8676661490],
+  [-0.8734370902, -0.4448296300, -0.1980763734],
+  [-0.4838350155, +0.7469822445, +0.4559837762],
+]
+
+// Full galactic → horizontal (Alt/Az) transformation at a given UTC instant.
+// l_deg, b_deg   — galactic coordinates
+// lat_deg, lon_deg — observer position
+// utcMs          — UTC milliseconds since Unix epoch
+function galToAltAz(l_deg: number, b_deg: number, lat_deg: number, lon_deg: number, utcMs: number) {
+  const toRad = (d: number) => d * Math.PI / 180
+  const l = toRad(l_deg), b = toRad(b_deg)
+  const xg = Math.cos(b) * Math.cos(l)
+  const yg = Math.cos(b) * Math.sin(l)
+  const zg = Math.sin(b)
+  const R  = _GAL_TO_ICRS
+  const xi = R[0][0]*xg + R[0][1]*yg + R[0][2]*zg
+  const yi = R[1][0]*xg + R[1][1]*yg + R[1][2]*zg
+  const zi = R[2][0]*xg + R[2][1]*yg + R[2][2]*zg
+  const ra_rad  = Math.atan2(yi, xi)
+  const dec_rad = Math.asin(Math.max(-1, Math.min(1, zi)))
+  // GMST (degrees) via Meeus Ch.12 — valid at any time of day, not just 0h UT
+  const jd      = utcMs / 86_400_000 + 2_440_587.5
+  const D       = jd - 2_451_545.0                    // days from J2000.0
+  const T       = D / 36_525.0
+  const gmst_deg = ((280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38_710_000) % 360 + 360) % 360
+  const lst_rad  = toRad(gmst_deg + lon_deg)
+  const ha_rad  = lst_rad - ra_rad
+  const lat_rad = toRad(lat_deg)
+  const alt = Math.asin(
+    Math.sin(dec_rad) * Math.sin(lat_rad) +
+    Math.cos(dec_rad) * Math.cos(lat_rad) * Math.cos(ha_rad)
+  )
+  const az = Math.atan2(
+    -Math.cos(dec_rad) * Math.sin(ha_rad),
+    Math.sin(dec_rad) * Math.cos(lat_rad) - Math.cos(dec_rad) * Math.sin(lat_rad) * Math.cos(ha_rad)
+  )
+  return {
+    alt: alt * 180 / Math.PI,
+    az:  ((az  * 180 / Math.PI) + 360) % 360,
+  }
+}
+
 // Orthographic projection of the sky dome, camera centered on the galactic core azimuth.
-// The core appears at the horizontal center; the arch sweeps up and to the sides.
-function MilkyWayDome({ summary, waypoints }: { summary: MilkyWaySummary; waypoints: VisibleTarget[] }) {
+// The arch traces the galactic equator (b=0), sampled every 5° of galactic longitude.
+function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary; waypoints: VisibleTarget[]; report: NightReport }) {
   if (summary.core_peak_alt_deg == null || summary.core_peak_alt_deg <= 0) {
     return <div className="mw-dome-absent">Arch below horizon tonight</div>
   }
 
   const toRad = (deg: number) => (deg * Math.PI) / 180
 
-  // Camera looks toward the core's azimuth — core projects to x=100 (horizontal center)
-  const centerAz = summary.core_peak_az_deg
+  // Generate all 72 equator samples at b=0 (independent of camera orientation)
+  const peakTimeMs = new Date(summary.core_peak_time).getTime()
+  const allEquatorSamples = Array.from({ length: 72 }, (_, i) => {
+    const l = i * 5
+    const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs)
+    return { l, alt, az }
+  })
+
+  // Center the dome on the midpoint of the arc from the core to the farthest visible waypoint.
+  // This keeps both the core (anchor) and the arch apex (e.g. Cygnus near zenith) in frame.
+  // Circular midpoint of two azimuths takes the shorter arc between them.
+  const circMid = (a: number, b: number) => {
+    const ax = Math.cos(toRad(a)), ay = Math.sin(toRad(a))
+    const bx = Math.cos(toRad(b)), by = Math.sin(toRad(b))
+    return ((Math.atan2(ay + by, ax + bx) * 180 / Math.PI) + 360) % 360
+  }
+  const highestSample = allEquatorSamples.reduce((m, s) => s.alt > m.alt ? s : m)
+  const farthestAz = summary.farthest_peak_az_deg ?? highestSample.az
+  const centerAz   = circMid(summary.core_peak_az_deg, farthestAz)
 
   const project = (alt: number, az: number) => {
     const altRad = toRad(alt)
@@ -547,38 +635,24 @@ function MilkyWayDome({ summary, waypoints }: { summary: MilkyWaySummary; waypoi
     }
   }
 
-  const wpPts = waypoints
+  // Waypoint dots — each structural region at its correct b-shifted position
+  const wpDots = waypoints
     .map(wp => {
       const w = bestWindow(wp)
       return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg }
     })
     .filter(p => p.alt > 0)
-    .sort((a, b) => {
-      const ai = GALACTIC_ORDER.indexOf(a.name)
-      const bi = GALACTIC_ORDER.indexOf(b.name)
-      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
-    })
+    .map(p => ({ ...p, proj: project(p.alt, p.az) }))
+    .filter(({ proj, alt }) => proj.isFront && alt > 0)
 
-  const wpFront = wpPts
-    .map(p => ({ wp: p, proj: project(p.alt, p.az) }))
-    .filter(({ proj }) => proj.isFront)
+  // Front-hemisphere equator samples, sorted left-to-right for smooth spline
+  const frontSamples = allEquatorSamples
+    .filter(s => { const p = project(s.alt, s.az); return p.isFront && s.alt > -3 })
+    .map(s => ({ ...s, proj: project(s.alt, s.az) }))
+    .sort((a, b) => a.proj.x - b.proj.x)
 
-  // The galactic plane continues past the last catalog waypoint to and below the horizon.
-  // Extend the arch to alt=0 at the near-horizon terminals so the line visually reaches
-  // the horizon rather than stopping 10–20° above it.
-  const archPoints: { x: number; y: number; isFront: boolean }[] = []
-  if (wpFront.length > 0 && wpFront[0].wp.alt < 40) {
-    const hp = project(0, wpFront[0].wp.az)
-    if (hp.isFront) archPoints.push(hp)
-  }
-  wpFront.forEach(({ proj }) => archPoints.push(proj))
-  if (wpFront.length > 0 && wpFront[wpFront.length - 1].wp.alt < 40) {
-    const hp = project(0, wpFront[wpFront.length - 1].wp.az)
-    if (hp.isFront) archPoints.push(hp)
-  }
-
-  const pointsString = archPoints.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const corePos = project(summary.core_peak_alt_deg, summary.core_peak_az_deg)
+  const archPath = catmullRomToBezier(frontSamples.map(s => s.proj))
+  const corePos  = project(summary.core_peak_alt_deg, summary.core_peak_az_deg)
 
   // Altitude rings: in orthographic projection, all points at the same altitude have the
   // same y, and x tapers symmetrically — giving natural curved-ring feel.
@@ -598,6 +672,23 @@ function MilkyWayDome({ summary, waypoints }: { summary: MilkyWaySummary; waypoi
   return (
     <div className="mw-dome-wrap">
       <svg viewBox="0 0 200 114" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <clipPath id="mw-dome-clip">
+            <rect x="0" y="0" width="200" height="100" />
+          </clipPath>
+          {/* Heavy outer halo — the wide diffuse glow of the galactic plane */}
+          <filter id="mw-f-halo" x="-200%" y="-200%" width="500%" height="500%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="8" />
+          </filter>
+          {/* Medium blur for the main band body */}
+          <filter id="mw-f-band" x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" />
+          </filter>
+          {/* Tight blur for the inner bright lane */}
+          <filter id="mw-f-lane" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+          </filter>
+        </defs>
         {/* Altitude rings (tapered — narrower near zenith) */}
         {rings.map(({ alt, hw, y }) => (
           <g key={alt}>
@@ -609,18 +700,38 @@ function MilkyWayDome({ summary, waypoints }: { summary: MilkyWaySummary; waypoi
         <path d="M 0,100 A 100,100 0 0,1 200,100" className="mw-dome-horizon-arc" fill="none" />
         {/* Horizon baseline */}
         <line x1="0" y1="100" x2="200" y2="100" className="mw-dome-horizon" />
-        {/* Arch polyline through galactic-order waypoints */}
-        {archPoints.length > 1 && (
-          <polyline
-            points={pointsString}
-            className="mw-dome-arch"
-            fill="none"
-            strokeLinejoin="round"
-          />
+        {/* Milky Way band — galactic equator (b=0) sampled every 5°; clipped to sky dome */}
+        {frontSamples.length > 1 && (
+          <g clipPath="url(#mw-dome-clip)">
+            {/* 1. Outermost diffuse halo — the wide diffuse glow of the galactic plane */}
+            <path d={archPath} stroke="rgba(140,130,210,0.08)" strokeWidth="46" fill="none"
+                  filter="url(#mw-f-halo)" />
+            {/* 2. Main band body — the primary visible width of the MW */}
+            <path d={archPath} stroke="rgba(185,178,238,0.20)" strokeWidth="18" fill="none"
+                  filter="url(#mw-f-band)" />
+            {/* 3. Bright inner lane — the denser star concentration */}
+            <path d={archPath} stroke="rgba(218,213,252,0.42)" strokeWidth="6" fill="none"
+                  filter="url(#mw-f-lane)" />
+            {/* 4. Spine — the visually bright dust-lane centre */}
+            <path d={archPath} stroke="rgba(242,239,255,0.68)" strokeWidth="1.0" fill="none" />
+          </g>
         )}
-        {/* Galactic core dot */}
+        {/* Structural waypoints — small dots at their true b-offset positions */}
+        {wpDots.map(({ name, proj }) => (
+          <circle key={name}
+            cx={proj.x.toFixed(1)} cy={proj.y.toFixed(1)} r="1.5"
+            fill="rgba(255,255,255,0.55)" />
+        ))}
+        {/* Galactic core bulge — warm golden glow of the nuclear bulge */}
         {corePos.isFront && (
-          <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="3.5" className="mw-dome-core" />
+          <g>
+            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="20"
+                    fill="rgba(255,230,130,0.10)" filter="url(#mw-f-halo)" />
+            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="10"
+                    fill="rgba(255,242,180,0.22)" filter="url(#mw-f-band)" />
+            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="3.5"
+                    fill="rgba(255,225,100,0.92)" />
+          </g>
         )}
         {/* Cardinal direction ticks and labels along the horizon */}
         {cardinalTicks.map(({ x, label, dAz }) => {
@@ -687,7 +798,7 @@ function MilkyWayCard({ summary, waypoints, report }: {
             {s.moon_penalised && <MoonBadge type="penalty" />}
           </div>
         </div>
-        <MilkyWayDome summary={s} waypoints={waypoints} />
+        <MilkyWayDome summary={s} waypoints={waypoints} report={report} />
       </div>
 
       {/* Arch window row */}
@@ -1850,7 +1961,7 @@ export default function ReportCard({
             : <>
                 <div className="mw-section">
                   <div className="mw-section-label">Milky Way</div>
-                  {r.mw_summary
+                  {r.mw_summary && r.mw_summary.n_visible > 1
                     ? <MilkyWayCard
                         summary={r.mw_summary}
                         waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
