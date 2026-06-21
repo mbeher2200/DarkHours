@@ -80,23 +80,24 @@ def _arch_angle(alt1: float, az1: float, alt2: float, az2: float) -> float:
 # Milky Way arch synthesis
 # ---------------------------------------------------------------------------
 
-# Ten waypoints at uniform 36° galactic-longitude intervals.
-# Each pair offset by 180° is symmetric: same |dec|, opposite sign.
+# Eleven waypoints covering the full galactic circle.
+# Ten are at uniform 36° galactic-longitude intervals; the 11th fills the
+# Core→Norma gap (l=351°, dec≈-37°) — visible at low altitude from
+# southern-tier NH latitudes and near-zenith from the southern hemisphere.
 #   Core ↔ Anticenter, Scutum ↔ Monoceros, Cygnus ↔ Puppis,
-#   Cepheus ↔ Carina, Perseus/Cassiopeia ↔ Norma
-# This ensures n_visible / n_total is a true fractional sky-coverage metric:
-# every visible waypoint represents a distinct 36° slice of the galactic plane.
+#   Cepheus ↔ Carina, Perseus/Cassiopeia ↔ Norma, Scorpius (gap filler)
 _MW_WAYPOINT_ORDER = [
-    "Galactic Core",       # l=0°   dec -29°  summer anchor
-    "Scutum Star Cloud",   # l=36°  dec  +3°  ↔ Monoceros
-    "Cygnus Star Cloud",   # l=72°  dec +34°  northern arch peak  ↔ Puppis
-    "Cepheus Cloud",       # l=108° dec +59°  ↔ Carina Arm
-    "Perseus/Cassiopeia",  # l=144° dec +56°  ↔ Norma
-    "Galactic Anticenter", # l=180° dec +29°  ↔ Galactic Core
-    "Monoceros",           # l=216° dec  -3°  winter southern band
-    "Puppis Star Cloud",   # l=252° dec -34°  southern arch peak
-    "Carina Arm",          # l=288° dec -59°  SH showpiece
-    "Norma Star Cloud",    # l=324° dec -56°  connects back toward core
+    "Galactic Core",         # l=0°   dec -29°  summer anchor
+    "Scutum Star Cloud",     # l=36°  dec  +3°  ↔ Monoceros
+    "Cygnus Star Cloud",     # l=72°  dec +34°  northern arch peak  ↔ Puppis
+    "Cepheus Cloud",         # l=108° dec +59°  ↔ Carina Arm
+    "Perseus/Cassiopeia",    # l=144° dec +56°  ↔ Norma
+    "Galactic Anticenter",   # l=180° dec +29°  ↔ Galactic Core
+    "Monoceros",             # l=216° dec  -3°  winter southern band
+    "Puppis Star Cloud",     # l=252° dec -34°  southern arch peak
+    "Carina Arm",            # l=288° dec -59°  SH showpiece
+    "Norma Star Cloud",      # l=324° dec -56°  connects back toward core
+    "Scorpius Star Cloud",   # l=351° dec -37°  gap filler; NGC 6231 region
 ]
 
 # Approximate galactic-core declination for theoretical-max calculations.
@@ -108,11 +109,12 @@ def mw_max_visible(lat: float) -> int:
     Return the maximum number of MW waypoints that can ever be visible
     (peak altitude ≥ 10°) from the given latitude.
 
-    Uses the nominal declinations of the 10 uniform waypoints.
+    Uses the nominal declinations of the 11 catalog waypoints.
     """
     # Nominal decs from gal_to_radec at each l, b=0 (pre-computed)
     _WAYPOINT_DECS = [-28.9, +2.7, +34.1, +59.3, +56.1,
-                      +28.9, -2.7, -34.1, -59.3, -56.1]
+                      +28.9, -2.7, -34.1, -59.3, -56.1,
+                      -36.5]  # Scorpius Star Cloud l=351°
     return sum(1 for dec in _WAYPOINT_DECS if 90 - abs(lat - dec) >= 10)
 
 

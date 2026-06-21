@@ -1086,10 +1086,10 @@ details summary {
   margin-bottom: 6px;
 }
 .mw-section-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  padding: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-h);
+  padding: 0 0 7px;
 }
 .mw-card {
   display: flex;
@@ -1099,8 +1099,18 @@ details summary {
 }
 .mw-score-row {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mw-score-left {
+  display: flex;
   align-items: baseline;
   gap: 14px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 .mw-score {
   font-size: 22px;
@@ -1123,6 +1133,12 @@ details summary {
 .mw-moon-flag {
   color: var(--fair);
 }
+.mw-moon-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fair);
+}
 .mw-score.mw-score-band-excellent { color: var(--excellent); }
 .mw-score.mw-score-band-good      { color: var(--good); }
 .mw-score.mw-score-band-fair      { color: var(--fair); }
@@ -1143,13 +1159,102 @@ details summary {
   font-size: 12px;
   color: var(--text-dim);
 }
-.mw-waypoints {
-  margin-top: 4px;
+/* Waypoints accordion */
+.mw-waypoints-detail {
+  margin-top: 6px;
 }
-.mw-waypoints-label {
+.mw-waypoints-summary {
   font-size: 12px;
   color: var(--text-dim);
-  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-waypoints-summary::before {
+  content: '▶';
+  font-size: 8px;
+  display: inline-block;
+  transition: transform 150ms ease-out;
+}
+.mw-waypoints-detail[open] .mw-waypoints-summary::before {
+  transform: rotate(90deg);
+}
+.mw-waypoints-table-wrap {
+  animation: mwSlideDown 200ms ease-out;
+}
+@keyframes mwSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mw-waypoints-table-wrap { animation: none; }
+}
+
+/* Half-dome SVG visualization */
+.mw-dome-wrap {
+  flex-shrink: 0;
+  width: 200px;
+}
+.mw-dome-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.mw-dome-horizon-arc {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+.mw-dome-horizon {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.mw-dome-ring {
+  stroke: var(--text-dim);
+  stroke-width: 0.5;
+  opacity: 0.4;
+}
+.mw-dome-tick {
+  stroke: var(--text-dim);
+  stroke-width: 0.75;
+  opacity: 0.5;
+}
+.mw-dome-arch {
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-opacity: 0.9;
+}
+.mw-dome-core {
+  fill: var(--excellent);
+}
+.mw-dome-label {
+  fill: var(--text-dim);
+  font-size: 7px;
+  font-family: inherit;
+  opacity: 0.8;
+}
+.mw-dome-absent {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+.mw-absent-reason {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 4px 0 8px;
+}
+
+/* Section divider between Milky Way and DSO blocks */
+.iconic-section-divider {
+  border-top: 1px solid var(--card-border);
+  margin: 14px 0 10px;
+}
+.iconic-targets-label {
+  margin-top: 2px;
 }
 
 .tg-group-hdr td {
@@ -1209,6 +1314,30 @@ details summary {
 .tg-note {
   color: var(--text-dim);
   font-size: 12px;
+}
+/* Inline sky quality badge in the merged Peak column */
+.tg-sky-inline {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tg-sky-inline.tg-sky-dark-sky     { color: var(--excellent); }
+.tg-sky-inline.tg-sky-astro-night  { color: var(--good); }
+.tg-sky-inline.tg-sky-twilight     { color: var(--fair); }
+.tg-sky-inline.tg-sky-moon-wash-minor    { color: var(--good); }
+.tg-sky-inline.tg-sky-moon-wash-moderate { color: var(--fair); }
+.tg-sky-inline.tg-sky-moon-wash-severe   { color: var(--poor); }
+.tg-sky-inline.tg-sky-moon-wash          { color: var(--poor); }
+/* Inline weather icon in Target cell */
+.tg-wx-inline {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+/* Inline glow badge in Target cell */
+.tg-glow-inline {
+  font-size: 11px;
 }
 
 /* ── Blocked/unviable target rows ─────────────────────────────── */
