@@ -1,7 +1,7 @@
 # Lambda variant of the API image: same Amazon Linux 2023 runtime as the App Runner
 # image, plus the AWS Lambda Web Adapter so the *unchanged* FastAPI/uvicorn app runs
 # as a Lambda container behind a Function URL (no code changes, no Mangum).
-FROM amazonlinux:2023@sha256:267b42d61c8eb5537270b62ec97b73bb104708d9245d343b5eeb1d92f0f65d3d
+FROM amazonlinux:2023@sha256:d09f1353c3c0844852cff7bf103498a205532f5bca444e1ed6406e3c5402bb26
 
 # Lambda Web Adapter (external extension): bridges Lambda invokes <-> local uvicorn.
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
