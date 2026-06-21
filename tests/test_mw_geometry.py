@@ -47,7 +47,7 @@ CASES = [
         "summary_none": True,              # no summary (no core → returns None)
         "expect_visible": {                # waypoints that MUST appear in the table
             "Cygnus Star Cloud",           # dec +34° → max 63° from here
-            "Perseus/Cassiopeia",          # dec +56° → up to 85° possible
+            "Cassiopeia/Perseus",          # dec +56° → up to 85° possible
         },
         "expect_absent": {                 # waypoints that must NOT appear
             "Galactic Core",
