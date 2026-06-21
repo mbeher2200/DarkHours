@@ -80,24 +80,24 @@ def _arch_angle(alt1: float, az1: float, alt2: float, az2: float) -> float:
 # Milky Way arch synthesis
 # ---------------------------------------------------------------------------
 
-# Eleven waypoints covering the full galactic circle.
-# Ten are at uniform 36° galactic-longitude intervals; the 11th fills the
-# Core→Norma gap (l=351°, dec≈-37°) — visible at low altitude from
-# southern-tier NH latitudes and near-zenith from the southern hemisphere.
-#   Core ↔ Anticenter, Scutum ↔ Monoceros, Cygnus ↔ Puppis,
-#   Cepheus ↔ Carina, Perseus/Cassiopeia ↔ Norma, Scorpius (gap filler)
+# Fourteen waypoints covering the full galactic circle at approximately even spacing.
+# The southern gap (Puppis→Scorpius) is now filled with Vela, Carina, Crux, and Norma,
+# making the southern-hemisphere arch as complete as the northern one.
 _MW_WAYPOINT_ORDER = [
-    "Galactic Core",         # l=0°   dec -29°  summer anchor
-    "Scutum Star Cloud",     # l=36°  dec  +3°  ↔ Monoceros
-    "Cygnus Star Cloud",     # l=72°  dec +34°  northern arch peak  ↔ Puppis
-    "Cepheus Cloud",         # l=108° dec +59°  ↔ Carina Arm
-    "Perseus/Cassiopeia",    # l=144° dec +56°  ↔ Norma
-    "Galactic Anticenter",   # l=180° dec +29°  ↔ Galactic Core
-    "Monoceros",             # l=216° dec  -3°  winter southern band
-    "Puppis Star Cloud",     # l=252° dec -34°  southern arch peak
-    "Carina Arm",            # l=288° dec -59°  SH showpiece
-    "Norma Star Cloud",      # l=324° dec -56°  connects back toward core
-    "Scorpius Star Cloud",   # l=351° dec -37°  gap filler; NGC 6231 region
+    "Galactic Core",           # l=0°,   b=0°  dec -28.9°  summer anchor / nuclear bulge
+    "Scutum Star Cloud",       # l=27°,  b=-3° dec  -6.6°  Scutum-Centaurus arm
+    "Aquila Rift",             # l=45°,  b=0°  dec +10.7°  dark dust lane splitting the band
+    "Cygnus Star Cloud",       # l=80°,  b=+1° dec +41.3°  northern arch peak
+    "Cepheus Cloud",           # l=105°, b=+3° dec +60.4°  NH circumpolar band
+    "Cassiopeia/Perseus",      # l=135°, b=-1° dec +59.6°  Double Cluster region
+    "Galactic Anticenter",     # l=180°, b=0°  dec +28.9°  Auriga/Taurus
+    "Monoceros",               # l=210°, b=-2° dec  +1.7°  winter southern band
+    "Puppis Star Cloud",       # l=245°, b=0°  dec -28.2°  southern arch peak ↔ Cygnus
+    "Vela Supernova Region",   # l=265°, b=-3° dec -46.5°  Gum Nebula / Vela SNR
+    "Carina Nebula & Cloud",   # l=287°, b=-1° dec -59.7°  Eta Carinae; SH showpiece
+    "Crux & Coalsack",         # l=302°, b=0°  dec -62.9°  Southern Cross + Coal Sack
+    "Norma Star Cloud",        # l=330°, b=-2° dec -53.9°  dense cloud toward core
+    "Scorpius Star Cloud",     # l=347°, b=-2° dec -40.9°  NGC 6231 region; Core→Norma bridge
 ]
 
 # Approximate galactic-core declination for theoretical-max calculations.
@@ -109,12 +109,26 @@ def mw_max_visible(lat: float) -> int:
     Return the maximum number of MW waypoints that can ever be visible
     (peak altitude ≥ 10°) from the given latitude.
 
-    Uses the nominal declinations of the 11 catalog waypoints.
+    Uses the nominal declinations of the 14 catalog waypoints.
     """
     # Nominal decs from gal_to_radec at each l, b=0 (pre-computed)
-    _WAYPOINT_DECS = [-28.9, +2.7, +34.1, +59.3, +56.1,
-                      +28.9, -2.7, -34.1, -59.3, -56.1,
-                      -36.5]  # Scorpius Star Cloud l=351°
+    # Order matches _MW_WAYPOINT_ORDER
+    _WAYPOINT_DECS = [
+        -28.9,  # Galactic Core          l=0°,   b=0°
+         -6.6,  # Scutum Star Cloud      l=27°,  b=-3°
+        +10.7,  # Aquila Rift            l=45°,  b=0°
+        +41.3,  # Cygnus Star Cloud      l=80°,  b=+1°
+        +60.4,  # Cepheus Cloud          l=105°, b=+3°
+        +59.6,  # Cassiopeia/Perseus     l=135°, b=-1°
+        +28.9,  # Galactic Anticenter    l=180°, b=0°
+         +1.7,  # Monoceros              l=210°, b=-2°
+        -28.2,  # Puppis Star Cloud      l=245°, b=0°
+        -46.5,  # Vela Supernova Region  l=265°, b=-3°
+        -59.7,  # Carina Nebula & Cloud  l=287°, b=-1°
+        -62.9,  # Crux & Coalsack        l=302°, b=0°
+        -53.9,  # Norma Star Cloud       l=330°, b=-2°
+        -40.9,  # Scorpius Star Cloud    l=347°, b=-2°
+    ]
     return sum(1 for dec in _WAYPOINT_DECS if 90 - abs(lat - dec) >= 10)
 
 
