@@ -4,6 +4,7 @@
 import concurrent.futures as _futures
 import dataclasses
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -17,7 +18,15 @@ from . import ports as _ports
 from . import scoring
 from . import sky_events as se
 from . import targets as _tgt
-from .milky_way import milky_way_arch_summary as _mw_arch_summary, mw_theoretical_core_max as _mw_core_max
+from .milky_way import (
+    milky_way_arch_summary as _mw_arch_summary,
+    mw_theoretical_core_max as _mw_core_max,
+    bt_moon_glow as _bt_moon_glow,
+    bt_interp_moon_alt as _bt_interp_moon_alt,
+    bt_cloud_frac as _bt_cloud_frac,
+    BT_K_MOON as _BT_K_MOON,
+    BT_STEP_MIN as _BT_STEP_MIN,
+)
 from .moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
 from . import weather as wx
 
@@ -133,11 +142,73 @@ _MOON_WASHOUT_RADIUS_DEG  = 45.0  # washout zone radius at 100% illumination;
                                    # scales linearly → effective = 45° × (illum/100)
 
 
+def _bt_window_best(
+    window,
+    eff_start: datetime,
+    eff_end:   datetime,
+    illum_pct: float,
+    moon_alts: "list | None",
+    weather_points: list,
+) -> datetime:
+    """
+    Return the best observation time within [eff_start, eff_end] using:
+        score = alt_score × moon_score × weather_score
+
+    alt_score:   piecewise-linear altitude track from window geometry.
+    moon_score:  exp(−K × glow) with K&S phase correction and post-moonset fade.
+    wx_score:    1 − cloud_fraction (nearest-neighbour from weather_points).
+
+    Falls back to geometric peak (snapped to effective window) when moon_alts
+    is absent — this preserves existing behaviour for unit tests without ephemeris.
+    """
+    illum_frac = illum_pct / 100.0
+    max_alt    = window.peak_alt_deg
+    if max_alt <= 0:
+        return eff_start
+
+    best_t, best_score = eff_start, -1.0
+    t = eff_start
+    while t <= eff_end:
+        # Piecewise-linear altitude interpolation through start → peak → end
+        if t <= window.peak_time:
+            span = (window.peak_time - window.start).total_seconds()
+            frac = (t - window.start).total_seconds() / span if span > 0 else 0.0
+            frac = max(0.0, min(1.0, frac))
+            alt  = window.start_alt_deg + (max_alt - window.start_alt_deg) * frac
+        else:
+            span = (window.end - window.peak_time).total_seconds()
+            frac = (t - window.peak_time).total_seconds() / span if span > 0 else 0.0
+            frac = max(0.0, min(1.0, frac))
+            alt  = max_alt + (window.end_alt_deg - max_alt) * frac
+
+        alt_s = alt / max_alt
+
+        if moon_alts:
+            moon_alt = _bt_interp_moon_alt(t, moon_alts)
+            glow     = _bt_moon_glow(moon_alt, illum_frac)
+        else:
+            glow = 0.0
+        moon_s = math.exp(-_BT_K_MOON * glow)
+
+        cloud  = _bt_cloud_frac(t, weather_points) if weather_points else 0.0
+        wx_s   = max(0.0, 1.0 - cloud)
+
+        score  = alt_s * moon_s * wx_s
+        if score > best_score:
+            best_score = score
+            best_t     = t
+
+        t += timedelta(minutes=_BT_STEP_MIN)
+
+    return best_t
+
+
 def _apply_condition_vectors(
     targets: list,
     weather_points: list,
     light_dome_info: "dict | None",
     illumination_pct: float,
+    moon_alts: "list | None" = None,
 ) -> None:
     """Post-process VisibleTarget list with atmospheric, dome, and lunar viability vectors.
 
@@ -270,18 +341,14 @@ def _apply_condition_vectors(
 
             window.blockers = blockers
 
-            # --- Best Time ---------------------------------------------------
+            # --- Best Time (K&S scored: altitude × moon × weather) ----------
             if eff_start is None or eff_end is None:
                 window.best_time = None
             else:
-                peak = window.peak_time or window.start
-                if eff_start <= peak <= eff_end:
-                    window.best_time = peak
-                else:
-                    # Snap to the effective boundary nearest the celestial peak.
-                    dist_start = abs((peak - eff_start).total_seconds())
-                    dist_end   = abs((peak - eff_end).total_seconds())
-                    window.best_time = eff_start if dist_start <= dist_end else eff_end
+                window.best_time = _bt_window_best(
+                    window, eff_start, eff_end,
+                    illumination_pct, moon_alts, weather_points,
+                )
 
             # --- Weather score at best time ----------------------------------
             if window.best_time is not None and weather_points:
@@ -557,23 +624,7 @@ def assemble_night(
         target_list = _vt_future.result() if _vt_future is not None else []
         _t["sat_targets_ms"] = round((time.monotonic() - _tc) * 1000)
 
-    # Milky Way arch summary (fast pure calculation — runs after executor closes)
-    mw_summary = None
-    if fetch_targets:
-        _mw_targets = [t for t in target_list if t.type == "milky_way"]
-        if _mw_targets:
-            try:
-                mw_summary = _mw_arch_summary(
-                    _mw_targets,
-                    lat=lat,
-                    moonrise=moonrise,
-                    moonset=moonset,
-                    moon_illumination_pct=illumination,
-                )
-                # Also attach the theoretical core ceiling for context
-                mw_summary["core_max_alt_deg"] = round(_mw_core_max(lat))
-            except Exception as _e:
-                log.debug("mw_arch_summary failed: %s", _e)
+    mw_summary = None   # populated after weather — see below
 
     # executor exits — all futures are resolved
 
@@ -664,9 +715,44 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
-    # --- Phase 1: Condition Vectors — apply after weather + targets resolved ---
+    # --- Moon altitude track (used for best-time scoring across all target types) ---
+    # Sampled sunset→sunrise at 15-min resolution.  Requires de421.bsp; falls back
+    # gracefully (moon_alts=None) when the ephemeris is absent (e.g. unit tests).
+    _moon_alts: list | None = None
     if fetch_targets and target_list:
-        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination)
+        try:
+            _step         = timedelta(minutes=15)
+            _sample_times = []
+            _t_samp       = sunset
+            while _t_samp <= sunrise:
+                _sample_times.append(_t_samp)
+                _t_samp += _step
+            _moon_alt_vals = se.moon_altitude_track(lat, lon, _sample_times)
+            _moon_alts     = list(zip(_sample_times, _moon_alt_vals))
+        except Exception as _mae:
+            log.debug("moon_altitude_track failed (non-fatal): %s", _mae)
+
+    # --- Milky Way arch summary (needs weather + moon_alts for best-viewing-time) ---
+    if fetch_targets:
+        _mw_targets = [t for t in target_list if t.type == "milky_way"]
+        if _mw_targets:
+            try:
+                mw_summary = _mw_arch_summary(
+                    _mw_targets,
+                    lat=lat,
+                    moonrise=moonrise,
+                    moonset=moonset,
+                    moon_illumination_pct=illumination,
+                    moon_alts=_moon_alts,
+                    weather_points=night_points or None,
+                )
+                mw_summary["core_max_alt_deg"] = round(_mw_core_max(lat))
+            except Exception as _e:
+                log.debug("mw_arch_summary failed: %s", _e)
+
+    # --- Phase 1: Condition Vectors — apply after weather + moon_alts resolved ---
+    if fetch_targets and target_list:
+        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination, _moon_alts)
 
     # --- Overall rating ---
     _tc = time.monotonic()

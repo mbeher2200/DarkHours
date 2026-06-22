@@ -20,7 +20,7 @@ milky_way_arch_summary(mw_targets, lat, moonrise, moonset,
 """
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # Galactic coordinate conversion
@@ -137,12 +137,128 @@ def mw_theoretical_core_max(lat: float) -> float:
     return max(0.0, 90.0 - abs(lat - _GALACTIC_CORE_DEC))
 
 
+# ---------------------------------------------------------------------------
+# Best-viewing-time scoring
+# ---------------------------------------------------------------------------
+
+# K&S-calibrated moon glow constants (mirrors the JS archGlowAt / best_time_proto.py).
+# BT_K_MOON and BT_STEP_MIN are public — imported by predictor.py for per-window scoring.
+_BT_CHAR_ALT    = 40.0   # characteristic altitude for moon glow (°)
+BT_K_MOON       = 1.5    # penalty exponent: exp(-K × glow)
+_BT_PHASE_GAMMA = 1.8    # K&S non-linearity: full moon ≈ 10× brighter than quarter
+_BT_MAX_DEP     = 5.0    # full-moon glow lingers up to 5° below horizon; scales with phase
+BT_STEP_MIN     = 15     # sample resolution (minutes)
+
+
+def bt_moon_glow(moon_alt_deg: float, illum_frac: float) -> float:
+    """Moon sky glow with K&S phase correction and post-moonset fade (0–1 scale)."""
+    max_dep = _BT_MAX_DEP * illum_frac
+    if moon_alt_deg <= -max_dep:
+        return 0.0
+    fade    = (moon_alt_deg + max_dep) / max_dep if moon_alt_deg < 0 else 1.0
+    eff_alt = max(moon_alt_deg, 0.0)
+    phase_b = illum_frac ** _BT_PHASE_GAMMA
+    return fade * phase_b / (1.0 + (eff_alt / _BT_CHAR_ALT) ** 2)
+
+
+def _bt_core_alt(t: datetime, core_w) -> float:
+    """Piecewise-linear core altitude interpolated from window endpoints and peak."""
+    if t <= core_w.peak_time:
+        span = (core_w.peak_time - core_w.start).total_seconds()
+        if span <= 0:
+            return core_w.peak_alt_deg
+        frac = max(0.0, min(1.0, (t - core_w.start).total_seconds() / span))
+        return core_w.start_alt_deg + (core_w.peak_alt_deg - core_w.start_alt_deg) * frac
+    else:
+        span = (core_w.end - core_w.peak_time).total_seconds()
+        if span <= 0:
+            return core_w.end_alt_deg
+        frac = max(0.0, min(1.0, (t - core_w.peak_time).total_seconds() / span))
+        return core_w.peak_alt_deg + (core_w.end_alt_deg - core_w.peak_alt_deg) * frac
+
+
+def bt_interp_moon_alt(t: datetime, moon_alts: list) -> float:
+    """Linear-interpolate moon altitude at t from a (datetime, alt_deg) list."""
+    before = [(ts, a) for ts, a in moon_alts if ts <= t]
+    after  = [(ts, a) for ts, a in moon_alts if ts > t]
+    if not before:
+        return after[0][1] if after else -90.0
+    if not after:
+        return before[-1][1]
+    t0, a0 = before[-1]
+    t1, a1 = after[0]
+    span = (t1 - t0).total_seconds()
+    if span <= 0:
+        return a0
+    return a0 + (a1 - a0) * (t - t0).total_seconds() / span
+
+
+def bt_cloud_frac(t: datetime, weather_points: list) -> float:
+    """Nearest-neighbour cloud fraction (0–1) at time t from WeatherPoint list."""
+    if not weather_points:
+        return 0.0
+    nearest = min(weather_points, key=lambda p: abs((p.time - t).total_seconds()))
+    if nearest.cloud_cover_pct is None:
+        return 0.0
+    return nearest.cloud_cover_pct / 100.0
+
+
+def _best_viewing_time(
+    arch_start: datetime,
+    arch_end:   datetime,
+    core_w,
+    moon_illum_pct: float,
+    moon_alts: list | None,
+    weather_points: list | None,
+) -> datetime:
+    """
+    Return the best viewing time within [arch_start, arch_end] using:
+        score = alt_score × moon_score × weather_score
+
+    Falls back to core geometric peak when moon_alts and weather_points are
+    both absent (e.g. unit tests, historical data without weather).
+    """
+    if not moon_alts and not weather_points:
+        peak = core_w.peak_time
+        return max(arch_start, min(arch_end, peak))
+
+    illum_frac = moon_illum_pct / 100.0
+    max_alt    = core_w.peak_alt_deg
+
+    best_t, best_score = arch_start, -1.0
+    t = arch_start
+    while t <= arch_end:
+        core_alt = _bt_core_alt(t, core_w)
+        alt_s    = core_alt / max_alt if max_alt > 0 else 0.0
+
+        if moon_alts:
+            moon_alt = bt_interp_moon_alt(t, moon_alts)
+            glow     = bt_moon_glow(moon_alt, illum_frac)
+        else:
+            glow = 0.0
+        moon_s = math.exp(-BT_K_MOON * glow)
+
+        cloud  = bt_cloud_frac(t, weather_points) if weather_points else 0.0
+        wx_s   = max(0.0, 1.0 - cloud)
+
+        score  = alt_s * moon_s * wx_s
+        if score > best_score:
+            best_score = score
+            best_t     = t
+
+        t += timedelta(minutes=BT_STEP_MIN)
+
+    return best_t
+
+
 def milky_way_arch_summary(
     mw_targets: list,
     lat: float = 0.0,
     moonrise: datetime | None = None,
     moonset:  datetime | None = None,
     moon_illumination_pct: float = 0.0,
+    moon_alts: list | None = None,
+    weather_points: list | None = None,
 ) -> dict | None:
     """
     Synthesise a Milky Way visibility summary from pre-computed visible targets.
@@ -151,6 +267,12 @@ def milky_way_arch_summary(
     lat                   — observer latitude in decimal degrees (used for quality score).
     moonrise / moonset    — times of moonrise/moonset this night (UTC-aware datetimes).
     moon_illumination_pct — moon illumination percentage (0–100).
+    moon_alts             — optional list of (utc_datetime, alt_deg) pairs sampled at
+                            _BT_STEP_MIN intervals across the night; used for best-time
+                            scoring.  When absent, best_viewing_time falls back to the
+                            geometric peak.
+    weather_points        — optional list of WeatherPoint objects (from weather.py);
+                            used for best-time cloud scoring.
 
     When the moon is bright (≥ 25 %) the arch window is clipped to the moon-free
     period: arch_end is capped at moonrise (if moon rises during the window), and
@@ -168,7 +290,8 @@ def milky_way_arch_summary(
     n_max_possible           int       — max waypoints ever visible from this latitude
     n_total                  int       — total catalog waypoints (10)
     local_score              float     — 0–10 quality score relative to lat ceiling
-    core_peak_time           datetime
+    core_peak_time           datetime  — geometric altitude peak (used for dome rendering)
+    best_viewing_time        datetime  — scored peak: alt × moon(K&S) × weather
     core_peak_alt_deg        int       — rounded altitude in degrees
     core_peak_az_deg         int       — rounded azimuth in degrees
     arch_angle_deg           float | None
@@ -299,6 +422,11 @@ def milky_way_arch_summary(
 
     core_peak_in_window = arch_start <= core_w.peak_time <= arch_end
 
+    best_viewing_time = _best_viewing_time(
+        arch_start, arch_end, core_w,
+        moon_illumination_pct, moon_alts, weather_points,
+    )
+
     return {
         "arch_start":            arch_start,
         "arch_end":              arch_end,
@@ -313,6 +441,7 @@ def milky_way_arch_summary(
         "cov_score":             round(cov_frac * 10, 1),
         "win_score":             round(win_frac * 10, 1),
         "core_peak_time":        core_w.peak_time,
+        "best_viewing_time":     best_viewing_time,
         "core_peak_in_window":   core_peak_in_window,
         "core_peak_alt_deg":     round(core_w.peak_alt_deg),
         "core_peak_az_deg":      round(core_w.peak_az_deg),

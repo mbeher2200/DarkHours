@@ -1272,6 +1272,36 @@ details summary {
   background: var(--accent);
   cursor: pointer;
 }
+/* ── MW arch segmented rendering ──────────────────────────────────────────── */
+/* stroke="currentColor" on each <line> inherits color from the parent <g>,
+   so one CSS rule controls all 71 lines per layer. */
+.mw-arch-glow,
+.mw-arch-core {
+  color: white;
+}
+
+/* Red night-vision mode: swap white → red so the arch doesn't bleach dark-
+   adapted rods. rgb(200,0,0) is slightly dimmer than --text-h (#e00000) to
+   keep the wide glow band from dominating in red mode. */
+html.red-mode .mw-arch-glow,
+html.red-mode .mw-arch-core {
+  color: rgb(200, 0, 0);
+}
+
+/* Dome sky-glow blobs: currentColor in the SVG gradient stops inherits from
+   this class, so one CSS switch handles both normal and red-mode. */
+.mw-dome-glow { color: rgb(255, 185, 80); }
+html.red-mode .mw-dome-glow { color: rgb(160, 0, 0); }
+
+/* Moon glow blob: cool silvery-blue in normal mode, dark red in night vision. */
+.mw-moon-glow { color: rgb(200, 215, 240); }
+html.red-mode .mw-moon-glow { color: rgb(160, 0, 0); }
+
+/* glowStyle() returns an inline color (lilac/rose/red by severity) — inline
+   styles beat class rules, so !important is required to override in red mode.
+   Applies to all .cond-glow spans (targets table, satellite table, MW badge). */
+html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
+
 /* Section divider between Milky Way and DSO blocks */
 .iconic-section-divider {
   border-top: 1px solid var(--card-border);

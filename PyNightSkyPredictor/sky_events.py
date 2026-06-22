@@ -343,6 +343,21 @@ def moon_phase_info(at_utc: object) -> tuple:
     return phase_name, illumination
 
 
+def moon_altitude_track(lat: float, lon: float, times_utc: list) -> list[float]:
+    """Return moon altitude in degrees at each UTC datetime in times_utc.
+
+    Requires the de421.bsp ephemeris (eph marker). Used by milky_way_arch_summary
+    to build per-sample moon altitude for best-viewing-time scoring.
+    """
+    import numpy as np
+    ts       = load.timescale()
+    eph      = _ephemeris()
+    observer = wgs84.latlon(lat, lon)
+    t_arr    = ts.from_datetimes(times_utc)
+    alt_arr, _, _ = observer.at(t_arr).observe(eph["moon"]).apparent().altaz()
+    return list(alt_arr.degrees)
+
+
 def find_event(events: list, label: str, after=None, before=None):
     """Return the first event matching label within the optional time bounds."""
     for e in events:
