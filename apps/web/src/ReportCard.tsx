@@ -444,7 +444,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
           <thead>
             <tr>
               <th>Waypoint</th>
-              <th>Peak</th>
+              <th>Best</th>
               <th>Window</th>
             </tr>
           </thead>
@@ -468,6 +468,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                 ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
                 : null
               const showGlow = glow != null && glow >= 0.03
+              const bestT = w.best_time ?? w.peak_time
               return (
                 <tr key={t.name}>
                   <td>
@@ -479,7 +480,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                     )}
                   </td>
                   <td className="wx-num">
-                    <span className="tg-t">{formatTime(w.peak_time, tz)}</span>
+                    <span className="tg-t">{formatTime(bestT, tz)}</span>
                     <span className="tg-p"> (Alt </span>
                     <span className="tg-alt">{Math.round(w.peak_alt_deg)}°</span>
                     <span className="tg-p"> · Az </span>
@@ -599,6 +600,192 @@ function galToAltAz(l_deg: number, b_deg: number, lat_deg: number, lon_deg: numb
   }
 }
 
+// Simplified moon position (Meeus Ch.47, largest perturbation terms).
+// Accurate to ~0.3° — sufficient for the dome visualization glow blob.
+function moonAltAz(lat: number, lon: number, utcMs: number): { alt: number; az: number } {
+  const r   = (d: number) => d * Math.PI / 180
+  const mod = (x: number) => ((x % 360) + 360) % 360
+  const JD  = utcMs / 86_400_000 + 2_440_587.5
+  const D   = JD - 2_451_545.0
+  const T   = D / 36_525.0
+
+  // Fundamental arguments (degrees)
+  const Lp = mod(218.3164477 + 481267.88123421 * T)
+  const Mp = mod(134.9633964 + 477198.8675055  * T)
+  const M  = mod(357.5291092 + 35999.0502909   * T)
+  const Dg = mod(297.8501921 + 445267.1114034  * T)
+  const F  = mod(93.2720950  + 483202.0175233  * T)
+
+  // Ecliptic longitude (10 largest terms, coefficients ×1e-6 degrees)
+  const ΣL = (
+    + 6288774 * Math.sin(r(Mp))
+    + 1274027 * Math.sin(r(2*Dg - Mp))
+    +  658314 * Math.sin(r(2*Dg))
+    +  213618 * Math.sin(r(2*Mp))
+    -  185116 * Math.sin(r(M))
+    -  114332 * Math.sin(r(2*F))
+    +   58793 * Math.sin(r(2*Dg - 2*Mp))
+    +   57066 * Math.sin(r(2*Dg - M - Mp))
+    +   53322 * Math.sin(r(2*Dg + Mp))
+    +   45758 * Math.sin(r(2*Dg - M))
+  ) / 1e6
+
+  // Ecliptic latitude (6 largest terms)
+  const ΣB = (
+    + 5128122 * Math.sin(r(F))
+    +  280602 * Math.sin(r(Mp + F))
+    +  277693 * Math.sin(r(Mp - F))
+    +  173237 * Math.sin(r(2*Dg - F))
+    +   55413 * Math.sin(r(2*Dg - Mp + F))
+    +   46271 * Math.sin(r(2*Dg - Mp - F))
+  ) / 1e6
+
+  const λ = r(mod(Lp + ΣL))
+  const β = r(ΣB)
+  const ε = r(23.4393 - 0.013004 * T)  // obliquity of ecliptic
+
+  // Ecliptic → equatorial
+  const ra  = Math.atan2(Math.sin(λ) * Math.cos(ε) - Math.tan(β) * Math.sin(ε), Math.cos(λ))
+  const dec = Math.asin(Math.sin(β) * Math.cos(ε) + Math.cos(β) * Math.sin(ε) * Math.sin(λ))
+
+  // GMST (Meeus Ch.12) → HA — same formula as galToAltAz
+  const gmst = r(mod(280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38_710_000))
+  const ha   = gmst + r(lon) - ra
+  const latR = r(lat)
+
+  const sinAlt = Math.sin(dec) * Math.sin(latR) + Math.cos(dec) * Math.cos(latR) * Math.cos(ha)
+  const alt    = Math.asin(Math.max(-1, Math.min(1, sinAlt))) * 180 / Math.PI
+  const az     = (Math.atan2(
+    -Math.cos(dec) * Math.sin(ha),
+    Math.sin(dec) * Math.cos(latR) - Math.cos(dec) * Math.sin(latR) * Math.cos(ha),
+  ) * 180 / Math.PI + 360) % 360
+  return { alt, az }
+}
+
+// ── Light dome direction/glow utilities ──────────────────────────────────────
+// Defined before MilkyWayDome so archSegmentBrightness (below) can call glowToward.
+
+const LD_DIRS: Direction[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+const LD_DIR_AZ: Record<Direction, number> = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 }
+// Thresholds mirror light_dome.py (minor_threshold / major_threshold) so the colour
+// scale is comparable across sites: green→amber at MINOR, →red by MAJOR.
+const LD_MINOR = 0.25
+const LD_MAJOR = 3.0
+// Log-interpolated colour stops (RGB), keyed on the thresholds, using the app's own
+// quality ramp (excellent → good → fair → poor). The darkest end fades to BLACK — the
+// "excellent of excellent" = true darkness. Glow rises: black → green → blue → lilac → rose.
+const LD_STOPS: [number, [number, number, number]][] = [
+  [0,        [0, 0, 0]],        // darkness — the best (excellent-of-excellent)
+  [0.03,     [52, 211, 153]],   // --excellent green
+  [0.12,     [96, 165, 250]],   // --good blue
+  [LD_MINOR, [167, 139, 250]],  // --fair lilac — a minor dome
+  [0.9,      [251, 113, 133]],  // --poor rose
+  [LD_MAJOR, [225, 80, 100]],   // deep --poor — a major dome
+]
+// Bloom-legibility transform: real dome heights are ~1° (a sub-pixel rim sliver), so
+// for *display* we scale them up and floor them. This shapes the on-screen bloom, not
+// the physics. Directions with no flagged dome get a small default height.
+const LD_THETA_K = 5
+const LD_THETA_FLOOR_DEG = 6
+const LD_THETA_DEFAULT_DEG = 4
+const LD_SIZE = 168            // CSS px; disk + room for N/E/S/W labels
+
+function ldColor(v: number): [number, number, number] {
+  if (v <= LD_STOPS[0][0]) return LD_STOPS[0][1]
+  for (let i = 1; i < LD_STOPS.length; i++) {
+    const [hv, hc] = LD_STOPS[i]
+    if (v <= hv) {
+      const [lv, lc] = LD_STOPS[i - 1]
+      const t = (Math.log(Math.max(v, 1e-4)) - Math.log(Math.max(lv, 1e-4))) /
+                (Math.log(hv) - Math.log(Math.max(lv, 1e-4)))
+      const k = Math.max(0, Math.min(1, t))
+      return [lc[0] + (hc[0] - lc[0]) * k, lc[1] + (hc[1] - lc[1]) * k, lc[2] + (hc[2] - lc[2]) * k]
+    }
+  }
+  return LD_STOPS[LD_STOPS.length - 1][1]
+}
+
+// Tent-interpolate a per-direction array at an arbitrary azimuth (partition of unity
+// across the two nearest cardinals — same scheme as light_dome.glow_toward).
+function ldTent(arr: number[], azDeg: number): number {
+  const p = (((azDeg % 360) + 360) % 360) / 45
+  const lo = Math.floor(p) % 8
+  const hi = (lo + 1) % 8
+  const f = p - Math.floor(p)
+  return arr[lo] * (1 - f) + arr[hi] * f
+}
+
+// Mirrors light_dome.glow_toward(): score(az) / (1 + (alt/θ(az))²)
+function glowToward(summary: LightDomeSummary, azDeg: number, altDeg: number): number {
+  const scores8  = LD_DIRS.map(d => summary.scores[d] ?? 0)
+  const heights8 = LD_DIRS.map(d => summary.dome_heights[d] ?? 0)
+  const score    = ldTent(scores8, azDeg)
+  const theta    = ldTent(heights8, azDeg)
+  const alt      = Math.max(0, altDeg)
+  if (theta <= 0) return alt === 0 ? score : 0
+  return score / (1 + (alt / theta) ** 2)
+}
+
+function glowLabel(g: number): string {
+  if (g < 0.03)     return 'negligible'
+  if (g < LD_MINOR) return 'minor'
+  if (g < LD_MAJOR) return 'moderate'
+  return 'major'
+}
+
+// CSS colour for a glow value, reusing the LD stop palette.
+// Negligible glow returns {} so the element inherits var(--text-dim) from CSS;
+// the LD ramp starts at black (the zero-glow "excellent" end) which is invisible
+// on dark backgrounds, so we only apply inline colour once the glow is meaningful.
+function glowStyle(g: number): React.CSSProperties {
+  if (g < 0.03) return {}
+  const [r, gr, b] = ldColor(g)
+  return { color: `rgb(${Math.round(r)},${Math.round(gr)},${Math.round(b)})` }
+}
+
+// Sky background brightness for MW arch visibility — distinct from glowToward().
+// dome_heights are geometric angles (1-3° for a city 30+ mi away) but city glow
+// scatters through the atmosphere and degrades sky brightness well above that.
+// A 40° characteristic altitude matches observer perception: score at the horizon
+// falls to ~50% at 40°, ~20% at 80° (zenith). Uses direction scores only, no heights.
+function archGlowAt(summary: LightDomeSummary, azDeg: number, altDeg: number): number {
+  const scores8 = LD_DIRS.map(d => summary.scores[d] ?? 0)
+  const score   = ldTent(scores8, azDeg)
+  const alt     = Math.max(0, altDeg)
+  return score / (1 + (alt / 40) ** 2)
+}
+
+// ── Milky Way brightness model ────────────────────────────────────────────────
+// Two-component empirical model: compact Gaussian bulge + linear disk + floor.
+// sigma=0.28 chosen to match known bright regions (core→scutum→cygnus→anticenter).
+function intrinsicBrightness(l_deg: number): number {
+  const norm  = ((l_deg % 360) + 360) % 360
+  const delta = Math.min(norm, 360 - norm)    // 0° at core, 180° at anticenter
+  const x     = delta / 180                    // normalised [0, 1]
+  const bulge = 0.70 * Math.exp(-x * x / (2 * 0.28 * 0.28))
+  const disk  = 0.18 * (1 - x * 0.7)
+  return Math.max(0, Math.min(1, 0.12 + bulge + disk))
+}
+
+// Exponential attenuation from a light-dome glow index → brightness multiplier [0,1].
+// glow=0→1.0, glow=0.25(LD_MINOR)→0.82, glow=1.0→0.45, glow=3.0(LD_MAJOR)→0.09
+function washoutFactor(glow: number): number {
+  return Math.exp(-0.8 * glow)
+}
+
+// Per-segment arch brightness: intrinsic galactic profile × light-dome washout.
+// Returns {glowOpacity, coreOpacity} for the two rendering layers.
+function archSegmentBrightness(
+  l: number, alt: number, az: number,
+  lightDome: LightDomeSummary | null
+): { glowOpacity: number; coreOpacity: number } {
+  const I    = intrinsicBrightness(l)
+  const glow = lightDome ? archGlowAt(lightDome, az, alt) : 0
+  const W    = washoutFactor(glow)
+  const B    = I * W
+  return { glowOpacity: B * 0.35, coreOpacity: B * 0.85 }
+}
+
 // Orthographic projection of the sky dome, camera centered on the galactic core azimuth.
 // The arch traces the galactic equator (b=0), sampled every 5° of galactic longitude.
 function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary; waypoints: VisibleTarget[]; report: NightReport }) {
@@ -621,7 +808,9 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const peakTimeMs = new Date(summary.core_peak_time).getTime();
 
-  type EqSample = { l: number; alt: number; az: number; };
+  type EqSample = { l: number; alt: number; az: number; }
+  type ArchSegment = { x1: number; y1: number; x2: number; y2: number; glowOpacity: number; coreOpacity: number }
+
   const allEquatorSamples: EqSample[] = Array.from({ length: 72 }, (_, i) => {
     const l = i * 5;
     const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
@@ -690,9 +879,54 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
       currentStreak = [];
     }
   }
-  const visibleArc = longestStreak.slice(0, 73).map(s => ({ ...s, proj: project(s.alt, s.az) }));
-  const archPath = catmullRomToBezier(visibleArc.filter(s => s.proj.isFront).map(s => ({ x: s.proj.x, y: s.proj.y })));
+  const visibleArc = longestStreak.slice(0, 73).map(s => ({ ...s, proj: project(s.alt, s.az) }))
+
+  // Build per-segment brightness for the variable-opacity arch rendering.
+  const visibleSegments: ArchSegment[] = []
+  for (let i = 0; i < visibleArc.length - 1; i++) {
+    const a = visibleArc[i], b = visibleArc[i + 1]
+    if (!a.proj.isFront || !b.proj.isFront) continue
+    const bA = archSegmentBrightness(a.l, a.alt, a.az, report.light_dome ?? null)
+    const bB = archSegmentBrightness(b.l, b.alt, b.az, report.light_dome ?? null)
+    visibleSegments.push({
+      x1: a.proj.x, y1: a.proj.y,
+      x2: b.proj.x, y2: b.proj.y,
+      glowOpacity: (bA.glowOpacity + bB.glowOpacity) / 2,
+      coreOpacity: (bA.coreOpacity + bB.coreOpacity) / 2,
+    })
+  }
   const corePos = project(summary.core_peak_alt_deg, summary.core_peak_az_deg ?? 0);
+
+  // Sky glow blobs: one per dome direction, anchored 5° above horizon so the gradient
+  // peak sits just inside the dome rather than exactly on the arc edge.
+  type DomeGlow = { dir: Direction; x: number; y: number; r: number; op: number }
+  const domeGlows: DomeGlow[] = report.light_dome
+    ? LD_DIRS.flatMap(d => {
+        const score = report.light_dome!.scores[d] ?? 0
+        if (score < LD_MINOR) return []
+        const pos = project(5, LD_DIR_AZ[d])
+        if (!pos.isFront) return []
+        const r  = Math.min(85, 30 + 18 * Math.log1p(score))
+        const op = Math.min(0.50, 0.12 + 0.15 * Math.log1p(score))
+        return [{ dir: d, x: pos.x, y: pos.y, r, op }]
+      })
+    : []
+
+  // Moon glow blob: position at arch peak time, brightness scales with illumination.
+  // Only shown when moon is above the horizon and meaningfully illuminated (≥5%).
+  const moonGlowPos = (() => {
+    if (report.illumination_pct < 5) return null
+    const { alt, az } = moonAltAz(report.lat, report.lon, peakTimeMs)
+    if (alt <= 0) return null
+    const pos = project(alt, az)
+    if (!pos.isFront) return null
+    const illumFrac = report.illumination_pct / 100
+    return {
+      x: pos.x, y: pos.y,
+      r:  Math.min(70, 15 + 55 * illumFrac),
+      op: Math.min(0.45, 0.05 + 0.40 * illumFrac),
+    }
+  })()
 
   const cardinals = [
     { deg: 0, label: 'N' }, { deg: 45, label: 'NE' }, { deg: 90, label: 'E' },
@@ -710,13 +944,67 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           <filter id="mw-f-band" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
           </filter>
+          {domeGlows.map(g => (
+            <radialGradient key={g.dir} id={`mw-ldg-${g.dir}`}
+              cx={g.x} cy={g.y} r={g.r} gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stopColor="currentColor" stopOpacity={g.op} />
+              <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+          ))}
+          {moonGlowPos && (
+            <radialGradient id="mw-moon-g"
+              cx={moonGlowPos.x} cy={moonGlowPos.y} r={moonGlowPos.r} gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stopColor="currentColor" stopOpacity={moonGlowPos.op} />
+              <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+            </radialGradient>
+          )}
         </defs>
 
         <path d="M 0 100 A 100 100 0 0 1 200 100 Z" fill="rgba(10, 15, 30, 0.4)" />
 
+        {/* Sky glow from light domes — color controlled via .mw-dome-glow for red-mode compliance */}
+        {domeGlows.length > 0 && (
+          <g className="mw-dome-glow" clipPath="url(#mw-half-dome-clip)">
+            {domeGlows.map(g => (
+              <circle key={g.dir} cx={g.x} cy={g.y} r={g.r}
+                fill={`url(#mw-ldg-${g.dir})`} />
+            ))}
+          </g>
+        )}
+
+        {/* Moon glow — color controlled via .mw-moon-glow for red-mode compliance */}
+        {moonGlowPos && (
+          <g className="mw-moon-glow" clipPath="url(#mw-half-dome-clip)">
+            <circle cx={moonGlowPos.x} cy={moonGlowPos.y} r={moonGlowPos.r} fill="url(#mw-moon-g)" />
+            <circle cx={moonGlowPos.x} cy={moonGlowPos.y} r="2" fill="currentColor" opacity="0.75" />
+          </g>
+        )}
+
         <g clipPath="url(#mw-half-dome-clip)">
-          <path d={archPath} stroke="rgba(255,255,255,0.3)" strokeWidth="14" fill="none" filter="url(#mw-f-band)" />
-          <path d={archPath} stroke="rgba(255,255,255,0.8)" strokeWidth="1.5" fill="none" />
+          {/* GLOW LAYER: blurred wide band; filter on the group blends joints between segments */}
+          <g filter="url(#mw-f-band)" className="mw-arch-glow">
+            {visibleSegments.map((seg, i) => (
+              <line
+                key={i}
+                x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2}
+                stroke="currentColor"
+                strokeWidth="14"
+                strokeOpacity={seg.glowOpacity}
+              />
+            ))}
+          </g>
+          {/* CORE LAYER: thin bright stripe, variable opacity per segment */}
+          <g className="mw-arch-core">
+            {visibleSegments.map((seg, i) => (
+              <line
+                key={i}
+                x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2}
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeOpacity={seg.coreOpacity}
+              />
+            ))}
+          </g>
         </g>
 
         {/* 2. REPLACED HERE: The Galactic Core */}
@@ -831,8 +1119,28 @@ export function MilkyWayCard({ summary, waypoints, report }: {
     ? (s.arch_angle_deg >= 60 ? 'steep' : s.arch_angle_deg >= 35 ? 'moderate' : 'flat')
     : null
 
-  const bestLabel = s.core_peak_in_window ? 'Best time' : 'Best before'
-  const bestTime  = s.core_peak_in_window ? s.core_peak_time : s.arch_end
+  // Directions where dome glow visibly dims the arch at peak time.
+  // Uses archGlowAt (40° characteristic alt) at each dome direction within ±90° of the
+  // core az; flags it when the resulting glow ≥ LD_MINOR (≥18% brightness reduction).
+  const domeSections: { dir: Direction; glow: number }[] = (() => {
+    if (!report.light_dome || s.core_peak_az_deg == null) return []
+    const coreAz   = s.core_peak_az_deg
+    const proxyAlt = Math.max(5, s.core_peak_alt_deg ?? 25)
+    return LD_DIRS.flatMap(d => {
+      const score = report.light_dome!.scores[d] ?? 0
+      if (score < LD_MINOR) return []
+      const dirAz = LD_DIR_AZ[d]
+      let delta = ((dirAz - coreAz) + 360) % 360
+      if (delta > 180) delta = 360 - delta
+      if (delta > 90) return []
+      const glow = archGlowAt(report.light_dome!, dirAz, proxyAlt)
+      if (glow < LD_MINOR) return []
+      return [{ dir: d, glow }]
+    })
+  })()
+
+  const bestLabel = 'Best time'
+  const bestTime  = s.best_viewing_time ?? (s.core_peak_in_window ? s.core_peak_time : s.arch_end)
 
   return (
     <div className="mw-card">
@@ -851,6 +1159,19 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
                 {s.moon_penalised && <MoonBadge type="penalty" />}
+                {domeSections.length > 0 && (() => {
+                  const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
+                  const severity = glowLabel(maxGlow)
+                  const dirs     = domeSections.map(ds => ds.dir).join(' + ')
+                  const label    = `${dirs} ${domeSections.length > 1 ? 'sections' : 'section'}`
+                  return (
+                    <span className="mw-moon-badge">
+                      {`[ Dome glow: ${label} · `}
+                      <span className="cond-glow" style={glowStyle(maxGlow)}>{severity}</span>
+                      {' ]'}
+                    </span>
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -1508,83 +1829,8 @@ function NearbyResults(
 // dome's apparent height, so a distant low metro dome hugs the rim while a near one
 // reaches higher. Mirrors the engine: glow(az,alt) = score(az)/(1+(alt/θ(az))²)
 // (PyNightSkyPredictor/light_dome.py glow_toward).
-
-const LD_DIRS: Direction[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-// Thresholds mirror light_dome.py (minor_threshold / major_threshold) so the colour
-// scale is comparable across sites: green→amber at MINOR, →red by MAJOR.
-const LD_MINOR = 0.25
-const LD_MAJOR = 3.0
-// Log-interpolated colour stops (RGB), keyed on the thresholds, using the app's own
-// quality ramp (excellent → good → fair → poor). The darkest end fades to BLACK — the
-// "excellent of excellent" = true darkness. Glow rises: black → green → blue → lilac → rose.
-const LD_STOPS: [number, [number, number, number]][] = [
-  [0,        [0, 0, 0]],        // darkness — the best (excellent-of-excellent)
-  [0.03,     [52, 211, 153]],   // --excellent green
-  [0.12,     [96, 165, 250]],   // --good blue
-  [LD_MINOR, [167, 139, 250]],  // --fair lilac — a minor dome
-  [0.9,      [251, 113, 133]],  // --poor rose
-  [LD_MAJOR, [225, 80, 100]],   // deep --poor — a major dome
-]
-// Bloom-legibility transform: real dome heights are ~1° (a sub-pixel rim sliver), so
-// for *display* we scale them up and floor them. This shapes the on-screen bloom, not
-// the physics. Directions with no flagged dome get a small default height.
-const LD_THETA_K = 5
-const LD_THETA_FLOOR_DEG = 6
-const LD_THETA_DEFAULT_DEG = 4
-const LD_SIZE = 168            // CSS px; disk + room for N/E/S/W labels
-
-function ldColor(v: number): [number, number, number] {
-  if (v <= LD_STOPS[0][0]) return LD_STOPS[0][1]
-  for (let i = 1; i < LD_STOPS.length; i++) {
-    const [hv, hc] = LD_STOPS[i]
-    if (v <= hv) {
-      const [lv, lc] = LD_STOPS[i - 1]
-      const t = (Math.log(Math.max(v, 1e-4)) - Math.log(Math.max(lv, 1e-4))) /
-                (Math.log(hv) - Math.log(Math.max(lv, 1e-4)))
-      const k = Math.max(0, Math.min(1, t))
-      return [lc[0] + (hc[0] - lc[0]) * k, lc[1] + (hc[1] - lc[1]) * k, lc[2] + (hc[2] - lc[2]) * k]
-    }
-  }
-  return LD_STOPS[LD_STOPS.length - 1][1]
-}
-
-// Tent-interpolate a per-direction array at an arbitrary azimuth (partition of unity
-// across the two nearest cardinals — same scheme as light_dome.glow_toward).
-function ldTent(arr: number[], azDeg: number): number {
-  const p = (((azDeg % 360) + 360) % 360) / 45
-  const lo = Math.floor(p) % 8
-  const hi = (lo + 1) % 8
-  const f = p - Math.floor(p)
-  return arr[lo] * (1 - f) + arr[hi] * f
-}
-
-// Mirrors light_dome.glow_toward(): score(az) / (1 + (alt/θ(az))²)
-function glowToward(summary: LightDomeSummary, azDeg: number, altDeg: number): number {
-  const scores8  = LD_DIRS.map(d => summary.scores[d] ?? 0)
-  const heights8 = LD_DIRS.map(d => summary.dome_heights[d] ?? 0)
-  const score    = ldTent(scores8, azDeg)
-  const theta    = ldTent(heights8, azDeg)
-  const alt      = Math.max(0, altDeg)
-  if (theta <= 0) return alt === 0 ? score : 0
-  return score / (1 + (alt / theta) ** 2)
-}
-
-function glowLabel(g: number): string {
-  if (g < 0.03)    return 'negligible'
-  if (g < LD_MINOR) return 'low'
-  if (g < LD_MAJOR) return 'moderate'
-  return 'high'
-}
-
-// CSS colour for a glow value, reusing the LD stop palette.
-// Negligible glow returns {} so the element inherits var(--text-dim) from CSS;
-// the LD ramp starts at black (the zero-glow "excellent" end) which is invisible
-// on dark backgrounds, so we only apply inline colour once the glow is meaningful.
-function glowStyle(g: number): React.CSSProperties {
-  if (g < 0.03) return {}
-  const [r, gr, b] = ldColor(g)
-  return { color: `rgb(${Math.round(r)},${Math.round(gr)},${Math.round(b)})` }
-}
+// LD constants and utility functions (LD_DIRS, ldTent, glowToward, etc.) are defined
+// earlier in this file, before MilkyWayDome, so archSegmentBrightness can use them.
 
 // Nearest hourly weather point to a given ISO time.
 function wxAtTime(points: WeatherPoint[], isoTime: string): WeatherPoint | null {
