@@ -496,4 +496,6 @@ def milky_way_arch_summary(
         "farthest_name":         farthest.name if farthest else None,
         "farthest_peak_alt_deg": round(farthest_w.peak_alt_deg) if farthest_w else None,
         "farthest_peak_az_deg":  round(farthest_w.peak_az_deg)  if farthest_w else None,
+        "core_moon_sep_deg":     getattr(core_w, "moon_sep_at_peak_deg", None),
+        "core_moon_alt_deg":     getattr(core_w, "moon_alt_at_peak_deg", None),
     }

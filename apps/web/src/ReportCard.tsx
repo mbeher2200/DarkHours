@@ -514,8 +514,9 @@ function WaypointsAccordion({ waypoints, summary, report }: {
   )
 }
 
-function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
-  const text = type === 'penalty' ? 'Moon interference' : 'Moon limited'
+function MoonBadge({ type, severity }: { type: 'penalty' | 'limited'; severity?: string | null }) {
+  const base = type === 'penalty' ? 'Moon interference' : 'Moon limited'
+  const text = severity ? `${base}: ${severity}` : base
   return <span className="mw-moon-badge">[ {text} ]</span>
 }
 
@@ -1189,6 +1190,12 @@ export function MilkyWayCard({ summary, waypoints, report }: {
   const bestLabel = 'Best time'
   const bestTime  = s.best_viewing_time ?? (s.core_peak_in_window ? s.core_peak_time : s.arch_end)
 
+  const moonSeverity = moonWashSeverity(
+    report.illumination_pct,
+    s.core_moon_sep_deg ?? null,
+    s.core_moon_alt_deg ?? null,
+  )
+
   return (
     <div className="mw-card">
 
@@ -1205,7 +1212,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                 <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
-                {s.moon_penalised && <MoonBadge type="penalty" />}
+                {s.moon_penalised && <MoonBadge type="penalty" severity={moonSeverity} />}
                 {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout ]</span>}
                 {s.weather_blocked  && <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>}
                 {s.weather_limited  && <span className="mw-moon-badge">[ Partly cloudy ]</span>}
@@ -1231,7 +1238,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
             <span>
               {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
               {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-              {s.moon_limited    && <MoonBadge type="limited" />}
+              {s.moon_limited    && <MoonBadge type="limited" severity={moonSeverity} />}
               {s.weather_limited && !s.weather_blocked && (
                 <span className="mw-moon-badge">
                   {`[ ${s.clear_arch_hours.toFixed(1)}h clear ]`}

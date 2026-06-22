@@ -150,6 +150,8 @@ export interface MilkyWaySummary {
   farthest_peak_alt_deg: number | null
   farthest_peak_az_deg:  number | null
   core_max_alt_deg:     number
+  core_moon_sep_deg:    number | null   // moon angular separation from galactic core at peak
+  core_moon_alt_deg:    number | null   // moon altitude at core peak (K&S input)
 }
 
 // ── Light dome (horizon glow) ─────────────────────────────────────────────────
