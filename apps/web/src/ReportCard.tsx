@@ -348,28 +348,31 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                   : null
                 const wxAtPeak = wxAtTime(report.weather_points, p.peak_time)
                 const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
-                return (
-                  <tr key={i} className={satCloudy ? 'tg-row-blocked' : undefined}>
-                    <td>
-                      {label}
-                      {satCloudy && (
-                        <span className="mw-moon-badge badge-poor" style={{marginLeft: '6px'}}>[ Clouded out ]</span>
-                      )}
+                if (satCloudy) return (
+                  <tr key={i} className="tg-row-blocked">
+                    <td>{label}</td>
+                    <td className="wx-num" colSpan={11 + (satGlow != null ? 1 : 0)} style={{textAlign: 'center'}}>
+                      <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>
                     </td>
-                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.rise_time, tz)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : `${p.rise_alt_deg.toFixed(0)}°`}</td>
-                    <td className="wx-num">{satCloudy ? '—' : az(p.rise_az_deg)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.peak_time, tz)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : `${p.peak_alt_deg.toFixed(0)}°`}</td>
-                    <td className="wx-num">{satCloudy ? '—' : az(p.peak_az_deg)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.set_time, tz)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : setAlt}</td>
-                    <td className="wx-num">{satCloudy ? '—' : az(p.set_az_deg)}</td>
-                    <td className="wx-num">{satCloudy ? '—' : `${p.duration_min.toFixed(0)}m`}</td>
-                    <td className="wx-num">{satCloudy ? '—' : moonStr}</td>
+                  </tr>
+                )
+                return (
+                  <tr key={i}>
+                    <td>{label}</td>
+                    <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
+                    <td className="wx-num">{p.rise_alt_deg.toFixed(0)}°</td>
+                    <td className="wx-num">{az(p.rise_az_deg)}</td>
+                    <td className="wx-num">{formatTime(p.peak_time, tz)}</td>
+                    <td className="wx-num">{p.peak_alt_deg.toFixed(0)}°</td>
+                    <td className="wx-num">{az(p.peak_az_deg)}</td>
+                    <td className="wx-num">{formatTime(p.set_time, tz)}</td>
+                    <td className="wx-num">{setAlt}</td>
+                    <td className="wx-num">{az(p.set_az_deg)}</td>
+                    <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
+                    <td className="wx-num">{moonStr}</td>
                     {satGlow != null && (
-                      <td className="wx-num cond-glow" style={!satCloudy && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
-                        {satCloudy ? '—' : satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
+                      <td className="wx-num cond-glow" style={satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
+                        {satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
                       </td>
                     )}
                   </tr>
