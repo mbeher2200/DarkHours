@@ -510,47 +510,6 @@ function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
   return <span className="mw-moon-badge">[ {text} ]</span>
 }
 
-// Physical structural order along the Milky Way band (galactic longitude).
-// Connecting waypoints in this order prevents zig-zag crossing lines at the zenith.
-// Physical order along the galactic plane by longitude (counterclockwise).
-// Anticenter (l=180°) is the midpoint; northern arm descends toward Core,
-// southern arm continues through the SH showpieces back toward Core.
-/*const GALACTIC_ORDER = [
-  'Galactic Anticenter',     // l=180°
-  'Cassiopeia/Perseus',      // l=135°
-  'Cepheus Cloud',           // l=105°
-  'Cygnus Star Cloud',       // l=80°
-  'Aquila Rift',             // l=45°
-  'Scutum Star Cloud',       // l=27°
-  'Galactic Core',           // l=0°
-  'Scorpius Star Cloud',     // l=347°
-  'Norma Star Cloud',        // l=330°
-  'Crux & Coalsack',         // l=302°
-  'Carina Nebula & Cloud',   // l=287°
-  'Vela Supernova Region',   // l=265°
-  'Puppis Star Cloud',       // l=245°
-  'Monoceros',               // l=210°
-]*/
-
-// Catmull-Rom → cubic Bezier conversion for smooth interpolation through waypoints.
-function catmullRomToBezier(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return ''
-  if (pts.length === 2)
-    return `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L ${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`
-  let d = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)]
-    const p1 = pts[i]
-    const p2 = pts[i + 1]
-    const p3 = pts[Math.min(pts.length - 1, i + 2)]
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
-  }
-  return d
-}
 
 // IAU (1958) galactic → ICRS rotation matrix (mirrors milky_way.py exactly).
 const _GAL_TO_ICRS = [
@@ -792,6 +751,8 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   const [heading, setHeading] = useState<number>(
     summary.core_peak_az_deg != null ? Math.round(summary.core_peak_az_deg) : 180
   );
+  const [tilt, setTilt] = useState<number>(0);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
 
   // 1. ADDED HERE: State to track which dot is currently being hovered
   const [hoveredDot, setHoveredDot] = useState<{name: string, x: number, y: number} | null>(null);
@@ -817,22 +778,31 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
     return { l, alt, az };
   });
 
+  // Gnomonic (rectilinear/perspective) projection — models a wide-angle camera
+  // pointed at the horizon along `heading`. Great circles project to straight lines.
+  const FOV_HALF_DEG = 60;                        // 120° total horizontal FoV
+  const f = 100 / Math.tan(toRad(FOV_HALF_DEG)); // focal length ~57.7 SVG units
+
   const project = (alt: number, az: number) => {
     const altR = toRad(alt);
-    const azR = toRad(az - heading);
-    const dx = Math.cos(altR) * Math.sin(azR);
-    const dy = Math.sin(altR);
-    const dz = Math.cos(altR) * Math.cos(azR);
-    const theta = Math.atan2(Math.sqrt(dx * dx + dy * dy), dz);
-    const r = 100 * (theta / (Math.PI / 2));
-    const Rxy = Math.sqrt(dx * dx + dy * dy);
-
+    const azR  = toRad(az - heading);
+    const tiltR = toRad(tilt);
+    const cosAlt = Math.cos(altR), sinAlt = Math.sin(altR);
+    const cosAzR = Math.cos(azR), sinAzR = Math.sin(azR);
+    const cosT = Math.cos(tiltR), sinT = Math.sin(tiltR);
+    const dx = cosAlt * sinAzR;
+    const dy = sinAlt * cosT - cosAlt * cosAzR * sinT;
+    const dz = cosAlt * cosAzR * cosT + sinAlt * sinT;
+    if (dz <= 0) return { x: 100, y: 100, isFront: false };
     return {
-      x: 100 + r * (Rxy > 0 ? dx / Rxy : 0),
-      y: 100 - r * (Rxy > 0 ? dy / Rxy : 0),
-      isFront: dz > -0.05
+      x: 100 + f * (dx / dz),
+      y: 100 - f * (dy / dz),
+      isFront: true,
     };
   };
+
+  // Horizon y-position in SVG coords — moves down as camera tilts up; clips to frame bottom.
+  const horizonY = Math.min(120, 100 + f * Math.tan(toRad(tilt)));
 
   // Map the known Milky Way waypoint names to their exact Galactic Longitude (l)
   const WAYPOINT_L: Record<string, number> = {
@@ -897,6 +867,25 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   }
   const corePos = project(summary.core_peak_alt_deg, summary.core_peak_az_deg ?? 0);
 
+  // Altitude reference rings for photographer framing (20° and 40°).
+  // In gnomonic, constant-altitude loci curve upward at the edges — rendered as polylines.
+  const ALT_RINGS = [20, 40] as const;
+  const ringPolylines = ALT_RINGS.map(alt => {
+    const pts: string[] = [];
+    for (let dAz = -FOV_HALF_DEG; dAz <= FOV_HALF_DEG; dAz += 1) {
+      const p = project(alt, heading + dAz);
+      if (p.isFront) pts.push(`${p.x.toFixed(1)},${p.y.toFixed(1)}`);
+    }
+    return { alt, points: pts.join(' ') };
+  });
+
+  // Left-edge label anchor for each ring — sampled ~54° left of center so x≈20 near frame edge.
+  const ringLabels = ALT_RINGS.map(alt => {
+    const p = project(alt, heading - 54);
+    if (!p.isFront || p.x < 11 || p.x > 100) return null;
+    return { alt, x: p.x, y: p.y };
+  });
+
   // Sky glow blobs: one per dome direction, anchored 5° above horizon so the gradient
   // peak sits just inside the dome rather than exactly on the arc edge.
   type DomeGlow = { dir: Direction; x: number; y: number; r: number; op: number }
@@ -934,12 +923,39 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
     { deg: 270, label: 'W' }, { deg: 315, label: 'NW' }
   ];
 
+  // 1px drag → (180/displayWidth) SVG units → (180/π)/f degrees of heading/tilt change.
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    pointerRef.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!pointerRef.current) return;
+    const dx = e.clientX - pointerRef.current.x;
+    const dy = e.clientY - pointerRef.current.y;
+    pointerRef.current = { x: e.clientX, y: e.clientY };
+    const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+    const sens = (180 / Math.PI) / f;                    // ~1°/SVG unit
+    const dxSvg = dx * (180 / rect.width) * sens;        // heading degrees
+    const dySvg = dy * (120 / rect.height) * sens;        // tilt degrees
+    setHeading(h => ((h + dxSvg) % 360 + 360) % 360);
+    setTilt(t => Math.max(0, Math.min(45, t - dySvg)));
+  };
+  const handlePointerUp = () => { pointerRef.current = null; };
+
   return (
     <div className="mw-dome-wrap">
-      <svg viewBox="-20 -20 240 150" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        viewBox="10 0 180 120"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ touchAction: 'none', cursor: 'grab', userSelect: 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
         <defs>
           <clipPath id="mw-half-dome-clip">
-            <path d="M 0 100 A 100 100 0 0 1 200 100 Z" />
+            <rect x="0" y="0" width="200" height={horizonY} />
           </clipPath>
           <filter id="mw-f-band" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
@@ -960,7 +976,10 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           )}
         </defs>
 
-        <path d="M 0 100 A 100 100 0 0 1 200 100 Z" fill="rgba(10, 15, 30, 0.4)" />
+        <rect x="0" y="0" width="200" height="120" fill="rgba(10, 15, 30, 0.4)" />
+        {horizonY < 120 && (
+          <rect className="mw-dome-ground" x="0" y={horizonY} width="200" height={120 - horizonY} />
+        )}
 
         {/* Sky glow from light domes — color controlled via .mw-dome-glow for red-mode compliance */}
         {domeGlows.length > 0 && (
@@ -968,6 +987,13 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
             {domeGlows.map(g => (
               <circle key={g.dir} cx={g.x} cy={g.y} r={g.r}
                 fill={`url(#mw-ldg-${g.dir})`} />
+            ))}
+            {domeGlows.map(g => (
+              <circle key={`${g.dir}-hit`} cx={g.x} cy={g.y} r="20"
+                fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseEnter={() => setHoveredDot({ name: `${g.dir} sky glow`, x: g.x, y: g.y })}
+                onMouseLeave={() => setHoveredDot(null)} />
             ))}
           </g>
         )}
@@ -977,6 +1003,11 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           <g className="mw-moon-glow" clipPath="url(#mw-half-dome-clip)">
             <circle cx={moonGlowPos.x} cy={moonGlowPos.y} r={moonGlowPos.r} fill="url(#mw-moon-g)" />
             <circle cx={moonGlowPos.x} cy={moonGlowPos.y} r="2" fill="currentColor" opacity="0.75" />
+            <circle cx={moonGlowPos.x} cy={moonGlowPos.y} r="18"
+              fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseEnter={() => setHoveredDot({ name: 'Moon', x: moonGlowPos.x, y: moonGlowPos.y })}
+              onMouseLeave={() => setHoveredDot(null)} />
           </g>
         )}
 
@@ -1005,6 +1036,14 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
               />
             ))}
           </g>
+          {/* Altitude reference rings — perspective curves at 20° and 40° */}
+          {ringPolylines.map(ring => ring.points && (
+            <polyline key={ring.alt} className="mw-dome-ring" points={ring.points} fill="none" />
+          ))}
+          {ringLabels.map(lbl => lbl && (
+            <text key={`rl-${lbl.alt}`} className="mw-dome-ring-label"
+              x={lbl.x + 2} y={lbl.y - 2} textAnchor="start">{lbl.alt}°</text>
+          ))}
         </g>
 
         {/* 2. REPLACED HERE: The Galactic Core */}
@@ -1013,6 +1052,7 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
             <circle className="mw-dome-core" cx={corePos.x} cy={corePos.y} r="3.5" pointerEvents="none" />
             <circle
               cx={corePos.x} cy={corePos.y} r="12" fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+              onPointerDown={(e) => e.stopPropagation()}
               onMouseEnter={() => setHoveredDot({ name: 'Galactic Core', x: corePos.x, y: corePos.y })}
               onMouseLeave={() => setHoveredDot(null)}
             />
@@ -1026,6 +1066,7 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
               <circle cx={wp.proj.x} cy={wp.proj.y} r="2" fill="rgba(255, 255, 255, 0.6)" pointerEvents="none" />
               <circle
                 cx={wp.proj.x} cy={wp.proj.y} r="12" fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+                onPointerDown={(e) => e.stopPropagation()}
                 onMouseEnter={() => setHoveredDot({ name: wp.name, x: wp.proj.x, y: wp.proj.y })}
                 onMouseLeave={() => setHoveredDot(null)}
               />
@@ -1033,20 +1074,26 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           )
         ))}
 
-        <path className="mw-dome-horizon-arc" d="M 0 100 A 100 100 0 0 1 200 100 Z" fill="none" />
-        <line className="mw-dome-horizon" x1="0" y1="100" x2="200" y2="100" />
+        {horizonY < 120 && (
+          <line className="mw-dome-horizon" x1="0" y1={horizonY} x2="200" y2={horizonY} />
+        )}
+        <rect className="mw-dome-frame" x="10.5" y="0.5" width="179" height="119" fill="none" />
 
-        {cardinals.map(c => {
+        {horizonY < 120 && cardinals.map(c => {
           let relAz = c.deg - heading;
           while (relAz <= -180) relAz += 360;
           while (relAz > 180) relAz -= 360;
 
-          if (relAz >= -90 && relAz <= 90) {
-            const x = 100 + (relAz / 90) * 100;
+          if (Math.abs(relAz) < FOV_HALF_DEG) {
+            // Gnomonic + tilt: horizon objects at azimuth relAz project to:
+            // x = 100 + f * tan(relAz) / cos(tilt)
+            const x = 100 + f * Math.tan(toRad(relAz)) / Math.cos(toRad(tilt));
+            const labelY = horizonY + 14;
+            if (x < 11 || x > 189 || labelY > 119) return null;
             return (
               <g key={c.label}>
-                <line className="mw-dome-tick" x1={x} y1="100" x2={x} y2="103" />
-                <text className="mw-dome-label" x={x} y="114" textAnchor="middle">{c.label}</text>
+                <line className="mw-dome-tick" x1={x} y1={horizonY} x2={x} y2={horizonY + 3} />
+                <text className="mw-dome-label" x={x} y={labelY} textAnchor="middle">{c.label}</text>
               </g>
             );
           }
@@ -1073,15 +1120,6 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           </foreignObject>
         )}
       </svg>
-
-      <div className="mw-controls" style={{ padding: '10px 0', textAlign: 'center' }}>
-        <input
-          type="range" min="0" max="360" value={heading}
-          onChange={(e) => setHeading(Number(e.target.value))}
-          style={{ width: '80%' }}
-        />
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Camera Heading: {heading.toFixed(0)}°</div>
-      </div>
     </div>
   );
 }

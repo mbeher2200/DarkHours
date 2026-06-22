@@ -1203,7 +1203,10 @@ details summary {
   width: 100%;
   height: auto;
 }
-.mw-dome-horizon-arc {
+.mw-dome-ground {
+  fill: rgba(8, 12, 8, 0.55);
+}
+.mw-dome-frame {
   stroke: var(--text-dim);
   stroke-width: 1;
   opacity: 0.45;
@@ -1217,6 +1220,15 @@ details summary {
   stroke: var(--text-dim);
   stroke-width: 0.5;
   opacity: 0.4;
+}
+.mw-dome-ring-label {
+  fill: var(--text-dim);
+  font-size: 7px;
+  font-family: inherit;
+  opacity: 0.55;
+}
+html.red-mode .mw-dome-ring-label {
+  fill: rgb(180, 60, 60);
 }
 .mw-dome-tick {
   stroke: var(--text-dim);
@@ -1242,35 +1254,8 @@ details summary {
   color: var(--text-dim);
   margin: 4px 0 8px;
 }
-/* Makes the horizontal track a thin 3px line */
-.mw-controls input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 2px;
-  outline: none;
-}
-
-/* Styles the grabber thumb (Webkit/Chrome/Safari) */
-.mw-controls input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-}
-
-/* Styles the grabber thumb (Firefox) */
-.mw-controls input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: none;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
+.mw-dome-wrap svg:active {
+  cursor: grabbing;
 }
 /* ── MW arch segmented rendering ──────────────────────────────────────────── */
 /* stroke="currentColor" on each <line> inherits color from the parent <g>,
