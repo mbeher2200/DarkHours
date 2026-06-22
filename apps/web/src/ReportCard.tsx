@@ -1226,10 +1226,8 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                   const dirs     = domeSections.map(ds => ds.dir).join(' + ')
                   const label    = `${dirs} ${domeSections.length > 1 ? 'sections' : 'section'}`
                   return (
-                    <span className="mw-moon-badge">
-                      {`[ Dome glow: ${label} · `}
-                      <span className="cond-glow" style={glowStyle(maxGlow)}>{severity}</span>
-                      {' ]'}
+                    <span className="mw-moon-badge" style={glowStyle(maxGlow)}>
+                      {`[ Dome glow: ${label} · ${severity} ]`}
                     </span>
                   )
                 })()}
@@ -1543,7 +1541,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
         {t.note    && <span className="tg-note"> · {t.note}</span>}
         {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
         {wxPt && (
-          <span className="tg-wx-inline">
+          <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxPt))}`}>
             <WmoIcon code={wxPt.weather_code} size={12} />
           </span>
         )}
