@@ -349,27 +349,27 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 const wxAtPeak = wxAtTime(report.weather_points, p.peak_time)
                 const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
                 return (
-                  <tr key={i}>
+                  <tr key={i} className={satCloudy ? 'tg-row-blocked' : undefined}>
                     <td>
                       {label}
                       {satCloudy && (
                         <span className="mw-moon-badge badge-poor" style={{marginLeft: '6px'}}>[ Clouded out ]</span>
                       )}
                     </td>
-                    <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
-                    <td className="wx-num">{p.rise_alt_deg.toFixed(0)}°</td>
-                    <td className="wx-num">{az(p.rise_az_deg)}</td>
-                    <td className="wx-num">{formatTime(p.peak_time, tz)}</td>
-                    <td className="wx-num">{p.peak_alt_deg.toFixed(0)}°</td>
-                    <td className="wx-num">{az(p.peak_az_deg)}</td>
-                    <td className="wx-num">{formatTime(p.set_time, tz)}</td>
-                    <td className="wx-num">{setAlt}</td>
-                    <td className="wx-num">{az(p.set_az_deg)}</td>
-                    <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
-                    <td className="wx-num">{moonStr}</td>
+                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.rise_time, tz)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : `${p.rise_alt_deg.toFixed(0)}°`}</td>
+                    <td className="wx-num">{satCloudy ? '—' : az(p.rise_az_deg)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.peak_time, tz)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : `${p.peak_alt_deg.toFixed(0)}°`}</td>
+                    <td className="wx-num">{satCloudy ? '—' : az(p.peak_az_deg)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : formatTime(p.set_time, tz)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : setAlt}</td>
+                    <td className="wx-num">{satCloudy ? '—' : az(p.set_az_deg)}</td>
+                    <td className="wx-num">{satCloudy ? '—' : `${p.duration_min.toFixed(0)}m`}</td>
+                    <td className="wx-num">{satCloudy ? '—' : moonStr}</td>
                     {satGlow != null && (
-                      <td className="wx-num cond-glow" style={satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
-                        {satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
+                      <td className="wx-num cond-glow" style={!satCloudy && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
+                        {satCloudy ? '—' : satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
                       </td>
                     )}
                   </tr>
@@ -1205,15 +1205,17 @@ export function MilkyWayCard({ summary, waypoints, report }: {
 
           <div className="mw-score-row">
             <div className="mw-score-left">
-              <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
+              <div style={{display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap'}}>
+                <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
+                {s.weather_blocked && <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>}
+                {!s.weather_blocked && s.weather_limited && <span className="mw-moon-badge">[ Partly cloudy ]</span>}
+              </div>
               <div className="mw-sub-scores">
                 <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
                 {s.moon_penalised && <MoonBadge type="penalty" severity={moonSeverity} />}
                 {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout ]</span>}
-                {s.weather_blocked  && <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>}
-                {s.weather_limited  && <span className="mw-moon-badge">[ Partly cloudy ]</span>}
                 {domeSections.length > 0 && (() => {
                   const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
                   const severity = glowLabel(maxGlow)
