@@ -129,6 +129,10 @@ export interface MilkyWaySummary {
   arch_hours:           number
   moon_limited:         boolean
   moon_penalised:       boolean
+  weather_blocked:      boolean       // entire arch window is clouded out (cloud > 70 % throughout)
+  weather_limited:      boolean       // weather clips part of the arch window
+  clear_arch_hours:     number        // arch window hours that are also cloud-free
+  arch_moon_washout:    boolean       // galactic core within moon washout radius at peak
   n_visible:            number
   n_max_possible:       number
   n_total:              number
@@ -136,7 +140,8 @@ export interface MilkyWaySummary {
   alt_score:            number
   cov_score:            number
   win_score:            number
-  core_peak_time:       string        // ISO 8601
+  core_peak_time:       string        // ISO 8601 — geometric altitude peak (dome rendering)
+  best_viewing_time:    string        // ISO 8601 — scored best time (alt × moon × weather)
   core_peak_in_window:  boolean
   core_peak_alt_deg:    number
   core_peak_az_deg:     number

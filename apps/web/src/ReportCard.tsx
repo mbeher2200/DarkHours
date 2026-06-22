@@ -346,9 +346,18 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 const satGlow = report.light_dome
                   ? glowToward(report.light_dome, p.peak_az_deg, p.peak_alt_deg)
                   : null
+                const wxAtPeak = wxAtTime(report.weather_points, p.peak_time)
+                const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
                 return (
                   <tr key={i}>
-                    <td>{label}</td>
+                    <td>
+                      {label}
+                      {satCloudy && (
+                        <span className="mw-moon-badge mw-cloud-badge" style={{marginLeft: '6px'}}>
+                          {`${wxAtPeak!.cloud_cover_pct}% cloud`}
+                        </span>
+                      )}
+                    </td>
                     <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
                     <td className="wx-num">{p.rise_alt_deg.toFixed(0)}°</td>
                     <td className="wx-num">{az(p.rise_az_deg)}</td>
@@ -1197,6 +1206,9 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
                 {s.moon_penalised && <MoonBadge type="penalty" />}
+                {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout: core too close to moon ]</span>}
+                {s.weather_blocked  && <span className="mw-moon-badge mw-cloud-badge">[ Clouded out ]</span>}
+                {s.weather_limited  && <span className="mw-moon-badge mw-cloud-badge">[ Window cloud-limited ]</span>}
                 {domeSections.length > 0 && (() => {
                   const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
                   const severity = glowLabel(maxGlow)
@@ -1219,7 +1231,12 @@ export function MilkyWayCard({ summary, waypoints, report }: {
             <span>
               {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
               {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-              {s.moon_limited && <MoonBadge type="limited" />}
+              {s.moon_limited    && <MoonBadge type="limited" />}
+              {s.weather_limited && !s.weather_blocked && (
+                <span className="mw-moon-badge mw-cloud-badge">
+                  {`[ ${s.clear_arch_hours.toFixed(1)}h clear ]`}
+                </span>
+              )}
             </span>
           </div>
 
