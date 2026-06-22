@@ -1387,9 +1387,6 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 .tg-row-blocked td {
   color: var(--text-dim);  /* 5:1 guaranteed contrast on --card */
 }
-.tg-row-blocked {
-  filter: saturate(0.35);  /* desaturate hue; does not affect luminance/contrast */
-}
 
 /* Section divider before the unviable group */
 .tg-unviable-hdr td {
