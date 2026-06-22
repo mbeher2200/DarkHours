@@ -138,7 +138,7 @@ def mw_theoretical_core_max(lat: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Best-viewing-time scoring
+# Best-viewing-time scoring + arch condition rules
 # ---------------------------------------------------------------------------
 
 # K&S-calibrated moon glow constants (mirrors the JS archGlowAt / best_time_proto.py).
@@ -148,6 +148,12 @@ BT_K_MOON       = 1.5    # penalty exponent: exp(-K × glow)
 _BT_PHASE_GAMMA = 1.8    # K&S non-linearity: full moon ≈ 10× brighter than quarter
 _BT_MAX_DEP     = 5.0    # full-moon glow lingers up to 5° below horizon; scales with phase
 BT_STEP_MIN     = 15     # sample resolution (minutes)
+
+# Arch-level condition constants (mirrors predictor.py / moonlight.py values).
+_ARCH_CLOUD_BLOCK_PCT = 70    # cloud_cover_pct > this → arch sample is blocked
+_ARCH_WEATHER_GAP_S   = 5400  # 90 min nearest-neighbour tolerance for weather lookup
+_ARCH_WASHOUT_RADIUS  = 45.0  # degrees at 100 % illum for moon-washout check
+_ARCH_CRESCENT_PCT    = 20.0  # illum below this → no moon washout (mirrors KS_CRESCENT_EXEMPTION_PCT)
 
 
 def bt_moon_glow(moon_alt_deg: float, illum_frac: float) -> float:
@@ -403,6 +409,42 @@ def milky_way_arch_summary(
 
     arch_hours = max(0.0, (arch_end - arch_start).total_seconds() / 3600)
 
+    # ── Weather viability for the arch window ────────────────────────────────
+    # Nearest-neighbour cloud check at 15-min samples across [arch_start, arch_end].
+    # The arch is wide-field (can't repoint), so we use a clear-fraction model
+    # rather than the DSO/planet "find a contiguous clear block" approach.
+    weather_blocked  = False
+    weather_limited  = False
+    clear_arch_hours = arch_hours
+
+    if weather_points and arch_hours > 0:
+        _step   = timedelta(minutes=BT_STEP_MIN)
+        _t      = arch_start
+        _total  = 0
+        _clear  = 0
+        while _t <= arch_end:
+            _near = min(weather_points, key=lambda p: abs((p.time - _t).total_seconds()))
+            if abs((_near.time - _t).total_seconds()) <= _ARCH_WEATHER_GAP_S:
+                _total += 1
+                if _near.cloud_cover_pct is None or _near.cloud_cover_pct <= _ARCH_CLOUD_BLOCK_PCT:
+                    _clear += 1
+            _t += _step
+        if _total > 0:
+            clear_arch_hours = arch_hours * (_clear / _total)
+            if _clear == 0:
+                weather_blocked = True
+            elif _clear < _total:
+                weather_limited = True
+
+    # ── Moon washout for arch (galactic core too close to the moon) ──────────
+    # Mirrors the per-window proximity check in predictor._apply_condition_vectors.
+    arch_moon_washout = (
+        moon_illumination_pct > _ARCH_CRESCENT_PCT
+        and core_w.moon_sep_at_peak_deg is not None
+        and core_w.moon_sep_at_peak_deg
+            < _ARCH_WASHOUT_RADIUS * (moon_illumination_pct / 100.0)
+    )
+
     # ── Latitude-relative quality score (0–10) ───────────────────────────────
     # How good is tonight compared to the best this latitude can ever offer?
     #   50% — core altitude vs theoretical ceiling for this lat
@@ -413,12 +455,13 @@ def milky_way_arch_summary(
     alt_frac     = (core_w.peak_alt_deg / theo_max)  if theo_max > 0 else 0.0
     cov_frac     = (len(mw_targets) / n_max)         if n_max    > 0 else 0.0
     win_frac     = min(1.0, arch_hours / 5.0)
-    # Moon penalty applies when the moon directly interferes with the core OR
-    # when it cuts the usable arch window short (bright moon rising mid-night).
-    moon_penalised = core_w.moon_interference or moon_limited
-    moon_penalty   = 0.7 if moon_penalised else 1.0
-    raw            = 0.50 * alt_frac + 0.30 * cov_frac + 0.20 * win_frac
-    local_score    = round(min(10.0, raw * moon_penalty * 10), 1)
+    # Moon penalty: direct interference OR moon-limited window.
+    # Weather penalty: 0 when fully blocked, 0.7 when partially limited (same scale as moon).
+    moon_penalised   = core_w.moon_interference or moon_limited
+    moon_penalty     = 0.7 if moon_penalised else 1.0
+    weather_penalty  = 0.0 if weather_blocked else (0.7 if weather_limited else 1.0)
+    raw              = 0.50 * alt_frac + 0.30 * cov_frac + 0.20 * win_frac
+    local_score      = round(min(10.0, raw * moon_penalty * weather_penalty * 10), 1)
 
     core_peak_in_window = arch_start <= core_w.peak_time <= arch_end
 
@@ -433,6 +476,10 @@ def milky_way_arch_summary(
         "arch_hours":            round(arch_hours, 1),
         "moon_limited":          moon_limited,
         "moon_penalised":        moon_penalised,
+        "weather_blocked":       weather_blocked,
+        "weather_limited":       weather_limited,
+        "clear_arch_hours":      round(clear_arch_hours, 1),
+        "arch_moon_washout":     arch_moon_washout,
         "n_visible":             len(mw_targets),
         "n_max_possible":        n_max,
         "n_total":               len(_MW_WAYPOINT_ORDER),

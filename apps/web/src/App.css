@@ -1139,6 +1139,9 @@ details summary {
   letter-spacing: 0.02em;
   color: var(--fair);
 }
+.mw-cloud-badge {
+  color: var(--color-text-secondary);
+}
 .mw-score.mw-score-band-excellent { color: var(--excellent); }
 .mw-score.mw-score-band-good      { color: var(--good); }
 .mw-score.mw-score-band-fair      { color: var(--fair); }
