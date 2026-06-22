@@ -558,35 +558,7 @@ const _GAL_TO_ICRS = [
   [-0.4838350155, +0.7469822445, +0.4559837762],
 ]
 
-// Equatorial to Horizontal (Alt/Az) transformation at a given UTC instant.
-function eqToAltAz(ra_deg: number, dec_deg: number, lat_deg: number, lon_deg: number, utcMs: number) {
-  const toRad = (d: number) => d * Math.PI / 180;
-  const ra_rad = toRad(ra_deg);
-  const dec_rad = toRad(dec_deg);
 
-  // GMST (degrees) via Meeus Ch.12
-  const jd = utcMs / 86_400_000 + 2_440_587.5;
-  const D = jd - 2_451_545.0;
-  const T = D / 36_525.0;
-  const gmst_deg = ((280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38_710_000) % 360 + 360) % 360;
-  const lst_rad = toRad(gmst_deg + lon_deg);
-  const ha_rad = lst_rad - ra_rad;
-  const lat_rad = toRad(lat_deg);
-
-  const alt = Math.asin(
-    Math.sin(dec_rad) * Math.sin(lat_rad) +
-    Math.cos(dec_rad) * Math.cos(lat_rad) * Math.cos(ha_rad)
-  );
-  const az = Math.atan2(
-    -Math.cos(dec_rad) * Math.sin(ha_rad),
-    Math.sin(dec_rad) * Math.cos(lat_rad) - Math.cos(dec_rad) * Math.sin(lat_rad) * Math.cos(ha_rad)
-  );
-
-  return {
-    alt: alt * 180 / Math.PI,
-    az: ((az * 180 / Math.PI) + 360) % 360,
-  };
-}
 
 
 // Full galactic → horizontal (Alt/Az) transformation at a given UTC instant.
