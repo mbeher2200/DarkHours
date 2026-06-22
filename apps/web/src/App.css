@@ -1377,6 +1377,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   color: var(--text-dim);
   vertical-align: middle;
 }
+.tg-wx-inline.wx-rating-excellent { color: var(--excellent); }
+.tg-wx-inline.wx-rating-good      { color: var(--good); }
+.tg-wx-inline.wx-rating-fair      { color: var(--fair); }
+.tg-wx-inline.wx-rating-poor      { color: var(--poor); }
 /* Inline glow badge in Target cell */
 .tg-glow-inline {
   font-size: 11px;
