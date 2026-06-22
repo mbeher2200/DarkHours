@@ -353,8 +353,8 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td>
                       {label}
                       {satCloudy && (
-                        <span className="mw-moon-badge mw-cloud-badge" style={{marginLeft: '6px'}}>
-                          {`${wxAtPeak!.cloud_cover_pct}% cloud`}
+                        <span className="mw-moon-badge badge-poor" style={{marginLeft: '6px'}}>
+                          {`[ ${wxAtPeak!.cloud_cover_pct}% cloudy ]`}
                         </span>
                       )}
                     </td>
@@ -515,7 +515,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
 }
 
 function MoonBadge({ type }: { type: 'penalty' | 'limited' }) {
-  const text = type === 'penalty' ? 'Moon interference: moderate' : 'Window moon-limited'
+  const text = type === 'penalty' ? 'Moon interference' : 'Moon limited'
   return <span className="mw-moon-badge">[ {text} ]</span>
 }
 
@@ -1206,9 +1206,9 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
                 {s.moon_penalised && <MoonBadge type="penalty" />}
-                {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout: core too close to moon ]</span>}
-                {s.weather_blocked  && <span className="mw-moon-badge mw-cloud-badge">[ Clouded out ]</span>}
-                {s.weather_limited  && <span className="mw-moon-badge mw-cloud-badge">[ Window cloud-limited ]</span>}
+                {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout ]</span>}
+                {s.weather_blocked  && <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>}
+                {s.weather_limited  && <span className="mw-moon-badge">[ Partly cloudy ]</span>}
                 {domeSections.length > 0 && (() => {
                   const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
                   const severity = glowLabel(maxGlow)
@@ -1233,7 +1233,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
               {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
               {s.moon_limited    && <MoonBadge type="limited" />}
               {s.weather_limited && !s.weather_blocked && (
-                <span className="mw-moon-badge mw-cloud-badge">
+                <span className="mw-moon-badge">
                   {`[ ${s.clear_arch_hours.toFixed(1)}h clear ]`}
                 </span>
               )}
@@ -1415,11 +1415,11 @@ function MeteorShowerCard({ target, zhr, report }: {
 function BlockerBadge({ blockers }: { blockers: string[] }) {
   let label = 'Unavailable Tonight'
   if (blockers.includes('cloud') || blockers.includes('transparency'))
-    label = 'Obscured by Clouds'
+    label = 'Clouded out'
   else if (blockers.includes('moon_washout'))
-    label = 'Washed Out by Moon'
+    label = 'Moon washout'
   else if (blockers.includes('light_dome'))
-    label = 'Lost in Light Dome'
+    label = 'Lost in light dome'
   return <span className="tg-blocker-badge">[ {label} ]</span>
 }
 
@@ -1427,8 +1427,8 @@ function clipTooltip(w: TargetWindow, tz: string): string {
   const b = w.blockers ?? []
   const end = w.effective_end
   if (b.includes('cloud') || b.includes('transparency'))
-    return `Window clipped by cloud cover${end ? ` at ${formatTime(end, tz)}` : ''}`
-  if (b.includes('moon_washout')) return 'Window limited by moonlight'
+    return `Partly cloudy${end ? ` after ${formatTime(end, tz)}` : ''}`
+  if (b.includes('moon_washout')) return 'Moon washout'
   if (b.includes('light_dome'))   return 'Viewing constrained by horizon glow'
   return 'Window clipped by conditions'
 }
