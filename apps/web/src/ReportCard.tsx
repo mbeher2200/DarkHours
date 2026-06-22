@@ -353,9 +353,7 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td>
                       {label}
                       {satCloudy && (
-                        <span className="mw-moon-badge badge-poor" style={{marginLeft: '6px'}}>
-                          {`[ ${wxAtPeak!.cloud_cover_pct}% cloudy ]`}
-                        </span>
+                        <span className="mw-moon-badge badge-poor" style={{marginLeft: '6px'}}>[ Clouded out ]</span>
                       )}
                     </td>
                     <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
