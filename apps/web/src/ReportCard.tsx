@@ -338,6 +338,7 @@ function SatellitePasses({ report }: { report: NightReport; }) {
               {display.map((p, i) => {
                 const label    = p.satellite_name + (!p.sky_dark ? ' †' : '')
                 const setAlt   = `${p.set_alt_deg.toFixed(0)}°${p.ends_in_shadow ? '*' : ''}`
+                const moonSepLow = !p.moon_transit && p.moon_sep_deg != null && p.moon_sep_deg < 5
                 const moonStr  = p.moon_transit
                   ? `TRANSIT ${p.moon_transit_sep_deg?.toFixed(3)}°`
                   : p.moon_sep_deg != null
@@ -369,7 +370,7 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td className="wx-num">{setAlt}</td>
                     <td className="wx-num">{az(p.set_az_deg)}</td>
                     <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
-                    <td className="wx-num">{moonStr}</td>
+                    <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{moonStr}</td>
                     {satGlow != null && (
                       <td className="wx-num cond-glow" style={satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
                         {satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
