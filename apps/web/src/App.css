@@ -1196,7 +1196,7 @@ details summary {
 /* Half-dome SVG visualization */
 .mw-dome-wrap {
   flex-shrink: 0;
-  width: 200px;
+  width: 260px;
 }
 .mw-dome-wrap svg {
   display: block;
@@ -1228,7 +1228,7 @@ details summary {
 }
 .mw-dome-label {
   fill: var(--text-dim);
-  font-size: 7px;
+  font-size: 13px;
   font-family: inherit;
   opacity: 0.8;
 }
@@ -1242,7 +1242,36 @@ details summary {
   color: var(--text-dim);
   margin: 4px 0 8px;
 }
+/* Makes the horizontal track a thin 3px line */
+.mw-controls input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+}
 
+/* Styles the grabber thumb (Webkit/Chrome/Safari) */
+.mw-controls input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+/* Styles the grabber thumb (Firefox) */
+.mw-controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
 /* Section divider between Milky Way and DSO blocks */
 .iconic-section-divider {
   border-top: 1px solid var(--card-border);
@@ -1930,4 +1959,8 @@ details summary {
     align-items: center;
     text-align: center;
   }
+  input[type=range] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 }

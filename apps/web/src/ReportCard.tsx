@@ -558,6 +558,37 @@ const _GAL_TO_ICRS = [
   [-0.4838350155, +0.7469822445, +0.4559837762],
 ]
 
+// Equatorial to Horizontal (Alt/Az) transformation at a given UTC instant.
+function eqToAltAz(ra_deg: number, dec_deg: number, lat_deg: number, lon_deg: number, utcMs: number) {
+  const toRad = (d: number) => d * Math.PI / 180;
+  const ra_rad = toRad(ra_deg);
+  const dec_rad = toRad(dec_deg);
+
+  // GMST (degrees) via Meeus Ch.12
+  const jd = utcMs / 86_400_000 + 2_440_587.5;
+  const D = jd - 2_451_545.0;
+  const T = D / 36_525.0;
+  const gmst_deg = ((280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38_710_000) % 360 + 360) % 360;
+  const lst_rad = toRad(gmst_deg + lon_deg);
+  const ha_rad = lst_rad - ra_rad;
+  const lat_rad = toRad(lat_deg);
+
+  const alt = Math.asin(
+    Math.sin(dec_rad) * Math.sin(lat_rad) +
+    Math.cos(dec_rad) * Math.cos(lat_rad) * Math.cos(ha_rad)
+  );
+  const az = Math.atan2(
+    -Math.cos(dec_rad) * Math.sin(ha_rad),
+    Math.sin(dec_rad) * Math.cos(lat_rad) - Math.cos(dec_rad) * Math.sin(lat_rad) * Math.cos(ha_rad)
+  );
+
+  return {
+    alt: alt * 180 / Math.PI,
+    az: ((az * 180 / Math.PI) + 360) % 360,
+  };
+}
+
+
 // Full galactic → horizontal (Alt/Az) transformation at a given UTC instant.
 // l_deg, b_deg   — galactic coordinates
 // lat_deg, lon_deg — observer position
@@ -599,154 +630,200 @@ function galToAltAz(l_deg: number, b_deg: number, lat_deg: number, lon_deg: numb
 // Orthographic projection of the sky dome, camera centered on the galactic core azimuth.
 // The arch traces the galactic equator (b=0), sampled every 5° of galactic longitude.
 function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary; waypoints: VisibleTarget[]; report: NightReport }) {
+  const [heading, setHeading] = useState<number>(
+    summary.core_peak_az_deg != null ? Math.round(summary.core_peak_az_deg) : 180
+  );
+
+  // 1. ADDED HERE: State to track which dot is currently being hovered
+  const [hoveredDot, setHoveredDot] = useState<{name: string, x: number, y: number} | null>(null);
+
   if (summary.core_peak_alt_deg == null || summary.core_peak_alt_deg <= 0) {
-    return <div className="mw-dome-absent">Arch below horizon tonight</div>
+    return (
+      <div className="mw-dome-absent">
+        Arch below horizon tonight
+        <div className="mw-absent-reason">The Galactic Core is currently out of view.</div>
+      </div>
+    );
   }
 
-  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const peakTimeMs = new Date(summary.core_peak_time).getTime();
 
-  // Generate all 72 equator samples at b=0 (independent of camera orientation)
-  const peakTimeMs = new Date(summary.core_peak_time).getTime()
-  const allEquatorSamples = Array.from({ length: 72 }, (_, i) => {
-    const l = i * 5
-    const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs)
-    return { l, alt, az }
-  })
-
-  // Center the dome on the midpoint of the arc from the core to the farthest visible waypoint.
-  // This keeps both the core (anchor) and the arch apex (e.g. Cygnus near zenith) in frame.
-  // Circular midpoint of two azimuths takes the shorter arc between them.
-  const circMid = (a: number, b: number) => {
-    const ax = Math.cos(toRad(a)), ay = Math.sin(toRad(a))
-    const bx = Math.cos(toRad(b)), by = Math.sin(toRad(b))
-    return ((Math.atan2(ay + by, ax + bx) * 180 / Math.PI) + 360) % 360
-  }
-  const highestSample = allEquatorSamples.reduce((m, s) => s.alt > m.alt ? s : m)
-  const farthestAz = summary.farthest_peak_az_deg ?? highestSample.az
-  const centerAz   = circMid(summary.core_peak_az_deg, farthestAz)
+  type EqSample = { l: number; alt: number; az: number; };
+  const allEquatorSamples: EqSample[] = Array.from({ length: 72 }, (_, i) => {
+    const l = i * 5;
+    const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
+    return { l, alt, az };
+  });
 
   const project = (alt: number, az: number) => {
-    const altRad = toRad(alt)
-    const azRad  = toRad(az - centerAz)
-    return {
-      x: 100 + 100 * Math.cos(altRad) * Math.sin(azRad),
-      y: 100 - 100 * Math.sin(altRad),
-      isFront: Math.cos(azRad) >= 0,
-    }
-  }
+    const altR = toRad(alt);
+    const azR = toRad(az - heading);
+    const dx = Math.cos(altR) * Math.sin(azR);
+    const dy = Math.sin(altR);
+    const dz = Math.cos(altR) * Math.cos(azR);
+    const theta = Math.atan2(Math.sqrt(dx * dx + dy * dy), dz);
+    const r = 100 * (theta / (Math.PI / 2));
+    const Rxy = Math.sqrt(dx * dx + dy * dy);
 
-  // Waypoint dots — each structural region at its correct b-shifted position
+    return {
+      x: 100 + r * (Rxy > 0 ? dx / Rxy : 0),
+      y: 100 - r * (Rxy > 0 ? dy / Rxy : 0),
+      isFront: dz > -0.05
+    };
+  };
+
+  // Map the known Milky Way waypoint names to their exact Galactic Longitude (l)
+  const WAYPOINT_L: Record<string, number> = {
+    'Galactic Anticenter': 180,
+    'Cassiopeia/Perseus': 135,
+    'Cepheus Cloud': 105,
+    'Cygnus Star Cloud': 80,
+    'Aquila Rift': 45,
+    'Scutum Star Cloud': 27,
+    'Galactic Core': 0,
+    'Scorpius Star Cloud': 347,
+    'Norma Star Cloud': 330,
+    'Crux & Coalsack': 302,
+    'Carina Nebula & Cloud': 287,
+    'Vela Supernova Region': 265,
+    'Puppis Star Cloud': 245,
+    'Monoceros': 210,
+  };
+
   const wpDots = waypoints
     .map(wp => {
-      const w = bestWindow(wp)
-      return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg }
+      const l = WAYPOINT_L[wp.name];
+
+      // If we know the galactic longitude, calculate its exact position at the time of the arch
+      if (l != null) {
+        const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
+        return { name: wp.name, alt, az };
+      }
+
+      // Fallback just in case a new target is added to the backend later
+      const w = bestWindow(wp);
+      return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg ?? 0 };
     })
     .filter(p => p.alt > 0)
-    .map(p => ({ ...p, proj: project(p.alt, p.az) }))
-    .filter(({ proj, alt }) => proj.isFront && alt > 0)
+    .map(p => ({ ...p, proj: project(p.alt, p.az) }));
 
-  // Front-hemisphere equator samples, sorted left-to-right for smooth spline
-  const frontSamples = allEquatorSamples
-    .filter(s => { const p = project(s.alt, s.az); return p.isFront && s.alt > -3 })
-    .map(s => ({ ...s, proj: project(s.alt, s.az) }))
-    .sort((a, b) => a.proj.x - b.proj.x)
+  const doubled = [...allEquatorSamples, ...allEquatorSamples];
+  let longestStreak: EqSample[] = [];
+  let currentStreak: EqSample[] = [];
+  for (const s of doubled) {
+    if (s.alt > -2) currentStreak.push(s);
+    else {
+      if (currentStreak.length > longestStreak.length) longestStreak = currentStreak;
+      currentStreak = [];
+    }
+  }
+  const visibleArc = longestStreak.slice(0, 73).map(s => ({ ...s, proj: project(s.alt, s.az) }));
+  const archPath = catmullRomToBezier(visibleArc.filter(s => s.proj.isFront).map(s => ({ x: s.proj.x, y: s.proj.y })));
+  const corePos = project(summary.core_peak_alt_deg, summary.core_peak_az_deg ?? 0);
 
-  const archPath = catmullRomToBezier(frontSamples.map(s => s.proj))
-  const corePos  = project(summary.core_peak_alt_deg, summary.core_peak_az_deg)
-
-  // Altitude rings: in orthographic projection, all points at the same altitude have the
-  // same y, and x tapers symmetrically — giving natural curved-ring feel.
-  const rings = [30, 60].map(alt => ({
-    alt,
-    hw: parseFloat((100 * Math.cos(toRad(alt))).toFixed(1)),
-    y:  parseFloat((100 - 100 * Math.sin(toRad(alt))).toFixed(1)),
-  }))
-
-  // Cardinal direction ticks at every 45° within the ±90° visible hemisphere
-  const cardinalTicks = [-90, -45, 0, 45, 90].map(dAz => ({
-    x: parseFloat((100 + 100 * Math.sin(toRad(dAz))).toFixed(1)),
-    label: cardinal((centerAz + dAz + 360) % 360),
-    dAz,
-  }))
+  const cardinals = [
+    { deg: 0, label: 'N' }, { deg: 45, label: 'NE' }, { deg: 90, label: 'E' },
+    { deg: 135, label: 'SE' }, { deg: 180, label: 'S' }, { deg: 225, label: 'SW' },
+    { deg: 270, label: 'W' }, { deg: 315, label: 'NW' }
+  ];
 
   return (
     <div className="mw-dome-wrap">
-      <svg viewBox="0 0 200 114" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <svg viewBox="-20 -20 240 150" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <clipPath id="mw-dome-clip">
-            <rect x="0" y="0" width="200" height="100" />
+          <clipPath id="mw-half-dome-clip">
+            <path d="M 0 100 A 100 100 0 0 1 200 100 Z" />
           </clipPath>
-          {/* Heavy outer halo — the wide diffuse glow of the galactic plane */}
-          <filter id="mw-f-halo" x="-200%" y="-200%" width="500%" height="500%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="8" />
-          </filter>
-          {/* Medium blur for the main band body */}
-          <filter id="mw-f-band" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" />
-          </filter>
-          {/* Tight blur for the inner bright lane */}
-          <filter id="mw-f-lane" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+          <filter id="mw-f-band" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
           </filter>
         </defs>
-        {/* Altitude rings (tapered — narrower near zenith) */}
-        {rings.map(({ alt, hw, y }) => (
-          <g key={alt}>
-            <line x1={100 - hw} y1={y} x2={100 + hw} y2={y} className="mw-dome-ring" strokeDasharray="2,3" />
-            <text x={100 - hw - 3} y={y + 3.5} className="mw-dome-label" textAnchor="end">{alt}°</text>
-          </g>
-        ))}
-        {/* Half-dome horizon arc */}
-        <path d="M 0,100 A 100,100 0 0,1 200,100" className="mw-dome-horizon-arc" fill="none" />
-        {/* Horizon baseline */}
-        <line x1="0" y1="100" x2="200" y2="100" className="mw-dome-horizon" />
-        {/* Milky Way band — galactic equator (b=0) sampled every 5°; clipped to sky dome */}
-        {frontSamples.length > 1 && (
-          <g clipPath="url(#mw-dome-clip)">
-            {/* 1. Outermost diffuse halo — the wide diffuse glow of the galactic plane */}
-            <path d={archPath} stroke="rgba(140,130,210,0.08)" strokeWidth="46" fill="none"
-                  filter="url(#mw-f-halo)" />
-            {/* 2. Main band body — the primary visible width of the MW */}
-            <path d={archPath} stroke="rgba(185,178,238,0.20)" strokeWidth="18" fill="none"
-                  filter="url(#mw-f-band)" />
-            {/* 3. Bright inner lane — the denser star concentration */}
-            <path d={archPath} stroke="rgba(218,213,252,0.42)" strokeWidth="6" fill="none"
-                  filter="url(#mw-f-lane)" />
-            {/* 4. Spine — the visually bright dust-lane centre */}
-            <path d={archPath} stroke="rgba(242,239,255,0.68)" strokeWidth="1.0" fill="none" />
-          </g>
-        )}
-        {/* Structural waypoints — small dots at their true b-offset positions */}
-        {wpDots.map(({ name, proj }) => (
-          <circle key={name}
-            cx={proj.x.toFixed(1)} cy={proj.y.toFixed(1)} r="1.5"
-            fill="rgba(255,255,255,0.55)" />
-        ))}
-        {/* Galactic core bulge — warm golden glow of the nuclear bulge */}
+
+        <path d="M 0 100 A 100 100 0 0 1 200 100 Z" fill="rgba(10, 15, 30, 0.4)" />
+
+        <g clipPath="url(#mw-half-dome-clip)">
+          <path d={archPath} stroke="rgba(255,255,255,0.3)" strokeWidth="14" fill="none" filter="url(#mw-f-band)" />
+          <path d={archPath} stroke="rgba(255,255,255,0.8)" strokeWidth="1.5" fill="none" />
+        </g>
+
+        {/* 2. REPLACED HERE: The Galactic Core */}
         {corePos.isFront && (
           <g>
-            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="20"
-                    fill="rgba(255,230,130,0.10)" filter="url(#mw-f-halo)" />
-            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="10"
-                    fill="rgba(255,242,180,0.22)" filter="url(#mw-f-band)" />
-            <circle cx={corePos.x.toFixed(1)} cy={corePos.y.toFixed(1)} r="3.5"
-                    fill="rgba(255,225,100,0.92)" />
+            <circle className="mw-dome-core" cx={corePos.x} cy={corePos.y} r="3.5" pointerEvents="none" />
+            <circle
+              cx={corePos.x} cy={corePos.y} r="12" fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHoveredDot({ name: 'Galactic Core', x: corePos.x, y: corePos.y })}
+              onMouseLeave={() => setHoveredDot(null)}
+            />
           </g>
         )}
-        {/* Cardinal direction ticks and labels along the horizon */}
-        {cardinalTicks.map(({ x, label, dAz }) => {
-          const anchor = dAz === -90 ? 'start' : dAz === 90 ? 'end' : 'middle'
-          const lx = dAz === -90 ? Math.max(x, 3) : dAz === 90 ? Math.min(x, 197) : x
-          return (
-            <g key={dAz}>
-              <line x1={x} y1="100" x2={x} y2="104" className="mw-dome-tick" />
-              <text x={lx} y="112" className="mw-dome-label" textAnchor={anchor}>{label}</text>
+
+        {/* 3. REPLACED HERE: Waypoints Array */}
+        {wpDots.map((wp, i) => (
+          wp.proj.isFront && (
+            <g key={i}>
+              <circle cx={wp.proj.x} cy={wp.proj.y} r="2" fill="rgba(255, 255, 255, 0.6)" pointerEvents="none" />
+              <circle
+                cx={wp.proj.x} cy={wp.proj.y} r="12" fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHoveredDot({ name: wp.name, x: wp.proj.x, y: wp.proj.y })}
+                onMouseLeave={() => setHoveredDot(null)}
+              />
             </g>
           )
+        ))}
+
+        <path className="mw-dome-horizon-arc" d="M 0 100 A 100 100 0 0 1 200 100 Z" fill="none" />
+        <line className="mw-dome-horizon" x1="0" y1="100" x2="200" y2="100" />
+
+        {cardinals.map(c => {
+          let relAz = c.deg - heading;
+          while (relAz <= -180) relAz += 360;
+          while (relAz > 180) relAz -= 360;
+
+          if (relAz >= -90 && relAz <= 90) {
+            const x = 100 + (relAz / 90) * 100;
+            return (
+              <g key={c.label}>
+                <line className="mw-dome-tick" x1={x} y1="100" x2={x} y2="103" />
+                <text className="mw-dome-label" x={x} y="114" textAnchor="middle">{c.label}</text>
+              </g>
+            );
+          }
+          return null;
         })}
+
+        {/* 4. ADDED HERE: The Custom Tooltip directly inside the SVG */}
+        {hoveredDot && (
+          <foreignObject x={hoveredDot.x - 75} y={hoveredDot.y - 35} width="150" height="30" pointerEvents="none">
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', height: '100%' }}>
+              <div style={{
+                background: 'var(--pop-bg, #1e2235)',
+                color: 'var(--text-h, #fff)',
+                border: '1px solid var(--card-border)',
+                borderRadius: '6px',
+                padding: '4px 8px',
+                fontSize: '10px',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)'
+              }}>
+                {hoveredDot.name}
+              </div>
+            </div>
+          </foreignObject>
+        )}
       </svg>
+
+      <div className="mw-controls" style={{ padding: '10px 0', textAlign: 'center' }}>
+        <input
+          type="range" min="0" max="360" value={heading}
+          onChange={(e) => setHeading(Number(e.target.value))}
+          style={{ width: '80%' }}
+        />
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Camera Heading: {heading.toFixed(0)}°</div>
+      </div>
     </div>
-  )
+  );
 }
 
 function MilkyWayAbsent({ report: r }: { report: NightReport }) {
@@ -770,7 +847,7 @@ function MilkyWayAbsent({ report: r }: { report: NightReport }) {
   return <p className="mw-absent-reason">{reason}</p>
 }
 
-function MilkyWayCard({ summary, waypoints, report }: {
+export function MilkyWayCard({ summary, waypoints, report }: {
   summary: MilkyWaySummary
   waypoints: VisibleTarget[]
   report: NightReport
@@ -787,54 +864,65 @@ function MilkyWayCard({ summary, waypoints, report }: {
 
   return (
     <div className="mw-card">
-      {/* Score row: scores on left, dome visualization on right */}
-      <div className="mw-score-row">
-        <div className="mw-score-left">
-          <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
-          <div className="mw-sub-scores">
-            <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
-            <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
-            <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
-            {s.moon_penalised && <MoonBadge type="penalty" />}
+
+      {/* Structural layout fix mapping correctly to your CSS */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', columnGap: '1.5rem' }}>
+
+        {/* Left Column Container reproducing the natural 7px vertical gap of mw-card */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+
+          <div className="mw-score-row">
+            <div className="mw-score-left">
+              <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
+              <div className="mw-sub-scores">
+                <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
+                <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
+                <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
+                {s.moon_penalised && <MoonBadge type="penalty" />}
+              </div>
+            </div>
           </div>
+
+          <div className="mw-row">
+            <span className="mw-label">Arch window</span>
+            <span>
+              {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
+              {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
+              {s.moon_limited && <MoonBadge type="limited" />}
+            </span>
+          </div>
+
+          <div className="mw-row">
+            <span className="mw-label">Galactic core</span>
+            <span>
+              {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)} (max {s.core_max_alt_deg}° alt)
+              {archQuality && s.arch_angle_deg != null && `  ·  arch ${s.arch_angle_deg.toFixed(0)}° (${archQuality})`}
+            </span>
+          </div>
+
+          <div className="mw-row">
+            <span className="mw-label">{bestLabel}</span>
+            <span>
+              {formatTime(bestTime, tz)} — core @ {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)}
+              {s.farthest_name && s.farthest_peak_alt_deg != null && (
+                <>,&nbsp;arch to {s.farthest_name} @ {fmtPos(s.farthest_peak_alt_deg, s.farthest_peak_az_deg ?? 0)}</>
+              )}
+            </span>
+          </div>
+
         </div>
-        <MilkyWayDome summary={s} waypoints={waypoints} report={report} />
+
+        {/* Right Column Container */}
+        <div>
+          <MilkyWayDome summary={s} waypoints={waypoints} report={report} />
+        </div>
+
       </div>
 
-      {/* Arch window row */}
-      <div className="mw-row">
-        <span className="mw-label">Arch window</span>
-        <span>
-          {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
-          {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-          {s.moon_limited && <MoonBadge type="limited" />}
-        </span>
-      </div>
-
-      {/* Core row */}
-      <div className="mw-row">
-        <span className="mw-label">Galactic core</span>
-        <span>
-          {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)} (max {s.core_max_alt_deg}° alt)
-          {archQuality && s.arch_angle_deg != null && `  ·  arch ${s.arch_angle_deg.toFixed(0)}° (${archQuality})`}
-        </span>
-      </div>
-
-      {/* Best time row */}
-      <div className="mw-row">
-        <span className="mw-label">{bestLabel}</span>
-        <span>
-          {formatTime(bestTime, tz)} — core @ {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)}
-          {s.farthest_name && s.farthest_peak_alt_deg != null && (
-            <>,&nbsp;arch to {s.farthest_name} @ {fmtPos(s.farthest_peak_alt_deg, s.farthest_peak_az_deg ?? 0)}</>
-          )}
-        </span>
-      </div>
-
-      {/* Waypoints accordion — closed by default; apply Phase 3 density reductions inside */}
       {waypoints.length > 0 && (
         <WaypointsAccordion waypoints={waypoints} summary={s} report={report} />
       )}
+
     </div>
   )
 }
