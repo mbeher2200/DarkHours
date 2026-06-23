@@ -1111,7 +1111,7 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
         {wpDots.map((wp, i) => (
           wp.proj.isFront && (
             <g key={i}>
-              <circle cx={wp.proj.x} cy={wp.proj.y} r="2" fill="rgba(255, 255, 255, 0.6)" pointerEvents="none" />
+              <circle cx={wp.proj.x} cy={wp.proj.y} r="2" className="mw-dome-waypoint" pointerEvents="none" />
               <circle
                 cx={wp.proj.x} cy={wp.proj.y} r="12" fill="transparent" pointerEvents="all" style={{ cursor: 'pointer' }}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -1255,7 +1255,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                 <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
-                {s.moon_penalised && <MoonBadge type="penalty" severity={moonSeverity} />}
+                {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} />}
                 {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout ]</span>}
                 {domeSections.length > 0 && (() => {
                   const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
@@ -1263,7 +1263,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                   const dirs     = domeSections.map(ds => ds.dir).join(' + ')
                   const label    = `${dirs} ${domeSections.length > 1 ? 'sections' : 'section'}`
                   return (
-                    <span className="mw-moon-badge" style={glowStyle(maxGlow)}>
+                    <span className="mw-moon-badge cond-glow" style={glowStyle(maxGlow)}>
                       {`[ Dome glow: ${label} · ${severity} ]`}
                     </span>
                   )
@@ -1277,7 +1277,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
             <span>
               {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
               {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-              {s.moon_limited    && <MoonBadge type="limited" severity={moonSeverity} />}
+              {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} />}
               {s.weather_limited && !s.weather_blocked && (
                 <span className="mw-moon-badge">
                   {`[ ${s.clear_arch_hours.toFixed(1)}h clear ]`}
