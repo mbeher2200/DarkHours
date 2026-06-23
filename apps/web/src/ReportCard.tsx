@@ -83,8 +83,16 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
 }) {
   // Clip the table to the sunset→sunrise window. Events/points outside this
   // range are daytime and not useful once the astro-night band conveys darkness.
+  // sunriseTs must be the sunrise AFTER sunset — for western-US summer dates the
+  // events array can start with an early-morning sunrise (end of the previous night,
+  // UTC date = target date) before the actual sunset that starts the target night.
   const sunsetTs  = (() => { const e = events.find(e => e.label.toLowerCase().includes('sunset'));  return e ? new Date(e.time).getTime() : -Infinity })()
-  const sunriseTs = (() => { const e = events.find(e => e.label.toLowerCase().includes('sunrise')); return e ? new Date(e.time).getTime() :  Infinity })()
+  const sunriseTs = (() => {
+    const afterSunset = events.find(e => e.label.toLowerCase().includes('sunrise') && new Date(e.time).getTime() > sunsetTs)
+    if (afterSunset) return new Date(afterSunset.time).getTime()
+    const first = events.find(e => e.label.toLowerCase().includes('sunrise'))
+    return first ? new Date(first.time).getTime() : Infinity
+  })()
   const visiblePoints = points.filter(p => { const t = new Date(p.time).getTime(); return t >= sunsetTs && t <= sunriseTs })
   const visibleEvents = events.filter(e => {
     const t = new Date(e.time).getTime()
