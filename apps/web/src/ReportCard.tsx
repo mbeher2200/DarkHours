@@ -363,7 +363,14 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
                     <td className="wx-num">{p.rise_alt_deg.toFixed(0)}°</td>
                     <td className="wx-num">{az(p.rise_az_deg)}</td>
-                    <td className="wx-num">{formatTime(p.peak_time, tz)}</td>
+                    <td className="wx-num">
+                      {formatTime(p.peak_time, tz)}
+                      {wxAtPeak && (
+                        <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxAtPeak))}`}>
+                          <WmoIcon code={wxAtPeak.weather_code} size={12} />
+                        </span>
+                      )}
+                    </td>
                     <td className="wx-num">{p.peak_alt_deg.toFixed(0)}°</td>
                     <td className="wx-num">{az(p.peak_az_deg)}</td>
                     <td className="wx-num">{formatTime(p.set_time, tz)}</td>
@@ -371,9 +378,9 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                     <td className="wx-num">{az(p.set_az_deg)}</td>
                     <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
                     <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{moonStr}</td>
-                    {satGlow != null && (
-                      <td className="wx-num cond-glow" style={satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
-                        {satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
+                    {report.light_dome && (
+                      <td className="wx-num cond-glow" style={satGlow != null && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
+                        {satGlow != null && satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
                       </td>
                     )}
                   </tr>
@@ -456,6 +463,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
             <tr>
               <th>Waypoint</th>
               <th>Best</th>
+              <th></th>
               <th>Window</th>
             </tr>
           </thead>
@@ -480,6 +488,26 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                 : null
               const showGlow = glow != null && glow >= 0.03
               const bestT = w.best_time ?? w.peak_time
+              const wxPt = !report.wx_no_data && !report.wx_pending
+                ? wxAtTime(report.weather_points, bestT)
+                : null
+              const waypointCloudy = wxPt != null && wxPt.cloud_cover_pct != null && wxPt.cloud_cover_pct > 70
+              if (waypointCloudy) return (
+                <tr key={t.name} className="tg-row-blocked">
+                  <td>{t.name}</td>
+                  <td className="wx-num" colSpan={3} style={{textAlign: 'center'}}>
+                    <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>
+                  </td>
+                </tr>
+              )
+              const sky = skyCondition(
+                bestT, report.dark_intervals, report.night_start, report.night_end,
+                report.illumination_pct, report.moonrise, report.moonset,
+                w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+              )
+              const moonBadge = sky.startsWith('Moon')
+                ? <span className={`tg-sky-inline ${skyClass(sky)}`}>{' '}{sky}</span>
+                : null
               return (
                 <tr key={t.name}>
                   <td>
@@ -492,14 +520,21 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                   </td>
                   <td className="wx-num">
                     <span className="tg-t">{formatTime(bestT, tz)}</span>
-                    <span className="tg-p"> (Alt </span>
+                    <span className="tg-p"> · Alt </span>
                     <span className="tg-alt">{Math.round(w.peak_alt_deg)}°</span>
                     <span className="tg-p"> · Az </span>
                     <span className="tg-az">{Math.round(w.peak_az_deg)}°</span>
                     <span className="tg-p"> </span>
                     <span className="tg-dir">{cardinal(w.peak_az_deg)}</span>
-                    <span className="tg-p">)</span>
                     {archBadge}
+                    {moonBadge}
+                  </td>
+                  <td className="wx-num tg-cond-col">
+                    {wxPt && (
+                      <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxPt))}`}>
+                        <WmoIcon code={wxPt.weather_code} size={12} />
+                      </span>
+                    )}
                   </td>
                   <td className="wx-num">
                     <span className="tg-t">{formatTime(w.start, tz)}</span>
@@ -956,6 +991,7 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
 
   return (
     <div className="mw-dome-wrap">
+      <div className="mw-dome-title">360° Sky Dome</div>
       <svg
         viewBox="10 0 180 120"
         xmlns="http://www.w3.org/2000/svg"
@@ -1132,6 +1168,7 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           </foreignObject>
         )}
       </svg>
+      <div className="mw-dome-subtitle">Light pollution vs. Milky Way plane</div>
     </div>
   );
 }
@@ -1315,7 +1352,7 @@ function skyCondition(
 
   if (moonUpAt(peakIso, moonrise, moonset)) {
     const sev = moonWashSeverity(illuminationPct, moonSepAtPeak, moonAltAtPeak)
-    if (sev) return `Moon wash (${sev})`
+    if (sev) return `Moon wash: ${sev}`
   }
   return base
 }
@@ -1365,7 +1402,7 @@ function isPrime(t: VisibleTarget, darkIntervals: [string, string][]): boolean {
 // ── Meteor shower card ───────────────────────────────────────────────────────
 
 function skyClass(sky: string): string {
-  const moonWashMatch = sky.match(/^Moon wash \((minor|moderate|severe)\)$/)
+  const moonWashMatch = sky.match(/^Moon wash: (minor|moderate|severe)$/)
   if (moonWashMatch) return `tg-sky-moon-wash-${moonWashMatch[1]}`
   return `tg-sky-${sky.replace(/ /g, '-').toLowerCase()}`
 }
@@ -1540,11 +1577,6 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
         {name}
         {t.note    && <span className="tg-note"> · {t.note}</span>}
         {sizeLabel && <span className="tg-note"> · Size: {sizeLabel}</span>}
-        {wxPt && (
-          <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxPt))}`}>
-            <WmoIcon code={wxPt.weather_code} size={12} />
-          </span>
-        )}
         {glow != null && glow >= 0.03 && (
           <span className="tg-glow-inline cond-glow" style={glowStyle(glow)}>
             {` · glow ${glowLabel(glow)}`}
@@ -1558,6 +1590,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
         <tr key={key} className="tg-row-blocked">
           {targetCell}
           <td><BlockerBadge blockers={t.windows[0]?.blockers ?? []} /></td>
+          <td></td>
           <td className="wx-num">—</td>
         </tr>
       )
@@ -1642,6 +1675,13 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
       <tr key={key}>
         {targetCell}
         <td className="wx-num">{peakJsx}</td>
+        <td className="wx-num tg-cond-col">
+          {wxPt && (
+            <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxPt))}`}>
+              <WmoIcon code={wxPt.weather_code} size={12} />
+            </span>
+          )}
+        </td>
         <td className="wx-num">{winJsx}</td>
       </tr>
     )
@@ -1654,6 +1694,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           <tr>
             <th>Target</th>
             <th>Peak</th>
+            <th></th>
             <th>Window</th>
           </tr>
         </thead>
@@ -1662,7 +1703,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             if (row.kind === 'header') {
               return (
                 <tr key={row.key} className="tg-group-hdr">
-                  <td colSpan={3}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                  <td colSpan={4}>{TYPE_LABELS[row.type] ?? row.type}</td>
                 </tr>
               )
             }
@@ -1672,13 +1713,13 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           {unviable.length > 0 && (
             <>
               <tr className="tg-unviable-hdr">
-                <td colSpan={3}>Unavailable Tonight</td>
+                <td colSpan={4}>Unavailable Tonight</td>
               </tr>
               {unviableRows.map(row => {
                 if (row.kind === 'header') {
                   return (
                     <tr key={row.key} className="tg-group-hdr tg-row-blocked">
-                      <td colSpan={3}>{TYPE_LABELS[row.type] ?? row.type}</td>
+                      <td colSpan={4}>{TYPE_LABELS[row.type] ?? row.type}</td>
                     </tr>
                   )
                 }
@@ -2046,7 +2087,7 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
         </span>
         {sky_state === 'domed' && (
           <>
-            <span className="ld-line">{top?.label}{topDist}</span>
+            <span className={`ld-line${top?.severity ? ` ld-dome-${top.severity}` : ''}`}>{top?.label}{topDist}</span>
             <span className="ld-sub">Best view <b>{darkest_direction}</b></span>
           </>
         )}

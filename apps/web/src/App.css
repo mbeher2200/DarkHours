@@ -676,6 +676,8 @@ input[type="number"]::-webkit-inner-spin-button {
   font-size: 12px;
   color: var(--text);
 }
+.ld-line.ld-dome-minor { color: var(--good); }
+.ld-line.ld-dome-major { color: var(--fair); }
 .ld-sub {
   font-size: 11.5px;
   color: var(--text-dim);
@@ -715,28 +717,32 @@ html.red-mode .ld-state-urban {
   border-color: var(--excellent);
   background: rgba(90, 209, 154, 0.05);
 }
-.band-excellent .overall-num {
+.band-excellent .overall-num,
+.band-excellent .overall-label {
   color: var(--excellent);
 }
 .band-good {
   border-color: var(--good);
   background: rgba(var(--tint-rgb), 0.05);
 }
-.band-good .overall-num {
+.band-good .overall-num,
+.band-good .overall-label {
   color: var(--good);
 }
 .band-fair {
   border-color: var(--fair);
   background: rgba(167, 139, 250, 0.05);
 }
-.band-fair .overall-num {
+.band-fair .overall-num,
+.band-fair .overall-label {
   color: var(--fair);
 }
 .band-poor {
   border-color: var(--poor);
   background: rgba(248, 113, 113, 0.05);
 }
-.band-poor .overall-num {
+.band-poor .overall-num,
+.band-poor .overall-label {
   color: var(--poor);
 }
 
@@ -1017,7 +1023,8 @@ details summary {
   margin-top: 10px;
 }
 .tg-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -1200,6 +1207,23 @@ details summary {
 .mw-dome-wrap {
   flex-shrink: 0;
   width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mw-dome-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.mw-dome-subtitle {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  opacity: 0.75;
 }
 .mw-dome-wrap svg {
   display: block;
@@ -1436,8 +1460,11 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 /* ── Targets table: Conditions column ────────────────────────── */
 .tg-table th.tg-cond-col,
 .tg-table td.tg-cond-col {
-  text-align: left;
+  text-align: center;
   white-space: nowrap;
+  padding-left: 4px;
+  padding-right: 4px;
+  width: 28px;
 }
 .cond-badges {
   display: inline-flex;
