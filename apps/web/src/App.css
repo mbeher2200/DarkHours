@@ -1,3 +1,12 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
 .app {
   width: 100%;
   max-width: clamp(300px, 95vw, 1200px);
@@ -2098,14 +2107,31 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   .masthead h1 {
     font-size: 2rem;
   }
-
+    /* ── Date Picker Mobile Compression ── */
+  .dp-popover {
+    padding: 12px;
+  }
+  .dp-header {
+    margin-bottom: 6px;
+  }
+  .dp-day,
+  .dp-cell-empty {
+    height: 34px; /* Reduced from 42px to save vertical space */
+  }
+  .dp-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+  .dp-today-btn {
+    padding: 7px 0;
+  }
   /* Score card: tighter padding, flex-start so long sub-text doesn't mis-align number */
   .overall {
     padding: 14px 16px;
     gap: 14px;
     align-items: flex-start;
     flex-direction: column;
-    width: 100%;
+    /*width: 100%;*/
   }
   .overall-num {
     font-size: 3.5rem;
