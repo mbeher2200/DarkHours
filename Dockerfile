@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Python 3.13 from the AL2023 repos, then an isolated venv.
 RUN dnf update -y \
-    dnf install -y python3.13 python3.13-pip \
+    && dnf install -y python3.13 python3.13-pip \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 RUN python3.13 -m venv /venv
