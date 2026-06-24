@@ -618,6 +618,12 @@ input[type="number"]::-webkit-inner-spin-button {
   margin-top: 2px;
   white-space: nowrap;
 }
+.overall-score-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 /* Give meta block all remaining space so values don't wrap */
 .overall .meta {
   flex: 1 1 260px; /* FIXED: Trigger wrapping if the available width drops below 260px */
@@ -638,7 +644,7 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 8px;
 }
 .ld-title {
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-dim);
   text-align: center;
@@ -975,6 +981,22 @@ details summary {
 .nearby-dome-row {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  display: grid;
+  grid-template-columns: 1fr 72px 92px;
+  gap: 0 8px;
+  align-items: baseline;
+}
+.nearby-dome-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nearby-dome-bortle {
+  white-space: nowrap;
+}
+.nearby-dome-dist {
+  white-space: nowrap;
+  text-align: right;
 }
 /* POI-first reachability affordances */
 .poi-namelink {
@@ -1092,6 +1114,13 @@ details summary {
   margin-top: 10px;
   margin-bottom: 6px;
 }
+/* Two-column layout: text left, arch dome right */
+.mw-layout {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 1.5rem;
+}
 .mw-section-label {
   font-size: 13px;
   font-weight: 700;
@@ -1145,6 +1174,7 @@ details summary {
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--fair);
+  margin-left: 4px;
 }
 .badge-poor {
   color: var(--poor);
@@ -1229,6 +1259,14 @@ details summary {
   display: block;
   width: 100%;
   height: auto;
+}
+.mw-dome-svg {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.mw-dome-svg:active {
+  cursor: grabbing;
 }
 .mw-dome-ground {
   fill: rgba(8, 12, 8, 0.55);
@@ -1907,7 +1945,7 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 /* ── responsive: ≤640px (phone landscape / large phone portrait) ─────────── */
 @media (max-width: 640px) {
   .app {
-    padding: 20px 16px max(48px, calc(48px + env(safe-area-inset-bottom)));
+    padding: 12px 4px max(48px, calc(48px + env(safe-area-inset-bottom)));
   }
   .masthead {
     margin-bottom: 10px;
@@ -1928,16 +1966,20 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   }
   .card {
     border-radius: 12px;
-    padding: 16px;
+    padding: 8px;
   }
-  /* Mode toggle: prevent multi-line wrapping in narrow buttons */
+  /* Mode toggle: allow buttons to wrap so "Enter coordinates" doesn't clip */
   .mode-toggle button {
-    font-size: 0.8125rem;
-    padding: 8px 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 0.6875rem;
+    padding: 7px 4px;
+    white-space: normal;
+    line-height: 1.2;
+    text-align: center;
     min-width: 0;
+  }
+  /* Stack lat/lon inputs vertically */
+  .coords {
+    grid-template-columns: 1fr;
   }
   /* Scope row: pills full-width row, units on own row below */
   .scope-row {
@@ -1950,14 +1992,104 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   .units-toggle {
     margin-left: auto;
   }
+  /* Report head: allow units toggle to wrap below on narrow screens */
+  .report-head {
+    flex-wrap: wrap;
+  }
   /* Report head: slightly smaller location name on mobile */
   .report-head .place {
     font-size: 1.125rem;
   }
+  /* Hide report-head coordinates (lat/lon) — too long for narrow screens */
+  .report-head-coords {
+    display: none;
+  }
   /* Table bleed matches reduced card padding */
-  .wx-table-wrap {
-    margin-right: -16px;
-    padding-right: 16px;
+  .wx-table-wrap,
+  .tg-table-wrap {
+    margin-right: -8px;
+    padding-right: 8px;
+  }
+  /* Satellite table: hide Set columns, Duration, and Peak Az to fit mobile */
+  .sat-set-col,
+  .sat-dur-col,
+  .sat-peak-az-col {
+    display: none;
+  }
+  /* MW card: collapse to single column so dome stacks below scores */
+  /* MW card: collapse to single column so dome stacks below scores */
+  .mw-layout {
+    grid-template-columns: 1fr;
+  }
+  /* Center the dome SVG when stacked in single-column layout */
+  .mw-dome-wrap {
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  /* Restore nearby table layout for mobile, matching the Excel mockup */
+  .nearby-table {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+  }
+
+  .nearby-table thead {
+    display: table-header-group; /* Restores the missing column labels */
+  }
+
+  .nearby-table th {
+    white-space: normal;
+    padding: 4px 2px;
+    font-size: 10px;
+    vertical-align: bottom;
+  }
+
+  .nearby-table td {
+    white-space: normal; /* Allows the long Area names to wrap instead of spilling out */
+    padding: 6px 2px;
+    vertical-align: bottom; /* Sinks the stats to align with the location/tags line */
+    border-bottom: 1px solid rgba(var(--hairline-rgb), 0.25);
+  }
+
+  .nearby-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Structure the Area column */
+  .nearby-area-td {
+    width: 100%; /* Pushes the data columns to the right, giving the name maximum space */
+  }
+
+  .nearby-area-inner {
+    display: block;
+  }
+
+  .poi-namelink {
+    display: block; /* Forces the Area Name onto its own line */
+    margin-bottom: 3px;
+    font-size: 13px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .poi-area {
+    margin-left: 0; /* Reset desktop margin so it sits flush left under the name */
+    display: inline-block;
+  }
+
+  /* Size data columns to fit mobile width */
+  .nearby-bortle-col,
+  .nearby-sqm-col,
+  .nearby-dist-col,
+  .nearby-drive-col,
+  .nearby-dir-col {
+    font-size: 11px;
+    text-align: right;
+  }
+  /* Blocked target rows: allow badge text to wrap instead of clipping */
+  .tg-row-blocked td {
+    white-space: normal;
   }
 }
 
@@ -1979,24 +2111,31 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     font-size: 3.5rem;
   }
   .overall-label {
-    font-size: 1rem;
-    margin-top: 2px;
+    font-size: 3.5rem;
+    margin-top: 0;
   }
   /* Bar chart: tighter columns */
   .bar-row {
     grid-template-columns: 100px 1fr 32px;
   }
-  /* Meta key labels: narrower minimum */
+  /* Meta rows: keep horizontal, give key a fixed lane */
   .meta-k {
-    min-width: 0px;
+    min-width: 100px;
+    flex-shrink: 0;
   }
   .meta-row {
-    flex-direction: column;
-    align-items: flex-start; /* CRITICAL: Flushes text back to the left edge */
-    gap: 4px; /* Tightens the space between the label and value */
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .meta-row + .meta-row {
+    border-top: 1px solid rgba(var(--hairline-rgb), 0.25);
+    padding-top: 6px;
   }
   .meta-v {
-    padding-left: 0; /* Ensures the value text aligns perfectly under the label */
+    flex: 1;
+    padding-left: 0;
   }
   /* Light dome stacks below the score, centered and full-width; the caption
      stacks under the disk again (too little width to sit beside it). */
@@ -2012,7 +2151,77 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     text-align: center;
   }
   input[type=range] {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  /* Night Timeline / Weather table: squeeze to fit all columns without horizontal scroll */
+  .wx-table {
+    font-size: 10px;
+  }
+  .wx-table th {
+    padding: 2px 3px 3px;
+    font-size: 9px;
+    letter-spacing: 0.03em;
+    white-space: normal;
+  }
+  .wx-table td {
+    padding: 3px 4px;
+  }
+  .wx-table td.wx-time,
+  .wx-table th:first-child {
+    min-width: 52px;
+  }
+  /* Targets table: reduce font/padding and allow target name to wrap */
+  .tg-table {
+    font-size: 11px;
+  }
+  .tg-table th {
+    padding: 3px 6px 4px;
+    font-size: 9px;
+  }
+  .tg-table td {
+    padding: 4px 6px;
+  }
+  .tg-table td:first-child {
+    white-space: normal;
+    max-width: 160px;
+  }
+  /* Seeing arcsec: show as a tiny second line in the SEEING cell */
+  .wx-seeing-detail {
+    display: block;
+    font-size: 8px;
+    line-height: 1.1;
+    color: var(--text-dim);
+  }
+  /* POI elements: reduce font sizes so nearby table fits */
+  .poi-maplink,
+  .poi-area,
+  .poi-badge {
+    font-size: 9px;
+  }
+  .poi-maplink svg {
+    width: 11px;
+    height: 11px;
+  }
+  /* Arch waypoints: allow window time range to wrap */
+  .wp-window-td {
+    white-space: normal;
+  }
+  /* Deep sky targets: fill width and let content wrap naturally */
+  .tg-table {
+    width: 100%;
+    table-layout: auto;
+  }
+  .tg-table td,
+  .tg-table th {
+    white-space: normal;
+  }
+  /* Remove fixed-width spans so alignment columns share space naturally */
+  .tg-t,
+  .tg-alt,
+  .tg-az,
+  .tg-dir {
+    display: inline;
+    min-width: 0;
+  }
 }

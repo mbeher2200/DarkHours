@@ -10,6 +10,7 @@ import {
   Sunrise, Sunset, Moon, Star, Stars,
   MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
   CloudRain, CloudRainWind, CloudSnow, Snowflake, CloudMoonRain, CloudLightning,
+  Navigation,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -162,7 +163,7 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                 {hasTransp && <th>Transp</th>}
                 {hasSeeing && <th>Seeing</th>}
                 {hasTemp   && <th>Temp</th>}
-                {hasDew    && <th>Dew Pt</th>}
+                {hasDew    && <th className="wx-dew-col">Dew Pt</th>}
                 <th>Wind</th>
               </tr>
             </thead>
@@ -210,12 +211,12 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                   {hasSeeing && (
                     <td className="wx-num">
                       {p.seeing_arcsec != null
-                        ? `${Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10 (${p.seeing_arcsec.toFixed(2)}")`
+                        ? <>{Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10<span className="wx-seeing-detail">{` (${p.seeing_arcsec.toFixed(2)}")`}</span></>
                         : '—'}
                     </td>
                   )}
                   {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
-                  {hasDew    && <td className="wx-num">{fmtTemp(p.dew_point_c, imperial)}</td>}
+                  {hasDew    && <td className="wx-num wx-dew-col">{fmtTemp(p.dew_point_c, imperial)}</td>}
                   <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
                 </tr>
               )
@@ -328,17 +329,17 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 <th>Satellite</th>
                 <th colSpan={3}>Rise</th>
                 <th colSpan={3}>Peak</th>
-                <th colSpan={3}>Set</th>
-                <th>Dur</th>
+                <th className="sat-set-col" colSpan={3}>Set</th>
+                <th className="sat-dur-col">Dur</th>
                 <th>Moon Sep</th>
                 {report.light_dome && <th>Glow</th>}
               </tr>
               <tr className="sat-subhdr">
                 <th></th>
                 <th>Time</th><th>Alt</th><th>Az</th>
-                <th>Time</th><th>Alt</th><th>Az</th>
-                <th>Time</th><th>Alt</th><th>Az</th>
-                <th></th><th></th>
+                <th>Time</th><th>Alt</th><th className="sat-peak-az-col">Az</th>
+                <th className="sat-set-col">Time</th><th className="sat-set-col">Alt</th><th className="sat-set-col">Az</th>
+                <th className="sat-dur-col"></th><th></th>
                 {report.light_dome && <th></th>}
               </tr>
             </thead>
@@ -360,8 +361,8 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 if (satCloudy) return (
                   <tr key={i} className="tg-row-blocked">
                     <td>{label}</td>
-                    <td className="wx-num" colSpan={11 + (satGlow != null ? 1 : 0)} style={{textAlign: 'center'}}>
-                      <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>
+                    <td className="wx-num" colSpan={11 + (satGlow != null ? 1 : 0)}>
+                      <span className="mw-moon-badge badge-poor">Clouded out</span>
                     </td>
                   </tr>
                 )
@@ -380,11 +381,11 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                       )}
                     </td>
                     <td className="wx-num">{p.peak_alt_deg.toFixed(0)}°</td>
-                    <td className="wx-num">{az(p.peak_az_deg)}</td>
-                    <td className="wx-num">{formatTime(p.set_time, tz)}</td>
-                    <td className="wx-num">{setAlt}</td>
-                    <td className="wx-num">{az(p.set_az_deg)}</td>
-                    <td className="wx-num">{p.duration_min.toFixed(0)}m</td>
+                    <td className="wx-num sat-peak-az-col">{az(p.peak_az_deg)}</td>
+                    <td className="wx-num sat-set-col">{formatTime(p.set_time, tz)}</td>
+                    <td className="wx-num sat-set-col">{setAlt}</td>
+                    <td className="wx-num sat-set-col">{az(p.set_az_deg)}</td>
+                    <td className="wx-num sat-dur-col">{p.duration_min.toFixed(0)}m</td>
                     <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{moonStr}</td>
                     {report.light_dome && (
                       <td className="wx-num cond-glow" style={satGlow != null && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
@@ -504,7 +505,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                 <tr key={t.name} className="tg-row-blocked">
                   <td>{t.name}</td>
                   <td className="wx-num" colSpan={3} style={{textAlign: 'center'}}>
-                    <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>
+                    <span className="mw-moon-badge badge-poor">Clouded out</span>
                   </td>
                 </tr>
               )
@@ -544,7 +545,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
                       </span>
                     )}
                   </td>
-                  <td className="wx-num">
+                  <td className="wx-num wp-window-td">
                     <span className="tg-t">{formatTime(w.start, tz)}</span>
                     <span className="tg-p"> – </span>
                     <span className="tg-t">{formatTime(w.end, tz)}</span>
@@ -562,7 +563,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
 function MoonBadge({ type, severity }: { type: 'penalty' | 'limited'; severity?: string | null }) {
   const base = type === 'penalty' ? 'Moon interference' : 'Moon limited'
   const text = severity ? `${base}: ${severity}` : base
-  return <span className="mw-moon-badge">[ {text} ]</span>
+  return <span className="mw-moon-badge">{text}</span>
 }
 
 
@@ -808,9 +809,45 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   );
   const [tilt, setTilt] = useState<number>(0);
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   // 1. ADDED HERE: State to track which dot is currently being hovered
   const [hoveredDot, setHoveredDot] = useState<{name: string, x: number, y: number} | null>(null);
+
+  // Native touch handlers for iOS Safari — PointerEvents + setPointerCapture can be
+  // unreliable on iOS when touch-action isn't applied before the first touch. Native
+  // listeners with passive:false let us call preventDefault() to block page scroll.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const fConst = 100 / Math.tan(60 * Math.PI / 180);
+    let lastX = 0, lastY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.touches[0]) return;
+      const dx = e.touches[0].clientX - lastX;
+      const dy = e.touches[0].clientY - lastY;
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
+      const rect = svg.getBoundingClientRect();
+      const sens = (180 / Math.PI) / fConst;
+      setHeading(h => ((h + dx * (180 / rect.width) * sens) % 360 + 360) % 360);
+      setTilt(t => Math.max(0, Math.min(45, t - dy * (120 / rect.height) * sens)));
+    };
+    svg.addEventListener('touchstart', onTouchStart, { passive: false });
+    svg.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      svg.removeEventListener('touchstart', onTouchStart);
+      svg.removeEventListener('touchmove', onTouchMove);
+    };
+  }, []);
 
   if (summary.core_peak_alt_deg == null || summary.core_peak_alt_deg <= 0) {
     return (
@@ -1001,9 +1038,10 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
     <div className="mw-dome-wrap">
       <div className="mw-dome-title">360° Sky Dome</div>
       <svg
+        ref={svgRef}
         viewBox="10 0 180 120"
         xmlns="http://www.w3.org/2000/svg"
-        style={{ touchAction: 'none', cursor: 'grab', userSelect: 'none' }}
+        className="mw-dome-svg"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1246,8 +1284,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
   return (
     <div className="mw-card">
 
-      {/* Structural layout fix mapping correctly to your CSS */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', columnGap: '1.5rem' }}>
+      <div className="mw-layout">
 
         {/* Left Column Container reproducing the natural 7px vertical gap of mw-card */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
@@ -1256,15 +1293,15 @@ export function MilkyWayCard({ summary, waypoints, report }: {
             <div className="mw-score-left">
               <div style={{display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap'}}>
                 <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
-                {s.weather_blocked && <span className="mw-moon-badge badge-poor">[ Clouded out ]</span>}
-                {!s.weather_blocked && s.weather_limited && <span className="mw-moon-badge">[ Partly cloudy ]</span>}
+                {s.weather_blocked && <span className="mw-moon-badge badge-poor">Clouded out</span>}
+                {!s.weather_blocked && s.weather_limited && <span className="mw-moon-badge">Partly cloudy</span>}
               </div>
               <div className="mw-sub-scores">
                 <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
                 <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
                 {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} />}
-                {s.arch_moon_washout && <span className="mw-moon-badge">[ Moon washout ]</span>}
+                {s.arch_moon_washout && <span className="mw-moon-badge">Moon washout</span>}
                 {domeSections.length > 0 && (() => {
                   const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
                   const severity = glowLabel(maxGlow)
@@ -1272,7 +1309,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
                   const label    = `${dirs} ${domeSections.length > 1 ? 'sections' : 'section'}`
                   return (
                     <span className="mw-moon-badge cond-glow" style={glowStyle(maxGlow)}>
-                      {`[ Dome glow: ${label} · ${severity} ]`}
+                      {`Dome glow: ${label} · ${severity}`}
                     </span>
                   )
                 })()}
@@ -1288,7 +1325,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
               {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} />}
               {s.weather_limited && !s.weather_blocked && (
                 <span className="mw-moon-badge">
-                  {`[ ${s.clear_arch_hours.toFixed(1)}h clear ]`}
+                  {`${s.clear_arch_hours.toFixed(1)}h clear`}
                 </span>
               )}
             </span>
@@ -1474,7 +1511,7 @@ function BlockerBadge({ blockers }: { blockers: string[] }) {
     label = 'Moon washout'
   else if (blockers.includes('light_dome'))
     label = 'Lost in light dome'
-  return <span className="tg-blocker-badge">[ {label} ]</span>
+  return <span className="tg-blocker-badge">{label}</span>
 }
 
 function clipTooltip(w: TargetWindow, tz: string): string {
@@ -1487,13 +1524,13 @@ function clipTooltip(w: TargetWindow, tz: string): string {
   return 'Window clipped by conditions'
 }
 
-function clipReasonShort(w: TargetWindow): string {
+/*function clipReasonShort(w: TargetWindow): string {
   const b = w.blockers ?? []
   if (b.includes('cloud') || b.includes('transparency')) return 'cloud'
   if (b.includes('moon_washout')) return 'moon'
   if (b.includes('light_dome'))   return 'dome'
   return 'conditions'
-}
+}*/
 
 // ── TargetsTable ──────────────────────────────────────────────────────────────
 
@@ -1671,7 +1708,6 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
             <span
               className="tg-clip-indicator"
               title={clipTooltip(w, tz)}
-              data-tip={clipReasonShort(w)}
             >*</span>
           )}
           {visualExtJsx}
@@ -1797,7 +1833,7 @@ function NearbyResults(
         {p.is_poi
           ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
           : <span className="poi-remote">Remote</span>}
-        <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer">Directions ↗</a>
+        <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
       </>
     )
   }
@@ -1883,15 +1919,15 @@ function NearbyResults(
               )}
             </div>
             <div className="wx-table-wrap">
-              <table className="wx-table">
+              <table className="wx-table nearby-table">
                 <thead>
                   <tr>
-                    <th>Area</th>
+                    <th className="nearby-area-th">Area</th>
                     <th>Bortle</th>
                     <th>SQM</th>
-                    <th>Distance</th>
+                    <th>Dist</th>
                     {hasDrive && <th>Drive</th>}
-                    <th>Direction</th>
+                    <th>Dir</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1906,12 +1942,14 @@ function NearbyResults(
                     })
                     .map((p, i) => (
                       <tr key={i}>
-                        <td className={nearbyBortleClass(p.bortle_class)}>{placeNode(p)}</td>
-                        <td className={`wx-num ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
-                        <td className="wx-num">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
-                        <td className="wx-num">{distOf(p)}</td>
-                        {hasDrive && <td className="wx-num">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
-                        <td className="wx-num">{p.direction}</td>
+                        <td className={`${nearbyBortleClass(p.bortle_class)} nearby-area-td`}>
+                          <div className="nearby-area-inner">{placeNode(p)}</div>
+                        </td>
+                        <td className={`wx-num nearby-bortle-col ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
+                        <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
+                        <td className="wx-num nearby-dist-col">{distOf(p)}</td>
+                        {hasDrive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
+                        <td className="wx-num nearby-dir-col">{p.direction}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -1927,7 +1965,9 @@ function NearbyResults(
           <div className="nearby-domes-label">Light domes</div>
           {light_domes.map((d, i) => (
             <div key={i} className="nearby-dome-row">
-              {placeStr(d)}  ·  <span className={nearbyBortleClass(d.bortle_class)}>Bortle {d.bortle_class}</span>  ·  {fmtMi(d.distance_miles)} {d.direction}
+              <span className="nearby-dome-name">{placeStr(d)}</span>
+              <span className={`nearby-dome-bortle ${nearbyBortleClass(d.bortle_class)}`}>Bortle {d.bortle_class}</span>
+              <span className="nearby-dome-dist">{fmtMi(d.distance_miles)} {d.direction}</span>
             </div>
           ))}
         </div>
@@ -2276,7 +2316,7 @@ export default function ReportCard({
           </h2>
           {placeSecondary && <p className="place-sub">{placeSecondary}</p>}
           <p className="when">
-            {formattedDate}  ·  {tzTitle(tz)}  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)
+            {formattedDate}  ·  {tzTitle(tz)}<span className="report-head-coords">  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)</span>
           </p>
         </div>
         {onToggleUnits && (
@@ -2288,11 +2328,11 @@ export default function ReportCard({
       </header>
 
       <div className={`overall band-${scoreBand(r.score)}`}>
-        <div className="overall-num">{r.score.toFixed(1)}</div>
-        <div className="overall-meta">
+        <div className="overall-score-header">
+          <div className="overall-num">{r.score.toFixed(1)}</div>
           <div className="overall-label">{scoreLabel(r.score)}</div>
-          <div className="overall-sub">0–10 composite score</div>
         </div>
+        <div className="overall-sub">0–10 composite score</div>
           <div className="meta">
         {shortLps && <MetaRow k="Light Pollution" v={shortLps} />}
 
@@ -2320,9 +2360,9 @@ export default function ReportCard({
       </div>
 
       <div className="bars">
-        {r.score_components.bortle  != null && <ScoreBar label="Dark Sky Quality"      value={r.score_components.bortle} />}
-        {r.score_components.moon    != null && <ScoreBar label="Lunar Conditions"         value={r.score_components.moon} />}
-        {r.score_components.dark    != null && <ScoreBar label="Dark Sky Hours"    value={r.score_components.dark} />}
+        {r.score_components.bortle  != null && <ScoreBar label="Dark Sky"      value={r.score_components.bortle} />}
+        {r.score_components.moon    != null && <ScoreBar label="Lunar"         value={r.score_components.moon} />}
+        {r.score_components.dark    != null && <ScoreBar label="Dark Hours"    value={r.score_components.dark} />}
         {showWeather && r.score_components.weather != null && <ScoreBar label="Weather" value={r.score_components.weather} />}
       </div>
 
