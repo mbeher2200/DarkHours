@@ -282,7 +282,7 @@ export default function App() {
           className={`night-vision-toggle${redMode ? ' active' : ''}`}
           onClick={() => setRedMode(v => !v)}
           aria-pressed={redMode}
-          title="Red light mode — preserves night vision"
+          title="Red light mode — night vision"
         >
           <Moon size={13} strokeWidth={2} fill={redMode ? 'currentColor' : 'none'} />
           <span>Night vision</span>
@@ -290,7 +290,7 @@ export default function App() {
 
         <h1>DarkHours</h1>
 
-        <p>Know every factor before looking up.</p>
+        <p>Know the night</p>
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
@@ -656,6 +656,8 @@ export default function App() {
         <br />
         Source:{' '}
         <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
+                <br /><br />
+        DarkHours is free, open source, and will never require your email address.
       </footer>
     </div>
   )
