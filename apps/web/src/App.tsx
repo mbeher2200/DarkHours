@@ -52,6 +52,8 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('red-mode', redMode)
     localStorage.setItem('redMode', redMode ? '1' : '0')
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (link) link.href = redMode ? '/favicon-red.svg' : '/favicon.svg'
   }, [redMode])
 
   // Debounced autocomplete: fetch suggestions as the user types a place name.
