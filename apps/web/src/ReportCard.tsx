@@ -10,7 +10,7 @@ import {
   Sunrise, Sunset, Moon, Star, Stars,
   MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
   CloudRain, CloudRainWind, CloudSnow, Snowflake, CloudMoonRain, CloudLightning,
-  Droplet, Navigation,
+  Droplet, Wind, TriangleAlert, Navigation,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -217,7 +217,8 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
               }
               const p = row.pt
               const isAstro = darkRanges?.some(([s, e]) => row.ts >= s && row.ts <= e) ?? false
-              const windGate = p.wind_speed_ms != null && p.wind_speed_ms > 6.7
+              const windWarn   = p.wind_speed_ms != null && p.wind_speed_ms >= 5.36
+              const windSevere = p.wind_speed_ms != null && p.wind_speed_ms >= 6.3
               const dewSpread = p.temperature_c != null && p.dew_point_c != null ? p.temperature_c - p.dew_point_c : null
               const dewGate  = dewSpread != null && dewSpread <= 5
               return (
@@ -247,8 +248,13 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
                       {fmtTemp(p.dew_point_c, imperial)}{dewGate && <Droplet size={dewSpread! <= 3 ? 14 : 11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />}
                     </td>
                   )}
-                  <td className={`wx-num${windGate ? ' wx-gate-warn' : ''}`}>
-                    {fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}{windGate ? ' ⚠' : ''}
+                  <td className={`wx-num${windSevere ? ' wx-gate-warn' : ''}`}>
+                    {fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}
+                    {windSevere
+                      ? <TriangleAlert size={13} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
+                      : windWarn
+                      ? <Wind size={11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
+                      : null}
                   </td>
                 </tr>
               )
