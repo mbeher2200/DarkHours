@@ -410,7 +410,7 @@ def assemble_night(
     _tle_futures: dict[int, _futures.Future] = {}
     _sl_future:   _futures.Future | None     = None
     _sat_stale        = False
-    _sat_days_offset  = (target - date.today()).days
+    _sat_days_offset  = (target - (datetime.now(timezone.utc).date() - timedelta(days=1))).days
 
     _max_workers = 3
     if fetch_satellites and _sat_days_offset >= 0:
