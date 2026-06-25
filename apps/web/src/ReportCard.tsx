@@ -723,11 +723,11 @@ const LD_MAJOR = 3.0
 // "excellent of excellent" = true darkness. Glow rises: black → green → blue → lilac → rose.
 const LD_STOPS: [number, [number, number, number]][] = [
   [0,        [0, 0, 0]],        // darkness — the best (excellent-of-excellent)
-  [0.03,     [52, 211, 153]],   // --excellent green
-  [0.12,     [96, 165, 250]],   // --good blue
-  [LD_MINOR, [167, 139, 250]],  // --fair lilac — a minor dome
-  [0.9,      [251, 113, 133]],  // --poor rose
-  [LD_MAJOR, [225, 80, 100]],   // deep --poor — a major dome
+  [0.03,     [74, 94, 168]],    // --excellent blue
+  [0.12,     [92, 184, 92]],    // --good green
+  [LD_MINOR, [240, 173, 78]],   // --fair amber — a minor dome
+  [0.9,      [217, 83, 79]],    // --poor red
+  [LD_MAJOR, [150, 40, 40]],    // deep --poor — a major dome
 ]
 // Bloom-legibility transform: real dome heights are ~1° (a sub-pixel rim sliver), so
 // for *display* we scale them up and floor them. This shapes the on-screen bloom, not
