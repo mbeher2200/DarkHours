@@ -1753,7 +1753,11 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 /* ── weather table ────────────────────────────────────────── */
 .wx-details summary {
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   cursor: pointer;
 }
 /* Timeline event rows interleaved in the weather table */
