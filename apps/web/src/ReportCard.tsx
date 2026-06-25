@@ -1830,10 +1830,12 @@ function NearbyResults(
       <>
         <a className="poi-namelink" href={appLink}>{placeStr(p)}</a>
         {p.area_name && <span className="poi-area">{p.area_name}</span>}
-        {p.is_poi
-          ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
-          : <span className="poi-remote">Remote</span>}
-        <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
+        <span className="poi-type-link">
+          {p.is_poi
+            ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
+            : <span className="poi-remote">Remote</span>}
+          <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
+        </span>
       </>
     )
   }
