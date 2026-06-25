@@ -496,7 +496,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
   return (
     <details ref={detailsRef} className="mw-waypoints-detail">
       <summary className="mw-waypoints-summary">
-        Arch Waypoints ({summary.n_visible})
+        Galactic Plane Waypoints ({summary.n_visible})
       </summary>
       <div className="tg-table-wrap mw-waypoints-table-wrap">
         <table className="tg-table">
@@ -2449,8 +2449,6 @@ export default function ReportCard({
           .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
           .filter(t => isPrime(t, r.dark_intervals))
           .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
-        const _viableCount   = primeDSOs.filter(t => t.viability !== 'blocked').length
-        const _blockedCount  = primeDSOs.filter(t => t.viability === 'blocked').length
         const hasAnything    = r.visible_targets.length > 0
 
         return (
