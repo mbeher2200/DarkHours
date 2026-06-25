@@ -2449,8 +2449,8 @@ export default function ReportCard({
           .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
           .filter(t => isPrime(t, r.dark_intervals))
           .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
-        const viableCount    = primeDSOs.filter(t => t.viability !== 'blocked').length
-        const blockedCount   = primeDSOs.filter(t => t.viability === 'blocked').length
+        const _viableCount   = primeDSOs.filter(t => t.viability !== 'blocked').length
+        const _blockedCount  = primeDSOs.filter(t => t.viability === 'blocked').length
         const hasAnything    = r.visible_targets.length > 0
 
         return (
