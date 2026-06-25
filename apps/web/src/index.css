@@ -52,40 +52,36 @@
 
 :root {
   /* ── Canvas & Surfaces ──────────────────────────────────────── */
-  --bg: #0B0E14;           /* A rich, solid midnight slate */
-  --card: #131722;         /* Slightly elevated surface */
-  /* Using rgba for borders allows them to blend perfectly with the background */
-  --card-border: rgba(255, 255, 255, 0.06);
-  --field-bg: #0e1120;     /* Recessed control surface (inputs, pills, tables) */
-  --pop-bg: #1a1f38;       /* Popovers: dropdown + calendar */
+  --bg: #E8EAEE;           /* Light neutral gray page */
+  --card: #F4F5F7;         /* Elevated card surface */
+  --card-border: rgba(0, 0, 0, 0.09);
+  --field-bg: #DCDFE5;     /* Recessed control surface (inputs, pills, tables) */
+  --pop-bg: #FFFFFF;       /* Popovers: dropdown + calendar */
   --on-accent: #ffffff;    /* Text/icon ink on the accent fill */
-  /* RGB triplets for low-alpha tints, so a theme can re-tint them wholesale via
-     rgba(var(--…), a). --tint = accent-ish hover/selection wash; --hairline =
-     table/section separators; --surface-2 = neutral badge fill. */
-  --tint-rgb: 122, 162, 255;
-  --hairline-rgb: 35, 40, 67;
-  --surface-2: rgba(127, 127, 127, 0.18);
+  --tint-rgb: 46, 123, 191;
+  --hairline-rgb: 0, 0, 0;
+  --surface-2: rgba(0, 0, 0, 0.07);
 
   /* ── Typography ─────────────────────────────────────────────── */
-  --text-h: #E2E8F0;       /* Near-white heading ink — commands the hierarchy ceiling */
-  --text: #94A3B8;         /* Clean, legible slate for body text */
-  --text-dim: #7B88A0;     /* Visibly dimmer than body — 5:1 contrast on card, labels/meta/captions */
-  --accent: #4F75FF;       /* Periwinkle-blue: distinctive, not Tailwind stock, sky-adjacent */
+  --text-h: #111316;       /* Near-black heading ink */
+  --text: #3B4455;         /* Dark gray body text */
+  --text-dim: #6B7585;     /* Dim labels, captions, metadata */
+  --accent: #2E7BBF;       /* Neutral steel blue */
 
-  /* ── Semantic Data (Desaturated for a premium look) ─────────── */
-  --excellent: #34D399;    /* Muted emerald, less neon */
-  --good: #60A5FA;         /* Soft daylight blue */
-  --fair: #A78BFA;         /* Soft lilac */
-  --poor: #FB7185;         /* Soft rose (avoids the cheap "error red" look) */
+  /* ── Semantic Data ──────────────────────────────────────────── */
+  --excellent: #0D9B6E;    /* Darker emerald — legible on light bg */
+  --good: #1D6FBF;         /* Darker blue */
+  --fair: #7C3AED;         /* Darker purple */
+  --poor: #D63B52;         /* Darker rose */
 
   /* ── Typography Scale ───────────────────────────────────────── */
-  --sans: 'Poppins', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   /* ── Timeline event accent colors ──────────────────────────── */
-  --ev-sun:   oklch(0.80 0.14 63);   /* warm amber: sunrise / sunset */
-  --ev-moon:  oklch(0.74 0.07 248);  /* cool silver-blue: moonrise / moonset */
-  --ev-astro: oklch(0.60 0.16 272);  /* deep indigo: astronomical night begins/ends */
+  --ev-sun:   oklch(0.62 0.17 63);   /* warm amber */
+  --ev-moon:  oklch(0.48 0.10 248);  /* cool blue */
+  --ev-astro: oklch(0.42 0.16 272);  /* deep indigo */
 }
 
 *, *::before, *::after {
@@ -95,12 +91,11 @@
 body {
   margin: 0;
   min-height: 100svh;
-  /* Removed var(--bg-grad) entirely! Just clean, solid color. */
   background: var(--bg);
   letter-spacing: 0.01em;
   font: 1rem/1.6 var(--sans);
   color: var(--text);
-  color-scheme: dark;
+  color-scheme: light;
   font-kerning: normal;
   font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
