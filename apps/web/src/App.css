@@ -38,26 +38,56 @@ html, body {
   right: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
+  gap: 7px;
+  padding: 5px 10px;
   border-radius: 2px;
   background: var(--card);
-  /* Always red — a visual cue that this toggles red/night-vision mode. (In red
-     mode the button is .active and switches to the themed pure red below.) */
-  border: 1px solid rgba(227, 86, 80, 0.4);
-  color: #e35650;
+  border: 1px solid rgba(160, 0, 0, 0.30);
+  color: #880000;
   font: 500 12px var(--sans);
   letter-spacing: 0.01em;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
 }
 .night-vision-toggle:hover {
-  color: #ff6f66;
-  border-color: rgba(227, 86, 80, 0.7);
+  color: #aa0000;
+  border-color: rgba(160, 0, 0, 0.55);
 }
 .night-vision-toggle.active {
-  color: var(--poor);
-  border-color: var(--poor);
+  color: #cc0000;
+  border-color: rgba(170, 0, 0, 0.55);
+}
+
+/* Toggle track */
+.nv-switch {
+  display: inline-block;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  background: rgba(140, 0, 0, 0.12);
+  border: 1px solid rgba(160, 0, 0, 0.30);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.nv-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #880000;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.night-vision-toggle.active .nv-switch {
+  background: rgba(160, 0, 0, 0.22);
+  border-color: rgba(160, 0, 0, 0.55);
+}
+.night-vision-toggle.active .nv-thumb {
+  transform: translateX(13px);
+  background: #cc0000;
 }
 
 /* When active, the root carries .red-mode (set on <html>). We re-theme via the
@@ -100,7 +130,10 @@ html.red-mode {
 }
 html.red-mode .wx-table tr.wx-row-astro td,
 html.red-mode .wx-table tr.wx-row-astro td.wx-time {
-  background: color-mix(in oklab, oklch(0.45 0.15 25) 13%, var(--card));
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 18%, var(--card));
+}
+html.red-mode .wx-table tr.wx-row-astro td.wx-time {
+  border-left-color: rgba(255, 0, 0, 0.40);
 }
 /* feColorMatrix already outputs pure red (G=B=0); no brightness boost so the
    moon disc stays dim. */
@@ -113,14 +146,23 @@ html.red-mode ::selection {
   background: #5a0000;
   color: #ff5a5a;
 }
-/* Cap rating-bar fills at a single dim red regardless of score — these are the
-   one wide, bright area that would otherwise glare as the value approaches 10. */
-html.red-mode .bar-fill,
-html.red-mode .bar-fill.band-excellent,
-html.red-mode .bar-fill.band-good,
-html.red-mode .bar-fill.band-fair,
+/* Red-mode bar fills: visual hierarchy via fill saturation, not color variety.
+   Poor = hollow outlined bar; excellent = solid saturated red. */
 html.red-mode .bar-fill.band-poor {
-  background: #6a0000;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.45);
+}
+html.red-mode .bar-fill.band-fair {
+  background: rgba(255, 0, 0, 0.30);
+  box-shadow: none;
+}
+html.red-mode .bar-fill.band-good {
+  background: rgba(255, 0, 0, 0.62);
+  box-shadow: none;
+}
+html.red-mode .bar-fill.band-excellent {
+  background: rgba(255, 0, 0, 0.88);
+  box-shadow: none;
 }
 /* Overall-score card tint (was green/blue/purple rgba) → faint red. */
 html.red-mode .band-excellent,
@@ -206,7 +248,8 @@ html.red-mode details summary {
   border-bottom-color: rgba(255, 0, 0, 0.18);
 }
 html.red-mode .bar-track {
-  box-shadow: inset 1px 1px 2px rgba(255, 0, 0, 0.18);
+  background: rgba(255, 0, 0, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.14);
 }
 html.red-mode .nearby-trigger {
   border: 1px solid rgba(255, 0, 0, 0.20);
@@ -221,8 +264,35 @@ html.red-mode .units-toggle {
 }
 html.red-mode .mode-toggle button.active,
 html.red-mode .units-toggle button.active {
-  border: 1px solid rgba(255, 0, 0, 0.25);
+  background: rgba(255, 0, 0, 0.12);
+  border: 1px solid rgba(255, 0, 0, 0.20);
   box-shadow: none;
+}
+html.red-mode .night-vision-toggle {
+  border-color: rgba(255, 0, 0, 0.18);
+  color: #850000;
+}
+html.red-mode .night-vision-toggle:hover {
+  color: #aa0000;
+  border-color: rgba(255, 0, 0, 0.3);
+}
+html.red-mode .night-vision-toggle.active {
+  color: #ff0000;
+  border-color: rgba(255, 0, 0, 0.5);
+}
+html.red-mode .nv-switch {
+  background: rgba(255, 0, 0, 0.08);
+  border-color: rgba(255, 0, 0, 0.22);
+}
+html.red-mode .nv-thumb {
+  background: #850000;
+}
+html.red-mode .night-vision-toggle.active .nv-switch {
+  background: rgba(255, 0, 0, 0.18);
+  border-color: rgba(255, 0, 0, 0.5);
+}
+html.red-mode .night-vision-toggle.active .nv-thumb {
+  background: #ff0000;
 }
 html.red-mode .wx-table th,
 html.red-mode .tg-table th,
@@ -257,11 +327,12 @@ html.red-mode .dp-trigger {
   box-shadow: none;
 }
 .masthead h1 {
-  font-size: 1.625rem;
-  letter-spacing: 0.06em;
-  color: var(--text-h);
+  font-size: 1.75rem;
+  font-family: var(--sans);
   font-weight: 600;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  text-transform: none;
   text-wrap: balance;
   margin-bottom: 0;
   line-height: 1.1;
@@ -282,8 +353,8 @@ html.red-mode .dp-trigger {
 }
 .card.error {
   border-color: var(--poor);
-  color: #fecaca;
-  background: rgba(248, 113, 113, 0.08);
+  color: var(--poor);
+  background: rgba(217, 83, 79, 0.07);
 }
 
 /* ── query form ───────────────────────────────────────────── */
@@ -514,36 +585,42 @@ input[type="number"]::-webkit-inner-spin-button {
   display: flex;
   justify-content: center;
 }
-.scope-strip {
+.scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 20px;
+  row-gap: 4px;
+}
+.scope-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.scope-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 5px;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
-  background: transparent;
-  border: 1px solid rgba(var(--hairline-rgb), 0.9);
-  border-radius: 2px;
-  padding: 3px 8px;
+  white-space: nowrap;
   cursor: default;
   user-select: none;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
-.scope-pill.unavail {
-  opacity: 0.35;
-  text-decoration: line-through;
+.scope-brk {
+  color: var(--accent);
+  letter-spacing: 0;
+  flex-shrink: 0;
 }
-.scope-note {
-  font-size: 11px;
+.scope-dim {
+  opacity: 0.38;
+}
+.scope-dim .scope-brk {
   color: var(--text-dim);
-  opacity: 0.7;
+}
+.scope-diag {
+  font-size: 9px;
+}
+html.red-mode .scope-brk {
+  color: rgba(255, 0, 0, 0.55);
 }
 .toggle-tip-wrap {
   position: relative;
@@ -567,35 +644,31 @@ input[type="number"]::-webkit-inner-spin-button {
 .units-toggle {
   display: flex;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   background: var(--field-bg);
-  border-top: 1px solid rgba(0, 0, 0, 0.15);
-  border-left: 1px solid rgba(0, 0, 0, 0.15);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.75);
-  border-right: 1px solid rgba(255, 255, 255, 0.75);
-  border-radius: 3px;
+  border-radius: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
   margin-left: auto;
-  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
 }
 .units-toggle button {
-  padding: 4px 10px;
+  padding: 3px 11px;
   border: 0;
-  border-radius: 2px;
+  border-radius: 18px;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 .units-toggle button.active {
   background: var(--card);
   color: var(--text-h);
-  border-top: 1px solid rgba(255, 255, 255, 0.80);
-  border-left: 1px solid rgba(255, 255, 255, 0.80);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
-  border-right: 1px solid rgba(0, 0, 0, 0.20);
-  box-shadow: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  border: none;
 }
 
 .submit-row {
@@ -624,12 +697,12 @@ input[type="number"]::-webkit-inner-spin-button {
   transition: background 0.15s ease;
 }
 .submit:hover:not(:disabled) {
-  background: #3689CC;
+  background: #5C73B8;
   transform: none;
   box-shadow: none;
 }
 .submit:active:not(:disabled) {
-  background: #2670AD;
+  background: #3A4C88;
 }
 .submit:disabled {
   opacity: 0.6;
@@ -747,17 +820,22 @@ input[type="number"]::-webkit-inner-spin-button {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+.overall-score-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .overall-label {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text-h);
+  line-height: 1;
 }
 .overall-sub {
   font-size: 12px;
   color: var(--text-dim);
   font-weight: 500;
-  margin-top: 2px;
   white-space: nowrap;
 }
 .overall-score-header {
@@ -777,21 +855,22 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 /* ── Light dome panel (all-sky fisheye) ─────────────────────── */
-/* Sits opposite the big score number in the score card; wraps below on mobile. */
+/* Full-width row in the score card; canvas scales to available width. */
 .lightdome-panel {
-  flex: 0 0 auto;
+  flex: 0 0 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: -8px;
 }
 .ld-title {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   font-family: var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-dim);
+  color: var(--text);
   text-align: center;
 }
 /* Disk on the left, caption + legend stacked to the right of it. */
@@ -799,6 +878,7 @@ input[type="number"]::-webkit-inner-spin-button {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 14px;
 }
 .ld-canvas {
@@ -820,10 +900,10 @@ input[type="number"]::-webkit-inner-spin-button {
   border-radius: 2px;
   border: 1px solid transparent;
 }
-.ld-state-dark   { color: var(--excellent); border-color: rgba(52, 211, 153, 0.35); }
-.ld-state-domed  { color: var(--good);      border-color: rgba(96, 165, 250, 0.35); }
-.ld-state-bright { color: var(--fair);      border-color: rgba(167, 139, 250, 0.35); }
-.ld-state-urban  { color: var(--poor);      border-color: rgba(251, 113, 133, 0.40); }
+.ld-state-dark   { color: var(--excellent); border-color: rgba(74, 94, 168, 0.35); }
+.ld-state-domed  { color: var(--good);      border-color: rgba(92, 184, 92, 0.35); }
+.ld-state-bright { color: var(--fair);      border-color: rgba(240, 173, 78, 0.35); }
+.ld-state-urban  { color: var(--poor);      border-color: rgba(217, 83, 79, 0.40); }
 .ld-line {
   font-size: 12px;
   color: var(--text);
@@ -972,6 +1052,7 @@ html.red-mode .ld-state-urban {
   gap: 10px;
   align-items: center;
   line-height: 1.5;
+  font-size: 13px;
 }
 .meta-k {
   flex-shrink: 0;
@@ -987,6 +1068,12 @@ html.red-mode .ld-state-urban {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   word-break: break-word;
+}
+.meta-row img {
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+}
+html.red-mode .meta-row img {
+  border-color: rgba(255, 0, 0, 0.20);
 }
 
 details summary {
@@ -1121,11 +1208,6 @@ details summary {
   border-left: 1px solid rgba(0, 0, 0, 0.22);
   border-bottom: 1px solid rgba(255, 255, 255, 0.80);
   border-right: 1px solid rgba(255, 255, 255, 0.80);
-}
-.nearby-origin {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin: 0;
 }
 .nearby-highlights {
   display: flex;
@@ -1402,12 +1484,20 @@ details summary {
   gap: 10px;
   align-items: baseline;
   color: var(--text);
+  margin-bottom: 2px;
 }
 .mw-label {
   flex-shrink: 0;
-  min-width: 110px;
-  font-size: 12px;
+  min-width: 120px;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--text-dim);
+}
+.mw-label::after {
+  content: ':';
 }
 /* Waypoints accordion */
 .mw-waypoints-detail {
@@ -1453,17 +1543,23 @@ details summary {
   gap: 4px;
 }
 .mw-dome-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-dim);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text);
   text-align: center;
-  letter-spacing: 0.03em;
 }
 .mw-dome-subtitle {
-  font-size: 10px;
+  font-size: 9px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--text-dim);
   text-align: center;
-  opacity: 0.75;
+  opacity: 0.70;
 }
 .mw-dome-wrap svg {
   display: block;
@@ -1605,6 +1701,7 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 .wx-table td.wx-rating.wx-rating-good      { color: var(--good); }
 .wx-table td.wx-rating.wx-rating-fair      { color: var(--fair); }
 .wx-table td.wx-rating.wx-rating-poor      { color: var(--poor); }
+.wx-table td.wx-gate-warn { font-weight: 700; }
 .tg-moon-note        { color: var(--text-dim); font-size: 12px; }
 /* Fixed-width blocks so every piece aligns across rows in Best Viewing / Astro Window */
 .tg-t {
@@ -1830,7 +1927,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
    mix disappears into the dark card background. */
 .wx-table tr.wx-row-astro td,
 .wx-table tr.wx-row-astro td.wx-time {
-  background: color-mix(in oklab, oklch(0.50 0.12 262) 13%, var(--card));
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 18%, var(--card));
+}
+.wx-table tr.wx-row-astro td.wx-time {
+  border-left: 2px solid color-mix(in oklab, var(--ev-astro) 60%, transparent);
 }
 .wx-table-wrap {
   overflow-x: auto;
@@ -2240,13 +2340,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   .coords {
     grid-template-columns: 1fr;
   }
-  /* Scope row: pills full-width row, units on own row below */
-  .scope-row {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-  .scope-strip {
-    flex: 0 0 100%;
+  /* Scope grid: tighter column gap on narrow screens */
+  .scope-grid {
+    column-gap: 12px;
   }
   .units-toggle {
     margin-left: auto;
@@ -2389,6 +2485,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     align-items: flex-start;
     flex-direction: column;
     /*width: 100%;*/
+  }
+  .overall .meta {
+    flex: 0 0 auto; /* column mode: flex-basis becomes height — reset to natural */
   }
   .overall-num {
     font-size: 3rem;

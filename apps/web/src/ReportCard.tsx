@@ -10,14 +10,14 @@ import {
   Sunrise, Sunset, Moon, Star, Stars,
   MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
   CloudRain, CloudRainWind, CloudSnow, Snowflake, CloudMoonRain, CloudLightning,
-  Navigation,
+  Droplet, Navigation,
   type LucideIcon,
 } from 'lucide-react'
 
 // ── WMO weather code icons ───────────────────────────────────────────────────
 
 const WMO_ICONS: Record<number, LucideIcon> = {
-  0: Stars,        1: MoonStar,      2: CloudMoon,    3: Cloudy,
+  0: Stars,        1: Stars,         2: CloudMoon,    3: Cloudy,
   45: CloudFog,   48: CloudFog,
   51: CloudDrizzle, 53: CloudDrizzle, 55: CloudDrizzle,
   56: CloudHail,  57: CloudHail,
@@ -29,8 +29,29 @@ const WMO_ICONS: Record<number, LucideIcon> = {
   95: CloudLightning, 96: CloudLightning, 99: CloudLightning,
 }
 
-function WmoIcon({ code, size = 19 }: { code: number | null; size?: number }) {
+// Cloud with a cross-star (no moon) — composed from CloudMoon's cloud path + MoonStar's cross-star
+function CloudStar({ size = 19 }: { size?: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M13 16a3 3 0 0 1 0 6H7a5 5 0 1 1 4.9-6z"/>
+      <path d="M17 7h4"/>
+      <path d="M19 5v4"/>
+    </svg>
+  )
+}
+
+function WmoIcon({ code, cloudCover, moonUp = false, size = 19 }: { code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number }) {
   if (code == null) return null
+  // For pure sky-state codes (0–3), cloud cover % is more precise than the API code
+  if (code <= 3 && cloudCover != null) {
+    if (cloudCover <= 25) return moonUp
+      ? <MoonStar size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+      : <Stars    size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+    if (cloudCover <= 65) return moonUp
+      ? <CloudMoon size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+      : <CloudStar size={size} />
+    return <Cloudy size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+  }
   const Icon = WMO_ICONS[code]
   if (!Icon) return null
   return <Icon size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
@@ -75,12 +96,14 @@ function MoonPhaseSvg({ phaseName, size = 22 }: {
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
+function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonrise, moonset }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
   imperial: boolean
   darkIntervals?: [string, string][]
+  moonrise?: string | null
+  moonset?: string | null
 }) {
   // Clip the table to the sunset→sunrise window. Events/points outside this
   // range are daytime and not useful once the astro-night band conveys darkness.
@@ -194,11 +217,14 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
               }
               const p = row.pt
               const isAstro = darkRanges?.some(([s, e]) => row.ts >= s && row.ts <= e) ?? false
+              const windGate = p.wind_speed_ms != null && p.wind_speed_ms > 6.7
+              const dewSpread = p.temperature_c != null && p.dew_point_c != null ? p.temperature_c - p.dew_point_c : null
+              const dewGate  = dewSpread != null && dewSpread <= 5
               return (
                 <tr key={`wx-${i}`} className={isAstro ? 'wx-row-astro' : undefined}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
                   <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
-                    <WmoIcon code={p.weather_code} />
+                    <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct} moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)} />
                   </td>
                   <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
                   {hasTransp && (
@@ -216,8 +242,14 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals }: {
                     </td>
                   )}
                   {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
-                  {hasDew    && <td className="wx-num wx-dew-col">{fmtTemp(p.dew_point_c, imperial)}</td>}
-                  <td className="wx-num">{fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}</td>
+                  {hasDew    && (
+                    <td className={`wx-num wx-dew-col${dewGate ? ' wx-gate-warn' : ''}`}>
+                      {fmtTemp(p.dew_point_c, imperial)}{dewGate && <Droplet size={dewSpread! <= 3 ? 14 : 11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />}
+                    </td>
+                  )}
+                  <td className={`wx-num${windGate ? ' wx-gate-warn' : ''}`}>
+                    {fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}{windGate ? ' ⚠' : ''}
+                  </td>
                 </tr>
               )
             })}
@@ -287,8 +319,8 @@ function SatellitePasses({ report }: { report: NightReport; }) {
 
   if (!hasAny) {
     const shadowMsg = shadow.length > 0
-      ? `${shadow.length} pass${shadow.length > 1 ? 'es' : ''} tonight but in Earth's shadow: not visible.`
-      : 'No visible satellite passes this night.'
+      ? `${shadow.length} transit${shadow.length > 1 ? 's' : ''} tonight but in Earth's shadow: not visible.`
+      : 'No notable orbital transits this night.'
     return (
       <>
         {notes.map((n, i) => <p key={i} className="sat-notice sat-note">{n}</p>)}
@@ -703,7 +735,7 @@ const LD_STOPS: [number, [number, number, number]][] = [
 const LD_THETA_K = 5
 const LD_THETA_FLOOR_DEG = 6
 const LD_THETA_DEFAULT_DEG = 4
-const LD_SIZE = 168            // CSS px; disk + room for N/E/S/W labels
+const LD_SIZE = 300            // CSS px; disk + room for N/E/S/W labels
 
 function ldColor(v: number): [number, number, number] {
   if (v <= LD_STOPS[0][0]) return LD_STOPS[0][1]
@@ -1199,14 +1231,17 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
           <foreignObject x={hoveredDot.x - 75} y={hoveredDot.y - 35} width="150" height="30" pointerEvents="none">
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', height: '100%' }}>
               <div style={{
-                background: 'var(--pop-bg, #1e2235)',
-                color: 'var(--text-h, #fff)',
-                border: '1px solid var(--card-border)',
-                borderRadius: '6px',
-                padding: '4px 8px',
-                fontSize: '10px',
+                background: 'rgba(8, 13, 28, 0.95)',
+                color: 'rgba(200, 212, 238, 0.95)',
+                border: '1px solid rgba(90, 120, 200, 0.25)',
+                borderRadius: '2px',
+                padding: '3px 7px',
+                fontSize: '7px',
+                fontFamily: 'var(--mono)',
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
                 whiteSpace: 'nowrap',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.6)'
+                boxShadow: '0 2px 8px rgba(0,0,0,0.8)'
               }}>
                 {hoveredDot.name}
               </div>
@@ -1842,9 +1877,10 @@ function NearbyResults(
 
   return (
     <>
-      <p className="nearby-origin">
-        Origin: <span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtMi(radius_miles)} radius
-      </p>
+      <div className="meta-row">
+        <span className="meta-k">Origin:</span>
+        <span className="meta-v"><span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtMi(radius_miles)} radius</span>
+      </div>
 
       {/* 1. Note when already at Bortle 1 — results still shown below */}
       {origin_bortle <= 1 && results.length > 0 && (
@@ -2029,17 +2065,20 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
   useEffect(() => {
     const panel = panelRef.current
     if (!panel) return
-    // One-shot measure after DOM settles. A ResizeObserver on .meta caused a
-    // feedback loop: canvas resize → meta flex-width change → meta height change
-    // → observer fires → canvas resize → ... (visible as blinking at ~75% window width).
-    const raf = requestAnimationFrame(() => {
-      const meta = panel.closest('.overall')?.querySelector('.meta') as HTMLElement | null
-      if (!meta) return
-      const titleH = (panel.querySelector('.ld-title') as HTMLElement | null)?.offsetHeight ?? 18
-      const avail = meta.offsetHeight - titleH - 8
+    // ResizeObserver on the panel itself (flex: 0 0 100% — outer size is CSS-controlled,
+    // not affected by canvas content changes, so no feedback loop).
+    const measure = () => {
+      const body = panel.querySelector('.ld-body') as HTMLElement | null
+      const isRow = !!body && getComputedStyle(body).flexDirection === 'row'
+      const caption = panel.querySelector('.ld-caption') as HTMLElement | null
+      const captionW = isRow ? (caption?.offsetWidth ?? 130) : 0
+      const gap     = isRow ? 18 : 0
+      const avail   = panel.clientWidth - captionW - gap
       setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
-    })
-    return () => cancelAnimationFrame(raf)
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(panel)
+    return () => ro.disconnect()
   }, [])
 
   useEffect(() => {
@@ -2330,11 +2369,13 @@ export default function ReportCard({
       </header>
 
       <div className={`overall band-${scoreBand(r.score)}`}>
-        <div className="overall-score-header">
-          <div className="overall-num">{r.score.toFixed(1)}</div>
-          <div className="overall-label">{scoreLabel(r.score)}</div>
+        <div className="overall-score-block">
+          <div className="overall-score-header">
+            <div className="overall-num">{r.score.toFixed(1)}</div>
+            <div className="overall-label">{scoreLabel(r.score)}</div>
+          </div>
+          <div className="overall-sub">0–10 composite score</div>
         </div>
-        <div className="overall-sub">0–10 composite score</div>
           <div className="meta">
         {shortLps && <MetaRow k="Light Pollution" v={shortLps} />}
 
@@ -2397,6 +2438,8 @@ export default function ReportCard({
           tz={tz}
           imperial={imperial}
           darkIntervals={r.dark_intervals}
+          moonrise={r.moonrise}
+          moonset={r.moonset}
         />
       )}
 
@@ -2413,9 +2456,7 @@ export default function ReportCard({
         return (
         <details className="targets" open>
           <summary>
-            Iconic Sky Features
-            {viableCount > 0 ? ` (${viableCount})` : ''}
-            {blockedCount > 0 ? ` · ${blockedCount} blocked` : ''}
+            Prominent Sky Features
           </summary>
           {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
@@ -2452,7 +2493,7 @@ export default function ReportCard({
                   <>
                     <div className="iconic-section-divider" />
                     <div className="mw-section-label iconic-targets-label">
-                      Deep Sky Targets{primeDSOs.some(t => t.type === 'planet') ? ' & Planets' : ''}
+                      Deep Sky Objects{primeDSOs.some(t => t.type === 'planet') ? ' & Planets' : ''}
                     </div>
                   </>
                 )}
@@ -2470,7 +2511,7 @@ export default function ReportCard({
 
       {showSatellites && (
         <details className="sat-section" open>
-          <summary>Satellite Passes</summary>
+          <summary>Satellite Ephemeris</summary>
           <div className="sat-body">
             <SatellitePasses report={r} />
           </div>

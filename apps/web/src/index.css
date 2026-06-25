@@ -58,7 +58,7 @@
   --field-bg: #DCDFE5;     /* Recessed control surface (inputs, pills, tables) */
   --pop-bg: #FFFFFF;       /* Popovers: dropdown + calendar */
   --on-accent: #ffffff;    /* Text/icon ink on the accent fill */
-  --tint-rgb: 46, 123, 191;
+  --tint-rgb: 74, 94, 168;
   --hairline-rgb: 0, 0, 0;
   --surface-2: rgba(0, 0, 0, 0.07);
 
@@ -66,13 +66,13 @@
   --text-h: #111316;       /* Near-black heading ink */
   --text: #3B4455;         /* Dark gray body text */
   --text-dim: #6B7585;     /* Dim labels, captions, metadata */
-  --accent: #2E7BBF;       /* Neutral steel blue */
+  --accent: #4A5EA8;       /* Sun blue */
 
   /* ── Semantic Data ──────────────────────────────────────────── */
-  --excellent: #0D9B6E;    /* Darker emerald — legible on light bg */
-  --good: #1D6FBF;         /* Darker blue */
-  --fair: #7C3AED;         /* Darker purple */
-  --poor: #D63B52;         /* Darker rose */
+  --excellent: #4A5EA8;    /* Sun blue */
+  --good: #5CB85C;         /* Success green */
+  --fair: #F0AD4E;         /* Warning amber */
+  --poor: #D9534F;         /* Danger red */
 
   /* ── Typography Scale ───────────────────────────────────────── */
   --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;

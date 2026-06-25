@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, Cloud, Star, Satellite, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X, Eye, Sparkles, Compass } from 'lucide-react'
+import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { todayIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
@@ -27,34 +27,6 @@ function saveHistory(entries: HistoryEntry[]) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(entries))
 }
 
-function Tip({ text, children }: { text: string; children: React.ReactNode }) {
-  const [visible, setVisible] = useState(false)
-  const [nudge, setNudge] = useState(0)
-  const bubbleRef = useRef<HTMLSpanElement>(null)
-
-  useEffect(() => {
-    if (!visible || !bubbleRef.current) return
-    const rect = bubbleRef.current.getBoundingClientRect()
-    if (rect.left < 8) setNudge(8 - rect.left)
-    else if (rect.right > window.innerWidth - 8) setNudge(window.innerWidth - 8 - rect.right)
-    else setNudge(0)
-  }, [visible])
-
-  return (
-    <span
-      className="toggle-tip-wrap"
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => { setVisible(false); setNudge(0) }}
-    >
-      {children}
-      {visible && (
-        <span ref={bubbleRef} className="tip-bubble" style={{ transform: `translateX(calc(-50% + ${nudge}px))` }}>
-          {text}
-        </span>
-      )}
-    </span>
-  )
-}
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('place')
@@ -220,7 +192,20 @@ export default function App() {
   function shiftDay(delta: number) {
     const d = new Date(date + 'T00:00:00')
     d.setDate(d.getDate() + delta)
-    setDate(toIsoDate(d))
+    const newDate = toIsoDate(d)
+    setDate(newDate)
+    const { wxUnavail, satUnavail } = availabilityFor(newDate)
+    const q: NightQuery = { date: newDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
+    if (mode === 'place') {
+      if (!place.trim()) return
+      q.location = place.trim()
+    } else {
+      const la = Number(lat), lo = Number(lon)
+      if (!lat || !lon || Number.isNaN(la) || Number.isNaN(lo)) return
+      q.lat = la
+      q.lon = lo
+    }
+    runQuery(q)
   }
 
   function quickSearch(location: string) {
@@ -284,7 +269,7 @@ export default function App() {
           aria-pressed={redMode}
           title="Red light mode — night vision"
         >
-          <Moon size={13} strokeWidth={2} fill={redMode ? 'currentColor' : 'none'} />
+          <span className="nv-switch" aria-hidden="true"><span className="nv-thumb" /></span>
           <span>Night vision</span>
         </button>
 
@@ -505,57 +490,22 @@ export default function App() {
         </div>
 
         <div className="scope-row">
-          <div className="scope-strip">
-            <span className="scope-pill">
-              <Moon size={13} strokeWidth={2} />
-              Lunar
-            </span>
-            <span className="scope-pill">
-              <Eye size={13} strokeWidth={2} />
-              Light Pollution
-            </span>
-            <span className="scope-pill">
-              <Clock size={13} strokeWidth={2} />
-              Clear Dark Hours
-            </span>
-            <span className="scope-pill">
-              <Sparkles size={13} strokeWidth={2} />
-              Milky Way
-            </span>
-            <span className="scope-pill">
-              <Compass size={13} strokeWidth={2} />
-              Horizon Glow
-            </span>
-            {wxForecastUnavailable ? (
-              <Tip text="Weather forecast unavailable beyond 7 days">
-                <span className="scope-pill unavail">
-                  <Cloud size={13} strokeWidth={2} />
-                  Weather
-                </span>
-              </Tip>
-            ) : (
-              <span className="scope-pill">
-                <Cloud size={13} strokeWidth={2} />
-                Weather
-              </span>
-            )}
-            <span className="scope-pill">
-              <Star size={13} strokeWidth={2} />
-              Objects
-            </span>
-            {satUnavailable ? (
-              <Tip text={isPastDate ? 'Satellite passes unavailable for past dates' : 'TLE accuracy degrades beyond 10 days: passes unreliable'}>
-                <span className="scope-pill unavail">
-                  <Satellite size={13} strokeWidth={2} />
-                  Satellites
-                </span>
-              </Tip>
-            ) : (
-              <span className="scope-pill">
-                <Satellite size={13} strokeWidth={2} />
-                Satellites
-              </span>
-            )}
+          <div className="scope-grid">
+            <span className="scope-item"><span className="scope-brk">[■]</span>Lunar</span>
+            {wxForecastUnavailable
+              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Weather<span className="scope-diag"> · Out of range</span></span>
+              : <span className="scope-item"><span className="scope-brk">[■]</span>Weather</span>
+            }
+            <span className="scope-item"><span className="scope-brk">[■]</span>Sky Features</span>
+            {wxForecastUnavailable
+              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Clear Dark Hours<span className="scope-diag"> · Out of range</span></span>
+              : <span className="scope-item"><span className="scope-brk">[■]</span>Clear Dark Hours</span>
+            }
+            <span className="scope-item"><span className="scope-brk">[■]</span>Sky &amp; Horizon Glow</span>
+            {satUnavailable
+              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Satellites<span className="scope-diag"> · {isPastDate ? 'Past date' : 'Out of range'}</span></span>
+              : <span className="scope-item"><span className="scope-brk">[■]</span>Satellites</span>
+            }
           </div>
         </div>
 
