@@ -53,7 +53,12 @@ export default function App() {
     document.documentElement.classList.toggle('red-mode', redMode)
     localStorage.setItem('redMode', redMode ? '1' : '0')
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
-    if (link) link.href = redMode ? '/favicon-red.svg' : '/favicon.svg'
+    if (link) {
+      const svg = redMode
+        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#000" rx="4"/><rect x="6" y="6" width="8" height="8" fill="none" stroke="#F00" stroke-width="1.5" rx="1"/><rect x="18" y="6" width="8" height="8" fill="#F00" fill-opacity=".4" rx="1"/><rect x="6" y="18" width="8" height="8" fill="#F00" fill-opacity=".7" rx="1"/><rect x="18" y="18" width="8" height="8" fill="#F00" rx="1"/></svg>`
+        : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1e1e1e" rx="4"/><rect x="6" y="6" width="8" height="8" fill="#D9534F" rx="1"/><rect x="18" y="6" width="8" height="8" fill="#F0AD4E" rx="1"/><rect x="6" y="18" width="8" height="8" fill="#5CB85C" rx="1"/><rect x="18" y="18" width="8" height="8" fill="#5BC0DE" rx="1"/></svg>`
+      link.href = `data:image/svg+xml;base64,${btoa(svg)}`
+    }
   }, [redMode])
 
   // Debounced autocomplete: fetch suggestions as the user types a place name.
