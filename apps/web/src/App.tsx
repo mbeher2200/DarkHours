@@ -289,8 +289,6 @@ export default function App() {
         </button>
 
         <h1>DarkHours</h1>
-
-        <p>Know the night</p>
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
