@@ -40,7 +40,7 @@ html, body {
   align-items: center;
   gap: 6px;
   padding: 6px 11px;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--card);
   /* Always red — a visual cue that this toggles red/night-vision mode. (In red
      mode the button is .active and switches to the themed pure red below.) */
@@ -134,16 +134,15 @@ html.red-mode a:link,
 html.red-mode a:visited {
   color: var(--accent);
 }
-/* Submit: dim pure-red fill, legible red ink, dim red (not periwinkle) glow. */
+/* Submit: dim pure-red fill, legible red ink. Flat to match normal mode. */
 html.red-mode .submit {
-  background: linear-gradient(135deg, #420000 0%, #780000 100%);
+  background: #5a0000;
   color: #e00000;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
-              0 4px 18px rgba(200, 0, 0, 0.18);
+  box-shadow: none;
 }
 html.red-mode .submit:hover:not(:disabled) {
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
-              0 6px 24px rgba(200, 0, 0, 0.26);
+  background: #6e0000;
+  box-shadow: none;
 }
 html.red-mode .tip-bubble {
   background: var(--pop-bg);
@@ -154,48 +153,132 @@ html.red-mode .card.error {
   color: #e00000;
   background: rgba(255, 0, 0, 0.07);
 }
-html.red-mode .dp-today-btn {
-  background: rgba(255, 0, 0, 0.1);
+html.red-mode .dp-popover {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.60);
 }
-/* Ghost hover (subtle fill + legible ink) — a bright fill with dark ink read too
-   dark; keep the fill dim and the ink bright. */
+html.red-mode .dp-header {
+  background: rgba(255, 0, 0, 0.06);
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+html.red-mode .dp-nav-btn {
+  background: var(--field-bg);
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .dp-nav-btn:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .dp-dow {
+  background: rgba(255, 0, 0, 0.05);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.15);
+}
+html.red-mode .dp-today-btn {
+  background: var(--field-bg);
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  color: var(--text-dim);
+}
 html.red-mode .dp-today-btn:hover {
-  background: rgba(255, 0, 0, 0.16);
   color: var(--text-h);
 }
+html.red-mode .dp-today-btn:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
 html.red-mode .dp-footer {
-  border-top-color: rgba(255, 0, 0, 0.22);
+  background: rgba(255, 0, 0, 0.03);
+  border-top-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
 }
 html.red-mode .es-divider {
-  background: rgba(255, 0, 0, 0.2);
+  border-top-color: rgba(255, 0, 0, 0.25);
+  border-bottom-color: transparent;
+}
+html.red-mode .day-nav {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .day-nav:active:not(:disabled) {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode details summary {
+  background: rgba(255, 0, 0, 0.06);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .bar-track {
+  box-shadow: inset 1px 1px 2px rgba(255, 0, 0, 0.18);
+}
+html.red-mode .nearby-trigger {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .nearby-trigger:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .mode-toggle,
+html.red-mode .units-toggle {
+  border: 1px solid rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+html.red-mode .mode-toggle button.active,
+html.red-mode .units-toggle button.active {
+  border: 1px solid rgba(255, 0, 0, 0.25);
+  box-shadow: none;
+}
+html.red-mode .wx-table th,
+html.red-mode .tg-table th,
+html.red-mode .nearby-table th {
+  background: rgba(255, 0, 0, 0.05);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .place-input-row input:focus,
+html.red-mode .field input:focus {
+  outline-color: var(--accent);
+}
+html.red-mode .colophon {
+  border-top-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
 }
 /* "Date changed — press Score the night" notice: blue tint/border → red. */
 html.red-mode .stale-notice {
   background: rgba(255, 0, 0, 0.07);
   border-color: rgba(255, 0, 0, 0.2);
 }
+/* Flatten card bevel in night vision — white highlight edge emits non-red light */
+html.red-mode .card {
+  border: 1px solid var(--card-border);
+}
+/* Input fields: restore dark red field bg in night vision (overrides the white hardcode above) */
+html.red-mode .place-input-row input,
+html.red-mode .field input,
+html.red-mode .dp-trigger {
+  background: var(--field-bg);
+  border-color: rgba(255, 0, 0, 0.25);
+  box-shadow: none;
+}
 .masthead h1 {
-  font-size: 3.75rem;
-  letter-spacing: -0.02em;
+  font-size: 1.625rem;
+  letter-spacing: 0.06em;
   color: var(--text-h);
-  font-weight: 550;
+  font-weight: 600;
+  text-transform: uppercase;
   text-wrap: balance;
-  margin-bottom: 0; /* Strips away the browser's default bottom margin */
-  line-height: 1.1; /* Tightens the invisible box around the large text */
+  margin-bottom: 0;
+  line-height: 1.1;
 }
 .masthead p {
-  color: var(--text);
-  margin-top: 4px;
-  font-size: 15px;
-  letter-spacing: -0.01em;
+  display: none;
 }
 
 /* ── cards ────────────────────────────────────────────────── */
 .card {
   background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 14px;
-  padding: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+  padding: 18px;
 }
 .card.error {
   border-color: var(--poor);
@@ -222,7 +305,10 @@ html.red-mode .stale-notice {
   position: relative;
 }
 .field-label {
-  font-size: 13px;
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--text-dim);
   cursor: default;
 }
@@ -234,6 +320,18 @@ html.red-mode .stale-notice {
 .place-input-row input {
   flex: 1;
   min-width: 0;
+  padding: 11px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
+  color: var(--text-h);
+  font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
+}
+.place-input-row input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
 }
 .place-input-row input.has-clear {
   padding-right: 36px;
@@ -249,7 +347,7 @@ html.red-mode .stale-notice {
   padding: 4px;
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: 2px;
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.15s;
@@ -269,7 +367,7 @@ html.red-mode .stale-notice {
   right: 0;
   background: var(--pop-bg);
   border: 1px solid var(--card-border);
-  border-radius: 10px;
+  border-radius: 3px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
   z-index: 50;
   overflow: hidden;
@@ -332,16 +430,20 @@ html.red-mode .stale-notice {
 .mode-toggle {
   display: flex;
   gap: 4px;
-  padding: 4px;
+  padding: 3px;
   background: var(--field-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  border-left: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
 }
 .mode-toggle button {
   flex: 1;
   padding: 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 2px;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
@@ -350,7 +452,11 @@ html.red-mode .stale-notice {
 .mode-toggle button.active {
   background: var(--card);
   color: var(--text-h);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(0, 0, 0, 0.20);
+  box-shadow: none;
 }
 
 .field {
@@ -358,20 +464,25 @@ html.red-mode .stale-notice {
   flex-direction: column;
   gap: 6px;
 }
-.field span {
-  font-size: 13px;
+.field > span {
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--text-dim);
 }
 .field input {
   padding: 11px 12px;
-  background: var(--field-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
   color: var(--text-h);
   font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
 }
 .field input:focus {
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
   border-color: var(--accent);
 }
 /* Theme the placeholder explicitly — otherwise the browser's default dark-scheme
@@ -414,14 +525,16 @@ input[type="number"]::-webkit-inner-spin-button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
-  color: var(--text);
-  background: rgba(var(--tint-rgb), 0.07);
-  border: 1px solid rgba(var(--tint-rgb), 0.18);
-  border-radius: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid rgba(var(--hairline-rgb), 0.9);
+  border-radius: 2px;
   padding: 3px 8px;
   cursor: default;
   user-select: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .scope-pill.unavail {
   opacity: 0.35;
@@ -440,30 +553,34 @@ input[type="number"]::-webkit-inner-spin-button {
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: #1e2235;
-  color: #c8d0e8;
-  border: 1px solid #3a3f5c;
-  border-radius: 6px;
+  background: var(--pop-bg);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: 2px;
   padding: 6px 10px;
   font-size: 12px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 .units-toggle {
   display: flex;
   gap: 2px;
   padding: 3px;
   background: var(--field-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  border-left: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 3px;
   margin-left: auto;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
 }
 .units-toggle button {
   padding: 4px 10px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 2px;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
@@ -474,7 +591,11 @@ input[type="number"]::-webkit-inner-spin-button {
 .units-toggle button.active {
   background: var(--card);
   color: var(--text-h);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(0, 0, 0, 0.20);
+  box-shadow: none;
 }
 
 .submit-row {
@@ -488,24 +609,27 @@ input[type="number"]::-webkit-inner-spin-button {
 .submit {
   padding: 13px;
   border: 0;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #3a5ce8 0%, var(--accent) 100%);
+  border-radius: 2px;
+  background: var(--accent);
   color: var(--on-accent);
   font: inherit;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 4px 18px rgba(77,111,255,0.25);
-  transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background 0.15s ease;
 }
 .submit:hover:not(:disabled) {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 6px 24px rgba(77,111,255,0.35);
+  background: #3689CC;
+  transform: none;
+  box-shadow: none;
 }
 .submit:active:not(:disabled) {
-  transform: translateY(0);
-  filter: brightness(0.96);
+  background: #2670AD;
 }
 .submit:disabled {
   opacity: 0.6;
@@ -517,16 +641,24 @@ input[type="number"]::-webkit-inner-spin-button {
   justify-content: center;
   width: 46px;
   flex-shrink: 0;
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
   background: var(--field-bg);
   color: var(--text-dim);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s;
 }
 .day-nav:hover:not(:disabled) {
   color: var(--text-h);
-  border-color: var(--accent);
+}
+.day-nav:active:not(:disabled) {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
 }
 .day-nav:disabled {
   opacity: 0.5;
@@ -590,7 +722,7 @@ input[type="number"]::-webkit-inner-spin-button {
 .stale-notice {
   background: rgba(var(--tint-rgb), 0.07);
   border: 1px solid rgba(var(--tint-rgb), 0.18);
-  border-radius: 10px;
+  border-radius: 2px;
   padding: 10px 16px;
   font-size: 13px;
   color: var(--accent);
@@ -603,21 +735,22 @@ input[type="number"]::-webkit-inner-spin-button {
   align-items: center;
   gap: 20px;
   padding: 22px 24px;
-  border-radius: 12px;
+  border-radius: 3px;
   border: 1px solid var(--card-border);
 }
 .overall-num {
   font-size: 64px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.01em;
   color: var(--text-h);
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 .overall-label {
   font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-h);
 }
 .overall-sub {
@@ -653,8 +786,11 @@ input[type="number"]::-webkit-inner-spin-button {
   gap: 8px;
 }
 .ld-title {
-  font-size: 15px;
+  font-size: 10px;
   font-weight: 600;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
   text-align: center;
 }
@@ -676,11 +812,12 @@ input[type="number"]::-webkit-inner-spin-button {
   text-align: left;
 }
 .ld-state {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 1px 9px;
-  border-radius: 999px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 2px;
   border: 1px solid transparent;
 }
 .ld-state-dark   { color: var(--excellent); border-color: rgba(52, 211, 153, 0.35); }
@@ -712,7 +849,7 @@ input[type="number"]::-webkit-inner-spin-button {
 .ld-legend-bar {
   width: 64px;
   height: 6px;
-  border-radius: 4px;
+  border-radius: 1px;
   background: linear-gradient(90deg, #000 0%, var(--excellent) 22%, var(--good) 45%, var(--fair) 65%, var(--poor) 100%);
 }
 /* Red/night-vision mode: the canvas bakes literal RGB (CSS vars can't reach
@@ -731,6 +868,15 @@ html.red-mode .ld-state-urban {
 .band-excellent {
   border-color: var(--excellent);
   background: rgba(90, 209, 154, 0.05);
+}
+/* Overall score card: neutral border regardless of score band — color lives in the
+   number and label only, not the card edge. */
+.overall.band-excellent,
+.overall.band-good,
+.overall.band-fair,
+.overall.band-poor {
+  border-color: var(--card-border);
+  background: transparent;
 }
 .band-excellent .overall-num,
 .band-excellent .overall-label {
@@ -775,17 +921,22 @@ html.red-mode .ld-state-urban {
 }
 .bar-label {
   color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 .bar-track {
-  height: 8px;
+  height: 6px;
   background: var(--field-bg);
-  border-radius: 5px;
+  border-radius: 1px;
   overflow: hidden;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.14), inset -1px -1px 1px rgba(255, 255, 255, 0.60);
 }
 .bar-fill {
   display: block;
   height: 100%;
-  border-radius: 5px;
+  border-radius: 1px;
 }
 .bar-fill.band-excellent {
   background: var(--excellent);
@@ -826,8 +977,11 @@ html.red-mode .ld-state-urban {
   flex-shrink: 0;
   min-width: 148px;
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: 10px;
   font-weight: 500;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 .meta-v {
   color: var(--text);
@@ -837,9 +991,18 @@ html.red-mode .ld-state-urban {
 
 details summary {
   cursor: pointer;
-  color: var(--text);
-  font-size: 15px;
+  color: var(--text-dim);
+  font-size: 11px;
   font-weight: 500;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: rgba(0, 0, 0, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.70);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+  padding: 5px 8px;
+  margin: 0 -18px;
+  user-select: none;
 }
 
 /* ── night timeline ───────────────────────────────────────────────────────── */
@@ -935,17 +1098,29 @@ details summary {
   gap: 6px;
 }
 .nearby-trigger {
-  background: var(--card);
-  border: 2px solid var(--card-border);
-  border-radius: 8px;
+  background: var(--field-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
   color: var(--text);
   cursor: pointer;
   font-size: 13px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   padding: 6px 16px;
+  transition: color 0.15s;
 }
 .nearby-trigger:hover {
-  border-color: var(--accent);
   color: var(--accent);
+}
+.nearby-trigger:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
 }
 .nearby-origin {
   font-size: 13px;
@@ -1030,7 +1205,7 @@ details summary {
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: 2px;
   font-size: 10px;
   font-weight: 600;
   line-height: 16px;
@@ -1084,7 +1259,9 @@ details summary {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 4px 10px 6px;
-  border-bottom: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.65);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   white-space: nowrap;
 }
 .tg-table td {
@@ -1095,6 +1272,9 @@ details summary {
 }
 .tg-table tr:last-child td {
   border-bottom: none;
+}
+.tg-table tbody tr:hover td {
+  background: rgba(var(--tint-rgb), 0.06);
 }
 /* ── Meteor shower cards ─────────────────────────────────────────────────── */
 .ms-section {
@@ -1149,9 +1329,12 @@ details summary {
   column-gap: 1.5rem;
 }
 .mw-section-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-h);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
   padding: 0 0 7px;
 }
 .mw-card {
@@ -1286,6 +1469,11 @@ details summary {
   display: block;
   width: 100%;
   height: auto;
+  background: #0A0F1E;
+  border-radius: 2px;
+}
+html.red-mode .mw-dome-wrap svg {
+  background: #0A0000;
 }
 .mw-dome-svg {
   touch-action: none;
@@ -1558,6 +1746,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   font-size: 12px;
   line-height: 1.6;
   margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.70);
 }
 /* ── weather table ────────────────────────────────────────── */
 .wx-details summary {
@@ -1655,9 +1846,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  /* B: tighter padding */
   padding: 4px 6px 6px;
-  border-bottom: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.65);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   white-space: nowrap;
 }
 .wx-table td {
@@ -1669,6 +1861,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 }
 .wx-table tr:last-child td {
   border-bottom: none;
+}
+.wx-table tbody tr:not(.wx-ev-row):hover td {
+  background: rgba(var(--tint-rgb), 0.06);
 }
 .wx-table td.wx-time {
   /* A: sticky first column */
@@ -1769,8 +1964,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 }
 
 .es-divider {
-  height: 1px;
-  background: rgba(var(--hairline-rgb), 0.5);
+  height: 0;
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
 }
 
 .es-quickstart {
@@ -1794,7 +1991,7 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 .es-qs-btn {
   padding: 8px 16px;
   border: 1px solid var(--card-border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: rgba(255, 255, 255, 0.025);
   color: var(--text);
   font: inherit;
@@ -1824,11 +2021,12 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   gap: 8px;
   width: 100%;
   padding: 11px 12px;
-  background: var(--field-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
   color: var(--text-h);
   font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s;
@@ -1850,45 +2048,63 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   width: min(100%, 340px);
   z-index: 60;
   background: var(--pop-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
-  padding: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 0;
+  overflow: hidden;
   animation: dropdown-in 0.13s ease both;
 }
 .dp-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.60);
 }
 .dp-month-label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
   color: var(--text-h);
-  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 .dp-nav-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
+  width: 26px;
+  height: 26px;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
+  background: var(--field-bg);
   color: var(--text-dim);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: color 0.12s;
 }
 .dp-nav-btn:hover {
-  background: rgba(var(--tint-rgb), 0.1);
   color: var(--text-h);
+}
+.dp-nav-btn:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
 }
 .dp-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
+  padding: 10px 14px 14px;
 }
 .dp-dow {
   display: flex;
@@ -1900,7 +2116,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
-  opacity: 0.45;
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.60);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+  margin: 0 -2px 4px;
 }
 /* Day cells: 42px ≈ 25% larger than the native ~34px cell */
 .dp-day,
@@ -1909,7 +2128,7 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   align-items: center;
   justify-content: center;
   height: 42px;
-  border-radius: 8px;
+  border-radius: 2px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -1946,27 +2165,39 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   pointer-events: none;
 }
 .dp-footer {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(var(--hairline-rgb), 0.55);
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.65);
+  background: rgba(0, 0, 0, 0.03);
 }
 .dp-today-btn {
   width: 100%;
-  padding: 9px 0;
-  border: 1.5px solid var(--accent);
-  border-radius: 8px;
-  background: rgba(var(--tint-rgb), 0.08);
-  color: var(--accent);
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(0, 0, 0, 0.20);
+  border-radius: 2px;
+  background: var(--field-bg);
+  color: var(--text-dim);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
 .dp-today-btn:hover {
-  background: var(--accent);
-  color: var(--on-accent);
+  color: var(--text-h);
+}
+.dp-today-btn:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.20);
+  border-left: 1px solid rgba(0, 0, 0, 0.20);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
 }
 
 /* ── responsive: ≤640px (phone landscape / large phone portrait) ─────────── */
@@ -1986,13 +2217,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     margin: 0 auto 12px;
   }
   .masthead h1 {
-    font-size: 2.25rem;
-  }
-  .masthead p {
-    font-size: 0.875rem;
+    font-size: 1.375rem;
   }
   .card {
-    border-radius: 12px;
+    border-radius: 2px;
     padding: 8px;
   }
   /* Mode toggle: allow buttons to wrap so "Enter coordinates" doesn't clip */
@@ -2070,6 +2298,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     padding: 4px 2px;
     font-size: 10px;
     vertical-align: bottom;
+    background: rgba(0, 0, 0, 0.04);
+    border-top: 1px solid rgba(255, 255, 255, 0.65);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   }
 
   .nearby-table td {
@@ -2127,7 +2358,7 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 /* ── responsive: ≤480px (phone portrait) ────────────────────────────────── */
 @media (max-width: 480px) {
   .masthead h1 {
-    font-size: 2rem;
+    font-size: 1.25rem;
   }
     /* ── Date Picker Mobile Compression ── */
   .dp-popover {
@@ -2156,10 +2387,10 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
     /*width: 100%;*/
   }
   .overall-num {
-    font-size: 3.5rem;
+    font-size: 3rem;
   }
   .overall-label {
-    font-size: 3.5rem;
+    font-size: 1.5rem;
     margin-top: 0;
   }
   /* Bar chart: tighter columns */
