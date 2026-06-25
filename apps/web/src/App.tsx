@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, type FormEvent } from 'react'
+import { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, Moon, X } from 'lucide-react'
+import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { todayIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
