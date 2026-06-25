@@ -902,6 +902,13 @@ details summary {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+.sat-table th:first-child,
+.sat-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 1;
+}
 .sat-table .sat-subhdr th {
   font-size: 10px;
   padding-top: 0;
@@ -1039,6 +1046,10 @@ details summary {
   letter-spacing: 0.04em;
   color: var(--fair);
 }
+.poi-type-link {
+  display: inline-block;
+  white-space: nowrap;
+}
 .poi-maplink {
   margin-left: 6px;
   font-size: 11px;
@@ -1052,6 +1063,13 @@ details summary {
 .tg-table-wrap {
   overflow-x: auto;
   margin-top: 10px;
+}
+.tg-table th:first-child,
+.tg-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 1;
 }
 .tg-table {
   width: max-content;
@@ -2055,9 +2073,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   }
 
   .nearby-table td {
-    white-space: normal; /* Allows the long Area names to wrap instead of spilling out */
+    white-space: normal;
     padding: 6px 2px;
-    vertical-align: bottom; /* Sinks the stats to align with the location/tags line */
+    vertical-align: top;
     border-bottom: 1px solid rgba(var(--hairline-rgb), 0.25);
   }
 
@@ -2067,34 +2085,38 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 
   /* Structure the Area column */
   .nearby-area-td {
-    width: 100%; /* Pushes the data columns to the right, giving the name maximum space */
+    width: 100%;
   }
 
+  /* Flex container groups badge+icon so they don't split across lines */
   .nearby-area-inner {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 4px;
   }
 
-  .poi-namelink {
-    display: block; /* Forces the Area Name onto its own line */
+  .nearby-area-inner .poi-namelink {
+    flex: 0 0 100%;
     margin-bottom: 3px;
     font-size: 13px;
     line-height: 1.25;
     white-space: normal;
   }
 
-  .poi-area {
-    margin-left: 0; /* Reset desktop margin so it sits flush left under the name */
-    display: inline-block;
+  .nearby-area-inner .poi-area {
+    margin-left: 0;
   }
 
-  /* Size data columns to fit mobile width */
-  .nearby-bortle-col,
-  .nearby-sqm-col,
-  .nearby-dist-col,
-  .nearby-drive-col,
-  .nearby-dir-col {
+  /* Data columns: higher specificity to override .nearby-table td white-space */
+  .nearby-table td.nearby-bortle-col,
+  .nearby-table td.nearby-sqm-col,
+  .nearby-table td.nearby-dist-col,
+  .nearby-table td.nearby-drive-col,
+  .nearby-table td.nearby-dir-col {
     font-size: 11px;
     text-align: right;
+    white-space: nowrap;
   }
   /* Blocked target rows: allow badge text to wrap instead of clipping */
   .tg-row-blocked td {
