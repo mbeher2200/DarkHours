@@ -17,7 +17,7 @@ import os
 import shutil
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
@@ -180,7 +180,7 @@ def _check_cache_health() -> dict:
 
 def _parse_date(s: str | None, field: str = "date") -> date:
     if not s:
-        return date.today()
+        return datetime.now(timezone.utc).date()
     try:
         d = date.fromisoformat(s)
     except ValueError:
@@ -214,7 +214,7 @@ def _resolve(location: str | None, lat: float | None, lon: float | None):
 
 def _month_bounds(month: str | None) -> tuple[date, date]:
     if not month:
-        start = date.today().replace(day=1)
+        start = datetime.now(timezone.utc).date().replace(day=1)
     else:
         try:
             start = datetime.strptime(month, "%Y-%m").date().replace(day=1)
