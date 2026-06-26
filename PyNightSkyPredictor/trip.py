@@ -136,7 +136,7 @@ def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
 
 
 def _within_forecast_window(d: date) -> bool:
-    return (d - date.today()).days <= _FORECAST_DAYS
+    return (d - datetime.now(_utc).date()).days <= _FORECAST_DAYS
 
 
 def fetch_night(

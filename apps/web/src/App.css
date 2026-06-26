@@ -1876,6 +1876,42 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   cursor: pointer;
 }
 /* Timeline event rows interleaved in the weather table */
+/* NOW marker — current time in the location's TZ, shown only while inside the night window */
+.wx-now-row td {
+  padding: 0;
+  border-top: 2px solid color-mix(in oklab, var(--accent) 80%, transparent);
+  border-bottom: none;
+}
+.wx-now-row td.wx-now-time {
+  padding: 1px 6px 1px 0;
+  background: var(--card);
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+.wx-now-content {
+  position: sticky;
+  left: 68px;
+  background: var(--card);
+  z-index: 1;
+}
+.wx-now-inner {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html.red-mode .wx-now-row td {
+  border-top-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+html.red-mode .wx-now-row td.wx-now-time {
+  border-left-color: var(--accent);
+}
+
 .wx-ev-row td {
   padding: 0;
   border-bottom: 1px solid rgba(var(--hairline-rgb), 0.5);

@@ -648,7 +648,7 @@ def assemble_night(
             if not _future_date:
                 # Past date: sequential fetch (no parallelism needed — uncommon path)
                 try:
-                    days_ago = (date.today() - target).days
+                    days_ago = (_now.date() - target).days
                     if days_ago <= wx.OpenMeteoPastProvider._MAX_PAST_DAYS:
                         provider = wx.OpenMeteoPastProvider(days_ago + 2)
                     else:
