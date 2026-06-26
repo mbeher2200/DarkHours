@@ -148,10 +148,21 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
     return firstAfter.label.toLowerCase().includes('moonrise') ? 'below' : 'above'
   })()
 
-  type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number }
+  // Live "now" marker — updates every 30s so it stays accurate if the page is
+  // left open. Only injected when the current moment is inside the night window.
+  const [nowTs, setNowTs] = useState(Date.now)
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const isLive = sunsetTs !== -Infinity && sunriseTs !== Infinity
+               && nowTs > sunsetTs && nowTs < sunriseTs
+
+  type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number } | { kind: 'now'; ts: number }
   const rows: Row[] = [
     ...visibleEvents.map(ev => ({ kind: 'event' as const, ev, ts: new Date(ev.time).getTime() })),
     ...visiblePoints.map(pt => ({ kind: 'wx'    as const, pt, ts: new Date(pt.time).getTime() })),
+    ...(isLive ? [{ kind: 'now' as const, ts: nowTs }] : []),
   ].sort((a, b) => a.ts - b.ts)
 
   const ip = { size: 12, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
@@ -193,6 +204,16 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
           )}
           <tbody>
             {rows.map((row, i) => {
+              if (row.kind === 'now') {
+                return (
+                  <tr key="now-marker" className="wx-now-row">
+                    <td className="wx-time wx-now-time">{formatTime(new Date(row.ts).toISOString(), tz)}</td>
+                    <td colSpan={hasWx ? totalCols - 1 : 1} className="wx-now-content">
+                      <span className="wx-now-inner">▶ Now</span>
+                    </td>
+                  </tr>
+                )
+              }
               if (row.kind === 'event') {
                 const icon    = evIcon(row.ev.label)
                 const cls     = evClass(row.ev.label)

@@ -195,8 +195,8 @@ def _filter_train_tles(raw: str) -> list[tuple[str, str, str]]:
          older batches have spread out and no longer form a visible train even if they
          haven't yet reached full operational altitude
     """
-    from datetime import date, timedelta
-    cutoff = date.today() - timedelta(days=_STARLINK_RECENT_DAYS)
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=_STARLINK_RECENT_DAYS)
 
     lines  = [l.strip() for l in raw.splitlines() if l.strip()]
     result = []

@@ -235,3 +235,17 @@ export function toIsoDate(d: Date): string {
 export function todayIso(): string {
   return toIsoDate(new Date())
 }
+
+// The date the *current night* belongs to — which is yesterday when it's past
+// midnight but before noon (sunrise hasn't happened yet for any US location).
+// Use this for default queries so a photographer opening the app at 2 AM sees
+// the night they're standing in, not tomorrow's upcoming observations.
+export function tonightIso(): string {
+  const now = new Date()
+  if (now.getHours() < 6) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - 1)
+    return toIsoDate(d)
+  }
+  return toIsoDate(now)
+}
