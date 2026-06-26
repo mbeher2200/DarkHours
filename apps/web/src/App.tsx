@@ -538,9 +538,9 @@ export default function App() {
       {!report && !loading && !error && (
         <div className="card empty-state">
           <div className="es-copy">
-            <p className="es-headline">Stop checking multiple websites.</p>
+            <p className="es-headline">Precision Landscape Astrophotography Planning.</p>
             <p className="es-body">
-              DarkHours unifies Bortle, lunar, dark sky hours, and weather factors into a single night quality score. If your location doesn't hold up, find better skies within driving distance in seconds.
+              Bortle class, ephemeris data, clear dark hours, weather conditions, and deep sky object viability in a single view. Plans fall through? Find a better location nearby, in seconds.
             </p>
           </div>
 
