@@ -268,6 +268,10 @@ html.red-mode .units-toggle button.active {
   border: 1px solid rgba(255, 0, 0, 0.20);
   box-shadow: none;
 }
+html.red-mode .masthead-logo-cell:nth-child(1) { background: transparent !important; box-shadow: inset 0 0 0 1.5px #FF0000; }
+html.red-mode .masthead-logo-cell:nth-child(2) { background: rgba(255,0,0,0.4) !important; }
+html.red-mode .masthead-logo-cell:nth-child(3) { background: rgba(255,0,0,0.7) !important; }
+html.red-mode .masthead-logo-cell:nth-child(4) { background: #FF0000 !important; }
 html.red-mode .night-vision-toggle {
   border-color: rgba(255, 0, 0, 0.18);
   color: #850000;
@@ -327,6 +331,9 @@ html.red-mode .dp-trigger {
   box-shadow: none;
 }
 .masthead h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 1.75rem;
   font-family: var(--sans);
   font-weight: 600;
@@ -336,6 +343,17 @@ html.red-mode .dp-trigger {
   text-wrap: balance;
   margin-bottom: 0;
   line-height: 1.1;
+}
+.masthead-logo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.masthead-logo-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
 }
 .masthead p {
   display: none;

@@ -280,7 +280,15 @@ export default function App() {
           <span>Night vision</span>
         </button>
 
-        <h1>DarkHours</h1>
+        <h1>
+          <span className="masthead-logo" aria-hidden="true">
+            <span className="masthead-logo-cell" style={{background:'#D9534F'}} />
+            <span className="masthead-logo-cell" style={{background:'#F0AD4E'}} />
+            <span className="masthead-logo-cell" style={{background:'#5CB85C'}} />
+            <span className="masthead-logo-cell" style={{background:'#5BC0DE'}} />
+          </span>
+          DarkHours
+        </h1>
       </header>
 
       <form className="card query" onSubmit={onSubmit}>
