@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { tonightIso } from './format'
 
 interface DatePickerProps {
   value: string   // YYYY-MM-DD
@@ -155,8 +156,8 @@ export default function DatePicker({ value, min, max, onChange }: DatePickerProp
           </div>
 
           <div className="dp-footer">
-            <button type="button" className="dp-today-btn" onClick={() => select(today)}>
-              Today
+            <button type="button" className="dp-today-btn" onClick={() => select(tonightIso())}>
+              Tonight
             </button>
           </div>
         </div>

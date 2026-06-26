@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
 import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
-import { todayIso, toIsoDate, defaultImperial } from './format'
+import { todayIso, tonightIso, toIsoDate, defaultImperial } from './format'
 import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
@@ -33,7 +33,7 @@ export default function App() {
   const [place, setPlace] = useState('')
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(tonightIso())
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
   const [redMode, setRedMode] = useState<boolean>(() => localStorage.getItem('redMode') === '1')
@@ -145,7 +145,7 @@ export default function App() {
     const d = p.get('date')
     if (!q && !(la && lo)) return
 
-    const targetDate = d || todayIso()
+    const targetDate = d || tonightIso()
     const { wxUnavail, satUnavail } = availabilityFor(targetDate)
 
     if (d) setDate(d)
