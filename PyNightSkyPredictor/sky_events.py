@@ -154,7 +154,7 @@ def dark_moon_intervals(events: list, night_start, night_end) -> list:
 
 
 # Dark-cycle windows are cached through the Cache port (local files or DynamoDB,
-# Per-window DynamoDB keys: dark_cycle|{lat:.3f}|{lon:.3f}|{window_start}.
+# Per-window DynamoDB keys: dark_cycle|{lat:.2f}|{lon:.2f}|{window_start}.
 # Each window is a small independent item so reads are targeted rather than
 # loading a single growing blob for all locations.
 # Module-level dict acts as an in-process layer — warm containers skip DynamoDB
@@ -163,7 +163,7 @@ _mem_dark_cycle: dict[str, dict] = {}
 
 
 def _dark_cycle_db_key(lat: float, lon: float, window_start: date) -> str:
-    return f"dark_cycle|{lat:.3f}|{lon:.3f}|{window_start.isoformat()}"
+    return f"dark_cycle|{lat:.2f}|{lon:.2f}|{window_start.isoformat()}"
 
 
 def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> list:
@@ -291,7 +291,7 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
       3. Compute fresh via Skyfield (~410ms at 3008 MB), then populate both layers.
     """
     window_start = target_date - timedelta(days=14)
-    mem_key      = f"{lat:.3f},{lon:.3f}:{window_start.isoformat()}"
+    mem_key      = f"{lat:.2f},{lon:.2f}:{window_start.isoformat()}"
     db_key       = _dark_cycle_db_key(lat, lon, window_start)
 
     # 1. In-process cache — exact hit
@@ -300,7 +300,7 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
         return _dark_stats(_mem_dark_cycle[mem_key]["dark_hours"], 14)
 
     # 1b. In-process cache — overlap: any cached window for this location covers target_date
-    loc_prefix = f"{lat:.3f},{lon:.3f}:"
+    loc_prefix = f"{lat:.2f},{lon:.2f}:"
     for mk, entry in _mem_dark_cycle.items():
         if not mk.startswith(loc_prefix):
             continue
