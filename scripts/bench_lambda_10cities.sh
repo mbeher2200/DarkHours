@@ -15,7 +15,8 @@
 #   3. Docker running locally
 #
 # Usage:
-#   scripts/bench_lambda_10cities.sh              # build + run + teardown
+#   scripts/bench_lambda_10cities.sh              # build + run + teardown (x86_64)
+#   scripts/bench_lambda_10cities.sh --arch arm64 # same but ARM64/Graviton
 #   scripts/bench_lambda_10cities.sh --skip-build # reuse existing :proftest image
 #   scripts/bench_lambda_10cities.sh --runs 3     # warm invocations per city (default 3)
 #
@@ -30,14 +31,24 @@ TAG="proftest"
 RUNS=3
 SKIP_BUILD=false
 RADIUS=60
+ARCH="x86_64"   # x86_64 | arm64
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --skip-build) SKIP_BUILD=true; shift ;;
         --runs) RUNS="$2"; shift 2 ;;
+        --arch) ARCH="$2"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
+
+# Map arch to Docker platform string
+if [[ "$ARCH" == "arm64" ]]; then
+    DOCKER_PLATFORM="linux/arm64"
+else
+    DOCKER_PLATFORM="linux/amd64"
+    ARCH="x86_64"
+fi
 
 : "${PYNIGHTSKY_RASTER_BUCKET:?set PYNIGHTSKY_RASTER_BUCKET}"
 : "${PYNIGHTSKY_CACHE_TABLE:?set PYNIGHTSKY_CACHE_TABLE}"
@@ -62,9 +73,9 @@ trap cleanup EXIT
 
 # ── 1. Build ─────────────────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" == "false" ]]; then
-    echo "=== Building single-platform image ==="
+    echo "=== Building single-platform image ($DOCKER_PLATFORM) ==="
     docker build -f Dockerfile.worker \
-        --platform linux/amd64 \
+        --platform "$DOCKER_PLATFORM" \
         --provenance=false \
         -t "${IMAGE_URI}" .
     echo "=== Pushing to ECR ==="
@@ -81,6 +92,7 @@ aws lambda create-function \
     --package-type Image \
     --code ImageUri="${IMAGE_URI}" \
     --role "$PYNIGHTSKY_WORKER_ROLE_ARN" \
+    --architectures "$ARCH" \
     --timeout 300 \
     --memory-size 2048 \
     --region "$REGION" \
