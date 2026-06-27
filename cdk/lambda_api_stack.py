@@ -1,7 +1,7 @@
-"""Lambda + CloudFront deployment of the PyNightSky API (the App Runner successor).
+"""Lambda + CloudFront deployment of the PyNightSky API.
 
-The API runs as a container Lambda (the ECR ``:lambda`` image = our app + the Lambda
-Web Adapter). Its Function URL uses AWS_IAM auth because the account SCP blocks public
+The API runs as a zip Lambda (Mangum ASGI adapter, same CDK asset-bundling pattern as
+the worker). Its Function URL uses AWS_IAM auth because the account SCP blocks public
 (unauthenticated) Function URLs; CloudFront fronts it with Origin Access Control, which
 SigV4-signs each request so the IAM-auth URL is reachable. CloudFront also caches GET
 responses (keyed on the full query string) so repeat /night queries are edge-served and
@@ -24,7 +24,6 @@ from aws_cdk import (
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_dynamodb as dynamodb,
-    aws_ecr as ecr,
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_lambda_event_sources as lambda_events,
@@ -72,6 +71,28 @@ def _stage_worker_src() -> str:
     return str(stage)
 
 
+def _stage_api_src() -> str:
+    """Stage the source the API zip Lambda needs as the CDK bundling input.
+
+    Mirrors the Dockerfile.lambda asset selection: engine + apps (minus worker/warmer
+    entrypoints, though they don't hurt), de421.bsp ephemeris, and the light-dome +
+    PAD-US .npz indexes. Omits osm_pois.npz (only find_nearby / worker uses it).
+    requirements-api.txt is installed by bundling on top.
+    """
+    stage = _REPO / "cdk" / ".api_build"
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    ig = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", "node_modules", "web", "dist")
+    shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
+    shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
+    (stage / "cache").mkdir()
+    for _npz in ("darkhours_padus_h3.npz", "lightdome_h3.npz"):
+        shutil.copy(_REPO / "cache" / _npz, stage / "cache" / _npz)
+    shutil.copy(_REPO / "requirements-api.txt", stage / "requirements-api.txt")
+    return str(stage)
+
+
 class LambdaApiStack(Stack):
     def __init__(self, scope: Construct, cid: str, **kwargs):
         super().__init__(scope, cid, **kwargs)
@@ -97,15 +118,27 @@ class LambdaApiStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        # --- the API as a container Lambda (from the ECR image) ---
-        # CI passes the immutable git SHA via `-c imageTag=<sha>` so each deploy
-        # references a NEW tag — otherwise the mutable ":lambda" tag leaves the CFN
-        # template unchanged and CloudFormation won't pick up a rebuilt image.
-        image_tag = self.node.try_get_context("imageTag") or "lambda"
-        repo = ecr.Repository.from_repository_name(self, "Repo", "pynightsky-api")
-        fn = lambda_.DockerImageFunction(
+        # --- the API as a zip Lambda (Mangum ASGI adapter, same pattern as the worker) ---
+        # CDK asset bundling pip-installs requirements-api.txt on linux/amd64 during
+        # `cdk deploy`; no Docker build or ECR push needed in CI.
+        fn = lambda_.Function(
             self, "Api",
-            code=lambda_.DockerImageCode.from_ecr(repo, tag_or_digest=image_tag),
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            architecture=lambda_.Architecture.X86_64,
+            handler="apps.api.handler.handler",
+            code=lambda_.Code.from_asset(
+                _stage_api_src(),
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_13.bundling_image,
+                    platform="linux/amd64",
+                    command=[
+                        "bash", "-c",
+                        "pip install --no-cache-dir -r requirements-api.txt "
+                        "-t /asset-output "
+                        "&& cp -r PyNightSkyPredictor apps cache /asset-output/",
+                    ],
+                ),
+            ),
             memory_size=3008,
             timeout=Duration.seconds(120),
             tracing=lambda_.Tracing.ACTIVE,
@@ -115,8 +148,6 @@ class LambdaApiStack(Stack):
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
                 "LOG_LEVEL": "INFO",
-                # LWA routes non-HTTP Lambda events (EventBridge warmup pings) here
-                "AWS_LWA_PASS_THROUGH_PATH": "/warmup",
             },
         )
 

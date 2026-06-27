@@ -1,9 +1,9 @@
 name: deploy (Lambda + CloudFront)
 
-# Keyless deploy via GitHub OIDC (no stored AWS keys). Fires only on push to main;
-# the overhaul lives on aws-cloud-native and reaches main via the final merge PR.
-# Flow: test gate -> assume the OIDC deploy role -> build & push the :lambda image
-# (tagged with the git SHA) -> cdk deploy PyNightSkyLambda -c imageTag=<sha>.
+# Keyless deploy via GitHub OIDC (no stored AWS keys). Fires only on push to main.
+# Flow: test gate -> assume OIDC deploy role -> build SPA -> cdk deploy PyNightSkyLambda.
+# Both the API and worker are zip Lambdas: CDK asset bundling pip-installs their deps
+# on linux/amd64 during `cdk deploy` — no Docker build or ECR push needed in CI.
 
 on:
   push:
@@ -20,7 +20,6 @@ concurrency:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPO: pynightsky-api
 
 jobs:
   deploy:
@@ -46,25 +45,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # --- build the API Lambda image (single amd64 manifest) and push :lambda + :<sha> ---
-      # The worker is no longer a container image — it is a zip Lambda whose deps are
-      # pip-installed (linux/amd64) by CDK asset bundling during `cdk deploy`.
-      - name: Build & push API image
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          API="$REGISTRY/pynightsky-api"
-          docker build --platform linux/amd64 --provenance=false \
-            -f Dockerfile.lambda \
-            -t "$API:lambda" -t "$API:${{ github.sha }}" .
-          docker push "$API:lambda"
-          docker push "$API:${{ github.sha }}"
-
-      # --- deploy the stack, pinning the function to this exact image tag ---
+      # --- deploy the stack (CDK asset bundling builds both zip Lambdas inline) ---
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -86,4 +67,4 @@ jobs:
           CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
           PYNIGHTSKY_RASTER_BUCKET: ${{ secrets.PYNIGHTSKY_RASTER_BUCKET }}
           PYNIGHTSKY_CACHE_TABLE: ${{ secrets.PYNIGHTSKY_CACHE_TABLE }}
-        run: cdk deploy PyNightSkyLambda --require-approval never -c imageTag=${{ github.sha }}
+        run: cdk deploy PyNightSkyLambda --require-approval never
