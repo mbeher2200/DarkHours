@@ -412,13 +412,19 @@ def assemble_night(
     _sat_stale        = False
     _sat_days_offset  = (target - (datetime.now(timezone.utc).date() - timedelta(days=1))).days
 
-    _max_workers = 3
+    _max_workers = 4
     if fetch_satellites and _sat_days_offset >= 0:
-        # 3 individual TLE fetches + 1 Starlink group fetch on top of ds + wx
-        _max_workers = 8
+        # 3 individual TLE fetches + 1 Starlink group fetch on top of ds + wx + dark_cycle
+        _max_workers = 9
 
     with _futures.ThreadPoolExecutor(max_workers=_max_workers) as _pool:
         _ds_future = _pool.submit(_ds.lookup, lat, lon)
+
+        # lunar_cycle_dark_analysis needs only lat/lon/date/tz — submit immediately so
+        # its Skyfield compute (~410ms cold) overlaps with sky_events (~150ms) on the
+        # main thread.  Both are read-only on the ephemeris; Skyfield's Loader serialises
+        # the first de421.bsp load, after which the object is shared safely.
+        _dark_cycle_future = _pool.submit(se.lunar_cycle_dark_analysis, lat, lon, target, tz)
 
         # Heuristic: start weather for tonight-or-future dates without waiting for
         # sunrise. "Tonight" may be yesterday in UTC when the night spans midnight
@@ -516,9 +522,9 @@ def assemble_night(
             display_dark_intervals = []
             moon_score             = round(10 * ks_moon_credit(illumination), 1)
 
-        # --- Lunar cycle dark analysis ---
+        # --- Lunar cycle dark analysis (submitted at function entry; almost done by now) ---
         _tc = time.monotonic()
-        cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
+        cycle      = _dark_cycle_future.result()
         dark_score = cycle["score"]
         _t["lunar_cycle_ms"] = round((time.monotonic() - _tc) * 1000)
 
