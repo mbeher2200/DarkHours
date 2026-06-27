@@ -89,6 +89,8 @@ def _stage_api_src() -> str:
     (stage / "cache").mkdir()
     for _npz in ("darkhours_padus_h3.npz", "lightdome_h3.npz"):
         shutil.copy(_REPO / "cache" / _npz, stage / "cache" / _npz)
+    # requirements-api.txt has `-r requirements.txt`; both must be present for pip.
+    shutil.copy(_REPO / "requirements.txt", stage / "requirements.txt")
     shutil.copy(_REPO / "requirements-api.txt", stage / "requirements-api.txt")
     return str(stage)
 
