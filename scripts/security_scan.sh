@@ -38,14 +38,14 @@ SKIP="--skip-dirs .venv,Sky,cdk.out,**/cdk.out,tools,.git"
 run "Trivy (IaC/Dockerfile misconfig)" "${TRIVY[@]}" config --severity HIGH,CRITICAL --exit-code 1 -q $SKIP .
 run "Trivy (repo secrets)"             "${TRIVY[@]}" fs --scanners secret --exit-code 1 -q $SKIP .
 
-if docker image inspect pynightsky-api:latest >/dev/null 2>&1; then
-  docker save pynightsky-api:latest -o /tmp/_pns_scan.tar
+if docker image inspect pynightsky-worker:latest >/dev/null 2>&1; then
+  docker save pynightsky-worker:latest -o /tmp/_pns_scan.tar
   run "Trivy (image CVEs)" docker run --rm -v /tmp:/scan -v "$PWD:/repo" aquasec/trivy:latest \
     image --input /scan/_pns_scan.tar --ignorefile /repo/.trivyignore \
     --severity HIGH,CRITICAL --exit-code 1 -q
   rm -f /tmp/_pns_scan.tar
 else
-  echo ""; echo "=== Trivy (image CVEs) ==="; echo "  SKIP: pynightsky-api:latest not built locally (CI builds + scans it)"
+  echo ""; echo "=== Trivy (image CVEs) ==="; echo "  SKIP: pynightsky-worker:latest not built locally (CI builds + scans it)"
 fi
 
 echo ""

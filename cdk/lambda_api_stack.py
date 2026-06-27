@@ -74,10 +74,9 @@ def _stage_worker_src() -> str:
 def _stage_api_src() -> str:
     """Stage the source the API zip Lambda needs as the CDK bundling input.
 
-    Mirrors the Dockerfile.lambda asset selection: engine + apps (minus worker/warmer
-    entrypoints, though they don't hurt), de421.bsp ephemeris, and the light-dome +
-    PAD-US .npz indexes. Omits osm_pois.npz (only find_nearby / worker uses it).
-    requirements-api.txt is installed by bundling on top.
+    Stages engine + apps (minus worker/warmer entrypoints), de421.bsp ephemeris, and
+    the light-dome + PAD-US .npz indexes. Omits osm_pois.npz (only find_nearby /
+    worker uses it). requirements-api.txt is installed by CDK bundling on top.
     """
     stage = _REPO / "cdk" / ".api_build"
     if stage.exists():

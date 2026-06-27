@@ -74,4 +74,5 @@ postman/*.postman_environment.json
 # CDK Lambda staging dirs (built at synth)
 cdk/.warmer_build/
 cdk/.worker_build/
+cdk/.api_build/
 PRODUCT.md

@@ -31,7 +31,7 @@ _ALLOWED_SUB = f"repo:{_GITHUB_REPO}:ref:refs/heads/main"
 _GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 # Default CDK bootstrap qualifier (the `cdk-hnb659fds-*` roles created by `cdk bootstrap`).
 _BOOTSTRAP_QUALIFIER = "hnb659fds"
-_ECR_REPO_NAMES = ["pynightsky-api", "pynightsky-worker"]
+_ECR_REPO_NAMES = ["pynightsky-worker"]   # api is a zip Lambda; no ECR push needed
 
 
 class CicdStack(Stack):
@@ -83,9 +83,9 @@ class CicdStack(Stack):
             ],
         ))
 
-        # (2) Push the app image to our ECR repo (the workflow builds :lambda + :<sha>
-        #     before `cdk deploy`). GetAuthorizationToken is account-wide (can't be
-        #     resource-scoped); the layer/image actions are scoped to our one repo.
+        # (2) Push to the worker ECR repo (used only by the benchmark script; not CI).
+        #     GetAuthorizationToken is account-wide (can't be resource-scoped);
+        #     the layer/image actions are scoped to our one repo.
         deploy_role.add_to_policy(iam.PolicyStatement(
             sid="EcrAuth",
             actions=["ecr:GetAuthorizationToken"],
