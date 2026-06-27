@@ -162,7 +162,7 @@ def test_extract_dark_sky_returns_pois_when_intersecting(tmp_path, monkeypatch):
 
 
 def test_aws_drive_times_skips_non_poi():
-    """Raw fallback candidates are never routed; POIs are (GeoRoutes, DepartNow)."""
+    """Raw fallback candidates are never routed; POIs are routed via GeoRoutes."""
     poi = {"lat": 38.5, "lon": -120.1, "is_poi": True}
     raw = {"lat": 38.6, "lon": -120.2, "is_poi": False}
     with patch.object(ds, "cache") as mock_cache, \
@@ -176,10 +176,10 @@ def test_aws_drive_times_skips_non_poi():
     assert raw["drive_minutes"] is None
     assert poi["drive_minutes"] == 30
     kwargs = mock_gr.return_value.calculate_route_matrix.call_args.kwargs
-    # Exactly one destination (the POI) was sent, traffic-aware, GeoRoutes shape.
+    # Exactly one destination (the POI) was sent via GeoRoutes, no DepartNow flag.
     assert kwargs["Destinations"] == [{"Position": [-120.1, 38.5]}]
     assert kwargs["Origins"] == [{"Position": [-121.0, 40.0]}]
-    assert kwargs["DepartNow"] is True
+    assert "DepartNow" not in kwargs
     assert kwargs["RoutingBoundary"] == {"Unbounded": True}
 
 
