@@ -3,7 +3,7 @@
 Hermetic: builds an in-memory grid from a synthetic numpy array (tiled exactly as
 gridbuild writes it) and backs GridArray with an in-memory read_elems — no files,
 no rasterio, no S3. Covers the contract that used to live in the rasterio path:
-nodata/negative clamp, north-up orientation, boundless 0.0 fill, float64 output,
+nodata/negative clamp, north-up orientation, boundless 0.0 fill, float32 output,
 single-pixel exactness, multi-tile assembly, out_shape bilinear, and None-on-error.
 """
 import numpy as np
@@ -88,7 +88,7 @@ def test_window_orientation_and_dtype():
     arr = _ramp(5, 6)
     g = make_grid(arr, tile=4)
     out = g.read_window(g.north - 5 * g.y_res, g.north, g.west, g.west + 6 * g.x_res)
-    assert out.dtype == np.float64
+    assert out.dtype == np.float32
     assert out.shape == (5, 6)
     assert out[0, 0] == arr[0, 0]                 # row 0 = north
     assert np.allclose(out, arr)
@@ -121,3 +121,30 @@ def test_window_out_shape_resamples():
     out = g.read_window(g.north - 8 * g.y_res, g.north, g.west, g.west + 8 * g.x_res,
                         out_shape=(4, 4))
     assert out.shape == (4, 4)
+
+
+def test_float32_bortle_agrees_with_float64():
+    """S4: float32 raster output must produce the same Bortle class as float64
+    for pixels near each SQM class boundary — the precision-sensitive case."""
+    import PyNightSkyPredictor.darksky as ds
+
+    # SQM boundary values (lower edge of each Bortle class)
+    sqm_boundaries = [22.0, 21.7, 21.3, 20.8, 20.0, 19.1, 18.0, 17.0]
+    # Radiance at each boundary: invert sqm = 21.7 - 2.5*log10(rad + 0.6)
+    radiances = [10 ** ((21.7 - sqm) / 2.5) - 0.6 for sqm in sqm_boundaries]
+
+    arr_f64 = np.array([[r] for r in radiances], dtype=np.float64)
+    arr_f32 = arr_f64.astype(np.float32)
+
+    def bortle_from(arr):
+        sqm = np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
+        return ds._sqm_to_bortle_array(sqm)
+
+    bortle_f64 = bortle_from(arr_f64)
+    bortle_f32 = bortle_from(arr_f32)
+
+    # Every boundary pixel must map to the same Bortle class regardless of precision
+    np.testing.assert_array_equal(
+        bortle_f64, bortle_f32,
+        err_msg="float32 and float64 produce different Bortle class at SQM boundaries",
+    )

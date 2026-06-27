@@ -1,0 +1,7 @@
+{
+  "Records": [
+    {
+      "body": "{\"job_id\": \"bench-atlanta\", \"params\": {\"type\": \"nearby\", \"lat\": 33.75, \"lon\": -84.39, \"radius_miles\": 60}}"
+    }
+  ]
+}

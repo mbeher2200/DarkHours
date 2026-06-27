@@ -1,0 +1,7 @@
+{
+  "Records": [
+    {
+      "body": "{\"job_id\": \"bench-new-york\", \"params\": {\"type\": \"nearby\", \"lat\": 40.71, \"lon\": -74.01, \"radius_miles\": 60}}"
+    }
+  ]
+}
