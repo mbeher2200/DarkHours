@@ -32,12 +32,14 @@ RUNS=3
 SKIP_BUILD=false
 RADIUS=60
 ARCH="x86_64"   # x86_64 | arm64
+MEMORY=2048
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --skip-build) SKIP_BUILD=true; shift ;;
         --runs) RUNS="$2"; shift 2 ;;
         --arch) ARCH="$2"; shift 2 ;;
+        --memory) MEMORY="$2"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -94,7 +96,7 @@ aws lambda create-function \
     --role "$PYNIGHTSKY_WORKER_ROLE_ARN" \
     --architectures "$ARCH" \
     --timeout 300 \
-    --memory-size 2048 \
+    --memory-size "$MEMORY" \
     --region "$REGION" \
     --environment "Variables={PYNIGHTSKY_BACKEND=aws,PYNIGHTSKY_PROFILE=1,\
 PYNIGHTSKY_RASTER_BUCKET=${PYNIGHTSKY_RASTER_BUCKET},\

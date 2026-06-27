@@ -239,7 +239,7 @@ class LambdaApiStack(Stack):
                     ],
                 ),
             ),
-            memory_size=2048,
+            memory_size=3008,
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
             tracing=lambda_.Tracing.ACTIVE,
             log_group=worker_log_group,
