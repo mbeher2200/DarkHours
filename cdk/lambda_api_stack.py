@@ -121,18 +121,18 @@ class LambdaApiStack(Stack):
         )
 
         # --- the API as a zip Lambda (Mangum ASGI adapter, same pattern as the worker) ---
-        # CDK asset bundling pip-installs requirements-api.txt on linux/amd64 during
+        # CDK asset bundling pip-installs requirements-api.txt on linux/arm64 during
         # `cdk deploy`; no Docker build or ECR push needed in CI.
         fn = lambda_.Function(
             self, "Api",
             runtime=lambda_.Runtime.PYTHON_3_13,
-            architecture=lambda_.Architecture.X86_64,
+            architecture=lambda_.Architecture.ARM_64,
             handler="apps.api.handler.handler",
             code=lambda_.Code.from_asset(
                 _stage_api_src(),
                 bundling=BundlingOptions(
                     image=lambda_.Runtime.PYTHON_3_13.bundling_image,
-                    platform="linux/amd64",
+                    platform="linux/arm64",
                     command=[
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements-api.txt "
@@ -212,7 +212,7 @@ class LambdaApiStack(Stack):
         # The worker is a zip Lambda (not a container): with rasterio/GDAL, pyarrow and
         # scipy removed from the runtime, the deps fit the 250 MB zip limit (~169 MB
         # unzipped), which avoids the container image's first-invoke image-load latency.
-        # Deps are pip-installed for the Lambda runtime (linux/amd64) by CDK bundling.
+        # Deps are pip-installed for the Lambda runtime (linux/arm64) by CDK bundling.
         dlq = sqs.Queue(self, "JobsDlq", retention_period=Duration.days(14))
         jobs_queue = sqs.Queue(
             self, "JobsQueue",
@@ -224,13 +224,13 @@ class LambdaApiStack(Stack):
         worker = lambda_.Function(
             self, "Worker",
             runtime=lambda_.Runtime.PYTHON_3_13,
-            architecture=lambda_.Architecture.X86_64,
+            architecture=lambda_.Architecture.ARM_64,
             handler="apps.worker.handler.handler",
             code=lambda_.Code.from_asset(
                 _stage_worker_src(),
                 bundling=BundlingOptions(
                     image=lambda_.Runtime.PYTHON_3_13.bundling_image,
-                    platform="linux/amd64",
+                    platform="linux/arm64",
                     command=[
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements.txt "
@@ -239,7 +239,7 @@ class LambdaApiStack(Stack):
                     ],
                 ),
             ),
-            memory_size=2048,
+            memory_size=3008,
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
             tracing=lambda_.Tracing.ACTIVE,
             log_group=worker_log_group,
