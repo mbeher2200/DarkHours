@@ -2,6 +2,6 @@
 # boto3, …) — NO FastAPI/uvicorn, the worker is SQS-triggered, not HTTP — plus the
 # AWS Lambda Runtime Interface Client so an AL2023 image runs as a Lambda handler.
 -r requirements.txt
-awslambdaric==4.0.0
+awslambdaric==4.0.1
 python-json-logger==4.1.0
 aws-xray-sdk==2.15.0
