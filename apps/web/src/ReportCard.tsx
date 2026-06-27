@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
 import {
-  formatTime, formatHm, tzAbbr, tzTitle,
+  formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
   scoreBand, scoreLabel, moonWashSeverity, moonUpAt,
 } from './format'
@@ -185,7 +185,11 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
 
   return (
     <details className="wx-details" open>
-      <summary>Night Timeline{hasWx ? ` · Weather (${visiblePoints.length} hours)` : ''}</summary>
+      <summary>
+        Night Timeline
+        {sunsetTs !== -Infinity && sunriseTs !== Infinity &&
+          `: ${formatDayTime(new Date(sunsetTs).toISOString(), tz)} → ${formatDayTime(new Date(sunriseTs).toISOString(), tz)}`}
+      </summary>
       <div className="wx-table-wrap">
         <table className="wx-table">
           {hasWx && (
