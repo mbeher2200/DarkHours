@@ -17,9 +17,12 @@ Two access patterns, both served by one ``_read_elems(elem_off, n)`` primitive:
     nodata → 0.0, negatives → 0, out-of-raster → 0.0, ``None`` only on error.
   * ``read_window(...)`` — a bbox sub-array (row 0 = max_lat, col 0 = min_lon),
     boundless-filled with 0.0, nodata/neg clamped, optional bilinear ``out_shape``
-    resample.  Mirrors ``darksky._load_raster_window``.  Tiles within a tile-row
-    are contiguous in the file, so each tile-row is one ranged read (fetched in
-    parallel on S3).
+    resample.  Mirrors ``darksky._load_raster_window``.  Every tile in the window
+    is fetched as an independent ranged GET; all tiles are dispatched concurrently
+    via ``_WINDOW_MAX_WORKERS`` threads so S3 bandwidth scales with connection count.
+    Sub-tile splits are not possible along columns (non-contiguous); horizontal
+    row-strips within a tile are contiguous but at tile_size=512 the per-request
+    overhead would dominate any bandwidth gain, so the tile is the atomic unit.
 
 Dependencies: ``numpy`` always; ``boto3`` only for the S3 backend.  No GDAL,
 no rasterio, no tifffile.
@@ -72,28 +75,33 @@ class GridArray:
         return row, col
 
     # ── tile fetch ────────────────────────────────────────────────────────────
-    def _read_tile_row_span(self, ty: int, tx0: int, tx1: int) -> np.ndarray:
-        """Return rows [ty*tile, ty*tile+tile) × cols [tx0*tile, (tx1+1)*tile) as a
-        (tile, n_tiles*tile) float64 array.  One contiguous read (tiles tx0..tx1 in
-        row ty are adjacent in the file)."""
-        n_tiles = tx1 - tx0 + 1
-        first = ty * self.tiles_x + tx0
-        flat = self._read_elems(first * self._tile_elems, n_tiles * self._tile_elems)
-        tiles = flat.reshape(n_tiles, self.tile, self.tile)        # (n, tile, tile)
-        # lay tiles side by side -> (tile, n*tile)
-        return np.concatenate(list(tiles), axis=1).astype(np.float64)
+    def _read_tile(self, ty: int, tx: int) -> np.ndarray:
+        """Return one tile as a (tile, tile) float32 array — one ranged GET on S3."""
+        tile_id = ty * self.tiles_x + tx
+        flat = self._read_elems(tile_id * self._tile_elems, self._tile_elems)
+        return flat.reshape(self.tile, self.tile).astype(np.float32)
 
     def _read_block(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
-        """Read the in-bounds raster sub-array [r0:r1, c0:c1] (all within the grid)."""
+        """Read the in-bounds raster sub-array [r0:r1, c0:c1] (all within the grid).
+
+        Dispatches every tile in the 2-D window as an independent ranged GET so
+        all (n_row_tiles × n_col_tiles) S3 connections run concurrently, not just
+        the row dimension."""
         ty0, ty1 = r0 // self.tile, (r1 - 1) // self.tile
         tx0, tx1 = c0 // self.tile, (c1 - 1) // self.tile
-        rows = range(ty0, ty1 + 1)
-        if len(rows) > 1 and _WINDOW_MAX_WORKERS > 1:
-            with ThreadPoolExecutor(max_workers=min(_WINDOW_MAX_WORKERS, len(rows))) as ex:
-                spans = list(ex.map(lambda ty: self._read_tile_row_span(ty, tx0, tx1), rows))
+        n_col_tiles = tx1 - tx0 + 1
+        tasks = [(ty, tx)
+                 for ty in range(ty0, ty1 + 1)
+                 for tx in range(tx0, tx1 + 1)]
+        if len(tasks) > 1 and _WINDOW_MAX_WORKERS > 1:
+            with ThreadPoolExecutor(max_workers=min(_WINDOW_MAX_WORKERS, len(tasks))) as ex:
+                fetched = list(ex.map(lambda t: self._read_tile(*t), tasks))
         else:
-            spans = [self._read_tile_row_span(ty, tx0, tx1) for ty in rows]
-        big = np.vstack(spans)                                     # ((ty1-ty0+1)*tile, n*tile)
+            fetched = [self._read_tile(*t) for t in tasks]
+        # Reassemble: tasks are row-major, so chunk by n_col_tiles, hstack cols, vstack rows
+        rows = [np.concatenate(fetched[i:i + n_col_tiles], axis=1)
+                for i in range(0, len(fetched), n_col_tiles)]
+        big = np.vstack(rows)
         rr0, cc0 = r0 - ty0 * self.tile, c0 - tx0 * self.tile
         return big[rr0:rr0 + (r1 - r0), cc0:cc0 + (c1 - c0)]
 
@@ -125,10 +133,12 @@ class GridArray:
     # ── public: bbox window ───────────────────────────────────────────────────
     def read_window(self, min_lat: float, max_lat: float, min_lon: float, max_lon: float,
                     out_shape: tuple[int, int] | None = None) -> np.ndarray | None:
-        """Bbox sub-window as float64.  Row 0 = max_lat (north), col 0 = min_lon
+        """Bbox sub-window as float32.  Row 0 = max_lat (north), col 0 = min_lon
         (west); out-of-raster pixels filled 0.0; nodata/neg clamped; optional
         bilinear resample to ``out_shape``.  Equivalent to
-        ``darksky._load_raster_window`` (both datasets are 4326 — no reproject)."""
+        ``darksky._load_raster_window`` (both datasets are 4326 — no reproject).
+        float32 halves the in-memory footprint of 150-mile windows (~23 MB → 11.5 MB
+        per raster) without meaningful precision loss in the Bortle/SQM formulas."""
         try:
             # Match rasterio's `windows.from_bounds` + boundless read: round the
             # window origin and extent to nearest (not floor/ceil), so the returned
@@ -140,9 +150,9 @@ class GridArray:
             out_h = round((max_lat - min_lat) / self.y_res)
             col1, row1 = col0 + out_w, row0 + out_h
             if out_h <= 0 or out_w <= 0:
-                return np.zeros((max(out_h, 0), max(out_w, 0)), dtype=np.float64)
+                return np.zeros((max(out_h, 0), max(out_w, 0)), dtype=np.float32)
 
-            out = np.zeros((out_h, out_w), dtype=np.float64)        # boundless fill 0.0
+            out = np.zeros((out_h, out_w), dtype=np.float32)        # boundless fill 0.0
             vr0, vr1 = max(row0, 0), min(row1, self.H)
             vc0, vc1 = max(col0, 0), min(col1, self.W)
             if vr1 > vr0 and vc1 > vc0:
