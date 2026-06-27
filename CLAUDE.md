@@ -51,11 +51,12 @@ A default run stays offline and deterministic (currently 390 passed, ~7 skipped)
 ## Ship flow (CI/CD)
 
 - **Branch → PR → squash-merge to `main` = deploy.** `.github/workflows/deploy.yml` fires
-  on push to `main`: test gate (`pytest -q`) → OIDC → build+push **both** `pynightsky-api`
-  and `pynightsky-worker` images (tagged `:<sha>`) → `cdk deploy ... -c imageTag=<sha>`.
-  Both the API and the worker (where `find_nearby` runs) get the new code.
+  on push to `main`: test gate (`pytest -q`) → OIDC → `cdk deploy PyNightSkyLambda`.
+  Both the API and worker are **zip Lambdas** — CDK asset bundling pip-installs deps on
+  `linux/arm64` inline during deploy; no Docker build or ECR push in CI.
 - **`security.yml`** runs on every branch/PR (scan-only, does not gate deploy): pytest +
-  Bandit, pip-audit, Semgrep, gitleaks, Trivy (image CVEs) via `scripts/security_scan.sh`.
+  Bandit, pip-audit, Semgrep, gitleaks, Trivy (image CVEs against `Dockerfile.worker`)
+  via `scripts/security_scan.sh`.
 - We're on `main` by default — **branch before committing**. Commit trailer:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`; PR body trailer:
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
@@ -80,8 +81,8 @@ rather than hardcoding:
 ### In-region perf validation (throwaway test worker)
 
 To measure a worker change on real infra without touching the deployed worker:
-1. `docker build -f Dockerfile.worker --platform linux/amd64 --provenance=false -t <repo>/pynightsky-worker:proftest .`
-   (single-platform manifest — Lambda rejects buildx attestation lists).
+1. `docker build -f Dockerfile.worker --platform linux/arm64 --provenance=false -t <repo>/pynightsky-worker:proftest .`
+   (single-platform manifest — Lambda rejects buildx attestation lists; arm64 matches deployed arch).
 2. ECR login, push the `:proftest` tag.
 3. `aws lambda create-function` a throwaway fn from that image, **reusing the existing
    worker IAM role**, with the resource env vars + `PYNIGHTSKY_PROFILE=1`.
