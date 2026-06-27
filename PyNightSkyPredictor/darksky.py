@@ -279,6 +279,28 @@ class S3RasterSource(_GridRasterSource):
         "falchi": "world_atlas_2016",
     }
 
+    # Hardcoded grid parameters — eliminates the per-dataset JSON GET on cold container.
+    # Regenerate if the source GeoTIFFs are replaced (update _VIIRS_ZIP_URL /
+    # _FALCHI_ZIP_URL and re-run scripts/build_raster_grid.py to get new values).
+    _GRID_META = {
+        "viirs": {
+            "dataset": "viirs", "width": 86400, "height": 33600, "tile_size": 512,
+            "tiles_x": 169, "tiles_y": 66, "tile_bytes": 1048576, "dtype": "float32",
+            "nodata": -999.9000244140625, "fill": 0.0,
+            "west": -180.0, "north": 75.0,
+            "x_res": 0.004166666666666667, "y_res": 0.004166666666666667,
+            "bin_bytes": 11695816704,
+        },
+        "falchi": {
+            "dataset": "falchi", "width": 43200, "height": 17406, "tile_size": 512,
+            "tiles_x": 85, "tiles_y": 34, "tile_bytes": 1048576, "dtype": "float32",
+            "nodata": -3.4028234663852886e+38, "fill": 0.0,
+            "west": -180.00000000000003, "north": 85.0541668645001,
+            "x_res": 0.008333330000000002, "y_res": 0.008333330000000002,
+            "bin_bytes": 3030384640,
+        },
+    }
+
     def __init__(self, bucket: str | None = None):
         super().__init__()
         self._bucket = bucket
@@ -311,7 +333,8 @@ class S3RasterSource(_GridRasterSource):
         except KeyError:
             raise ValueError(f"Unknown raster dataset: {dataset!r}")
         from . import gridraster
-        g = gridraster.open_s3(self.bucket, key_prefix, client=self._s3())
+        g = gridraster.open_s3(self.bucket, key_prefix, client=self._s3(),
+                               meta=self._GRID_META.get(dataset))
         self._grids[dataset] = g
         return g
 
@@ -420,12 +443,18 @@ def lookup(lat: float, lon: float) -> dict | None:
     if _cache_key in _bortle_mem_cache:
         return _bortle_mem_cache[_cache_key]
 
-    # --- Primary: VIIRS 2025 ---
-    radiance = _viirs_radiance(lat, lon)
-    if radiance is None:
-        # grid unreadable or read error; try Falchi anyway
-        log.debug("VIIRS unavailable, falling back to Falchi")
-    elif radiance > 0:
+    # Fetch both rasters in parallel: on a cold container this overlaps the two
+    # S3 pixel GETs (and the two grid-open JSON GETs if not yet cached in-process).
+    # On a warm container the in-process grid cache is already hot so the only cost
+    # is two concurrent 4-byte ranged GETs vs one serial pair.
+    with ThreadPoolExecutor(max_workers=2) as _pool:
+        _viirs_f  = _pool.submit(_viirs_radiance,  lat, lon)
+        _falchi_f = _pool.submit(_falchi_luminance, lat, lon)
+        radiance  = _viirs_f.result()
+        luminance = _falchi_f.result()
+
+    if radiance is not None and radiance > 0:
+        # VIIRS has a measurable signal — Falchi result already available but not needed.
         sqm = radiance_to_sqm(radiance)
         bortle_cls, bortle_d = sqm_to_bortle(sqm)
         log.debug("Using VIIRS 2025: radiance=%.3f  SQM=%.1f  Bortle=%d",
@@ -440,11 +469,12 @@ def lookup(lat: float, lon: float) -> dict | None:
         }
         _bortle_mem_cache[_cache_key] = result
         return result
+
+    if radiance is None:
+        log.debug("VIIRS unavailable, falling back to Falchi")
     else:
         log.debug("VIIRS below detection floor, falling back to Falchi")
 
-    # --- Fallback: Falchi 2016 ---
-    luminance = _falchi_luminance(lat, lon)
     if luminance is None:
         return None   # both sources failed — don't cache (may be a transient error)
 

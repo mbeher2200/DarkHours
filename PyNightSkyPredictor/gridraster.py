@@ -200,15 +200,20 @@ def open_local(prefix: str | Path) -> GridArray:
     return GridArray(meta, read_elems)
 
 
-def open_s3(bucket: str, key_prefix: str, client=None) -> GridArray:
+def open_s3(bucket: str, key_prefix: str, client=None,
+            meta: dict | None = None) -> GridArray:
     """Open a grid stored on S3 as ``{key_prefix}.json`` / ``{key_prefix}.bin``.
-    Reads the tiny JSON once; the .bin is range-read on demand (never downloaded)."""
+    Reads the tiny JSON once; the .bin is range-read on demand (never downloaded).
+
+    Pass ``meta`` to skip the JSON GET entirely (use hardcoded grid parameters).
+    """
     import boto3
 
     client = client or boto3.client("s3")
-    meta = json.loads(
-        client.get_object(Bucket=bucket, Key=f"{key_prefix}.json")["Body"].read()
-    )
+    if meta is None:
+        meta = json.loads(
+            client.get_object(Bucket=bucket, Key=f"{key_prefix}.json")["Body"].read()
+        )
     dtype = np.dtype(meta["dtype"])
     bin_key = f"{key_prefix}.bin"
 
