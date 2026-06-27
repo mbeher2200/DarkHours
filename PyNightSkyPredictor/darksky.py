@@ -496,10 +496,9 @@ _NOMINATIM_URL   = "https://nominatim.openstreetmap.org/reverse"
 _OVER_WATER      = "__water__"   # sentinel: Nominatim found no state/county — ocean or large water body
 _GEO_CACHE_TTL   = 90 * 24 * 3600   # 90 days
 _DRIVE_NO_ROUTE  = -1            # sentinel: route matrix returned no duration for this leg
-# Drive-time legs use DepartNow (live-traffic) ETAs, so they're cached only briefly —
-# a 90-day cache would freeze a rush-hour snapshot. Short enough to keep traffic fresh,
-# long enough that a user's repeat searches within a planning session still hit cache.
-_DRIVE_CACHE_TTL = 3600          # 1 hour
+# Drive times use historical traffic (no DepartNow): cached results must be
+# time-consistent regardless of when they were computed.
+_DRIVE_CACHE_TTL = 86_400        # 24 hours
 
 # PAD-US H3 spatial index — module-level lazy-load cache
 _PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
@@ -616,12 +615,11 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     AWS-backend only. Mutates in-place. Silently sets None on any API failure so the
     caller always has the field, just without a value.
 
-    Per-leg cached (origin→destination, rounded, short TTL): repeat searches within a
-    planning session skip the route-matrix call; only the cache-missing legs are sent to
-    AWS. The cache is short (_DRIVE_CACHE_TTL) because the ETAs are DepartNow/live-traffic.
+    Per-leg cached (origin→destination, rounded): repeat searches within 24 h skip
+    the route-matrix call; only the cache-missing legs are sent to AWS.
 
     Uses Amazon Location GeoRoutes CalculateRouteMatrix (the modern, resource-less API)
-    with DepartNow=True for traffic-aware ETAs.
+    with historical traffic (no DepartNow) for cache-consistent ETAs.
 
     Annotates drive_minutes (int | None) and drive_miles (road distance, int | None).
 
@@ -662,7 +660,6 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             Destinations=[{"Position": [c["lon"], c["lat"]]} for c in misses],
             RoutingBoundary={"Unbounded": True},
             TravelMode="Car",
-            DepartNow=True,                 # traffic-aware ETAs
         )
         row = resp.get("RouteMatrix", [[]])[0]
         for i, c in enumerate(misses):
@@ -750,6 +747,21 @@ def _load_raster_window(
         return None
 
 
+def _resample_to_shape(arr: "np.ndarray", target_shape: "tuple[int, int]") -> "np.ndarray":
+    """Nearest-neighbour upscale *arr* to *target_shape* using integer strides.
+
+    Equivalent to passing out_shape to read_window() but applied post-read so both
+    rasters can be fetched in parallel before alignment.  Falchi is always coarser
+    than VIIRS, so we only need to handle the upscaling direction.
+    """
+    import numpy as np
+    src_rows, src_cols = arr.shape
+    tgt_rows, tgt_cols = target_shape
+    row_idx = np.round(np.linspace(0, src_rows - 1, tgt_rows)).astype(np.intp)
+    col_idx = np.round(np.linspace(0, src_cols - 1, tgt_cols)).astype(np.intp)
+    return arr[np.ix_(row_idx, col_idx)]
+
+
 def _connected_components_8(mask: "np.ndarray") -> "tuple[np.ndarray, int]":
     """Label 8-connected components of a 2-D boolean ``mask``.
 
@@ -818,6 +830,10 @@ def _find_light_domes_from_array(
     max_lon: float,
     tier_min_bortle: int = 8,
     min_blob_pixels: int = 4,
+    lat_grid: "np.ndarray | None" = None,
+    lon_grid: "np.ndarray | None" = None,
+    land_mask: "np.ndarray | None" = None,
+    viirs_sqm_arr: "np.ndarray | None" = None,
 ) -> list:
     """
     Pure numpy function — no I/O, no scipy, testable with synthetic arrays.
@@ -852,19 +868,32 @@ def _find_light_domes_from_array(
     # ── Coordinate grids ──────────────────────────────────────────────────────
     # indexing="ij" ensures lat_grid[r, c] and lon_grid[r, c] correspond to the
     # same pixel (r, c) in viirs_array.  Default "xy" would transpose lat/lon.
-    lat_vals = np.linspace(max_lat, min_lat, rows)   # row 0 = north = max_lat
-    lon_vals = np.linspace(min_lon, max_lon, cols)   # col 0 = west  = min_lon
-    lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
-
-    # ── Ocean mask ────────────────────────────────────────────────────────────
-    arr = viirs_array.copy()
-    if _HAS_GLM:
-        arr = np.where(_glm.is_land(lat_grid, lon_grid), arr, np.nan)
+    if lat_grid is None:
+        lat_vals = np.linspace(max_lat, min_lat, rows)   # row 0 = north = max_lat
+        lon_vals = np.linspace(min_lon, max_lon, cols)   # col 0 = west  = min_lon
+        lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
 
     # ── SQM + Bortle arrays ───────────────────────────────────────────────────
     # Do not round — rounding before thresholding causes systematic Bortle
     # misclassification near SQM boundaries.
-    sqm_arr = np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
+    #
+    # If the caller pre-computed viirs_sqm_arr (no ocean mask yet), apply the
+    # ocean mask to the SQM array directly — equivalent to masking radiance
+    # first and then computing SQM (NaN stays NaN through the log10 formula).
+    # Otherwise fall back to the original radiance-copy path.
+    if viirs_sqm_arr is not None:
+        if land_mask is not None:
+            sqm_arr = np.where(land_mask, viirs_sqm_arr, np.nan)
+        else:
+            sqm_arr = viirs_sqm_arr
+    else:
+        arr = viirs_array.copy()
+        if _HAS_GLM:
+            if land_mask is not None:
+                arr = np.where(land_mask, arr, np.nan)
+            else:
+                arr = np.where(_glm.is_land(lat_grid, lon_grid), arr, np.nan)
+        sqm_arr = np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
     bortle_arr = _sqm_to_bortle_array(sqm_arr)
 
     # ── Tier mask ─────────────────────────────────────────────────────────────
@@ -937,6 +966,10 @@ def _extract_dark_sky_candidates(
     radius_miles: float,
     dark_threshold: int,
     poi_index: "_PoiIndex | None" = None,
+    lat_grid: "np.ndarray | None" = None,
+    lon_grid: "np.ndarray | None" = None,
+    land_mask: "np.ndarray | None" = None,
+    viirs_sqm_arr: "np.ndarray | None" = None,
 ) -> list:
     """
     Pure numpy function — no I/O (the caller loads poi_index), no scipy dependency.
@@ -965,22 +998,26 @@ def _extract_dark_sky_candidates(
         return []
 
     # ── Coordinate grids ──────────────────────────────────────────────────────
-    lat_vals = np.linspace(max_lat, min_lat, rows)
-    lon_vals = np.linspace(min_lon, max_lon, cols)
-    lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
+    if lat_grid is None:
+        lat_vals = np.linspace(max_lat, min_lat, rows)
+        lon_vals = np.linspace(min_lon, max_lon, cols)
+        lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
 
     # ── Land mask (compute once, reused in dark_mask below) ───────────────────
-    land_mask = None
-    if _HAS_GLM:
+    if land_mask is None and _HAS_GLM:
         land_mask = _glm.is_land(lat_grid, lon_grid)
 
     # ── Composite Bortle array ────────────────────────────────────────────────
-    # VIIRS primary: any pixel with measurable radiance
-    sqm_viirs = np.where(
-        viirs_array > 0,
-        21.7 - 2.5 * np.log10(viirs_array + 0.6),
-        np.nan,
-    )
+    # VIIRS primary: any pixel with measurable radiance.
+    # Reuse pre-computed SQM when the caller provides it (saves one log10 pass).
+    if viirs_sqm_arr is not None:
+        sqm_viirs = viirs_sqm_arr
+    else:
+        sqm_viirs = np.where(
+            viirs_array > 0,
+            21.7 - 2.5 * np.log10(viirs_array + 0.6),
+            np.nan,
+        )
     bortle_arr = _sqm_to_bortle_array(sqm_viirs)
 
     # Falchi fills VIIRS-zero pixels (dark sites below VIIRS detection floor)
@@ -1968,9 +2005,28 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     """
     prof = _Profiler(_PROFILE)
     _funnel: dict = {}   # candidate counts per stage (logged at end when profiling)
+
+    # ── Window bounds depend only on lat/lon/radius — not on origin_bortle ────
+    # Submit both S3 reads immediately so they run concurrently with origin_lookup
+    # (a DynamoDB call that otherwise blocked their start).  Tiles are already
+    # parallelized inside each _load_raster_window call; this removes the
+    # origin_lookup RTT from the raster critical path entirely.
+    dome_search_radius = max(radius_miles, 150)
+    _deg_lat = dome_search_radius / 69.0
+    _deg_lon = dome_search_radius / max(69.0 * math.cos(math.radians(lat)), 0.01)
+    _min_lat, _max_lat = lat - _deg_lat, lat + _deg_lat
+    _min_lon, _max_lon = lon - _deg_lon, lon + _deg_lon
+
+    _raster_ex = ThreadPoolExecutor(max_workers=2)
+    _viirs_fut  = _raster_ex.submit(
+        _load_raster_window, "viirs",  _min_lat, _max_lat, _min_lon, _max_lon)
+    _falchi_fut = _raster_ex.submit(
+        _load_raster_window, "falchi", _min_lat, _max_lat, _min_lon, _max_lon)
+
     with prof.phase("origin lookup"):
         origin_info = lookup(lat, lon)
     if origin_info is None:
+        _raster_ex.shutdown(wait=False)   # abandon in-flight reads on early exit
         return None
 
     origin_bortle = origin_info.get("bortle_class") or 5
@@ -1978,29 +2034,45 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
 
     dark_threshold = _dark_threshold(origin_bortle)
 
-    # Force the bounding box out to 150 miles to catch distant megacities regardless
-    # of the user's requested driving radius.  Both dark-sky and dome detection read
-    # from the same two window reads — exactly one per raster dataset.
-    dome_search_radius = max(radius_miles, 150)
-    _deg_lat = dome_search_radius / 69.0
-    _deg_lon = dome_search_radius / max(69.0 * math.cos(math.radians(lat)), 0.01)
-    _min_lat, _max_lat = lat - _deg_lat, lat + _deg_lat
-    _min_lon, _max_lon = lon - _deg_lon, lon + _deg_lon
-
-    # ── Single window read per raster dataset ─────────────────────────────────
-    with prof.phase("viirs window read"):
-        viirs_arr  = _load_raster_window("viirs",  _min_lat, _max_lat, _min_lon, _max_lon)
-    with prof.phase("falchi window read"):
-        falchi_arr = _load_raster_window(
-            "falchi", _min_lat, _max_lat, _min_lon, _max_lon,
-            out_shape=viirs_arr.shape if viirs_arr is not None else None,
-        )
+    # ── Collect raster futures ────────────────────────────────────────────────
+    # Falchi is naturally coarser than VIIRS so we align shapes after both reads.
+    # The profiled time here is max(0, raster_time − origin_lookup_time) — any
+    # overlap with origin_lookup is no longer on the critical path.
+    with prof.phase("raster window reads"):
+        _raster_ex.shutdown(wait=True)
+        viirs_arr  = _viirs_fut.result()
+        falchi_arr = _falchi_fut.result()
+        if viirs_arr is not None and falchi_arr is not None \
+                and falchi_arr.shape != viirs_arr.shape:
+            falchi_arr = _resample_to_shape(falchi_arr, viirs_arr.shape)
 
     # Routable OSM POI index (US searches only; prewarmed on the worker). When a POI
     # falls on a dark pixel the extractor returns POIs (reachable, pre-named) instead of
     # raw wilderness pixels — see _extract_dark_sky_candidates / _extract_poi_candidates.
     with prof.phase("poi index load"):
         _poi_index = _load_poi_h3_index() if _is_in_us(lat, lon) else None
+
+    # ── Shared array pre-computation ──────────────────────────────────────────
+    # Meshgrid, land mask, and VIIRS→SQM are each needed by both
+    # _extract_dark_sky_candidates and _find_light_domes_from_array.  Computing
+    # them once here and passing them in eliminates one meshgrid, one
+    # _glm.is_land(), and one np.log10() call across the two phases.
+    import numpy as _np
+    _lat_grid = _lon_grid = _land_mask = _viirs_sqm_arr = None
+    if viirs_arr is not None and viirs_arr.size > 0:
+        _rows, _cols = viirs_arr.shape
+        _lat_grid, _lon_grid = _np.meshgrid(
+            _np.linspace(_max_lat, _min_lat, _rows),
+            _np.linspace(_min_lon, _max_lon, _cols),
+            indexing="ij",
+        )
+        if _HAS_GLM:
+            _land_mask = _glm.is_land(_lat_grid, _lon_grid)
+        _viirs_sqm_arr = _np.where(
+            viirs_arr > 0,
+            21.7 - 2.5 * _np.log10(viirs_arr + 0.6),
+            _np.nan,
+        )
 
     # ── Dark-sky candidates (pure numpy, no scipy required) ───────────────────
     with prof.phase("extract dark candidates"):
@@ -2009,6 +2081,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             _min_lat, _max_lat, _min_lon, _max_lon,
             lat, lon, radius_miles, dark_threshold,
             poi_index=_poi_index,
+            lat_grid=_lat_grid, lon_grid=_lon_grid,
+            land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr,
         )
     _funnel["extract_raw"] = len(dark_candidates)
     _funnel["poi_first"] = bool(dark_candidates) and bool(dark_candidates[0].get("is_poi"))
@@ -2066,6 +2140,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             raw_domes = _find_light_domes_from_array(
                 viirs_arr, _min_lat, _max_lat, _min_lon, _max_lon,
                 tier_min_bortle=8,
+                lat_grid=_lat_grid, lon_grid=_lon_grid,
+                land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr,
             )
             _funnel["domes_raw"] = len(raw_domes)
             for dlat, dlon, dbortle in raw_domes:
@@ -2103,6 +2179,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                 viirs_arr, falchi_arr,
                 _min_lat, _max_lat, _min_lon, _max_lon,
                 lat, lon, radius_miles, dark_threshold=origin_bortle - 1,
+                lat_grid=_lat_grid, lon_grid=_lon_grid,
+                land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr,
             )
         if all_darker:
             best_candidate = sorted(

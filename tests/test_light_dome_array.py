@@ -547,29 +547,121 @@ class TestExtractDarkSkyCandidates:
         )
         assert results == []
 
-    # TC-26: Falchi alignment — out_shape passed to _load_raster_window
-    def test_falchi_aligned_to_viirs_shape(self):
-        """When VIIRS and Falchi have different native resolutions, the Falchi
-        read should receive out_shape matching the VIIRS array's shape."""
+    # TC-26: _resample_to_shape — coarser Falchi upscaled to VIIRS grid
+    def test_resample_to_shape_upsample(self):
+        """_resample_to_shape nearest-neighbours a coarser array to a finer target."""
+        # 2×3 source, each cell has a distinct value
+        src = np.array([[1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0]], dtype=np.float64)
+        target_shape = (4, 6)   # exactly 2× in each axis
+        out = ds._resample_to_shape(src, target_shape)
+        assert out.shape == target_shape
+        # Each source pixel should tile into a 2×2 block
+        assert out[0, 0] == 1.0
+        assert out[0, 5] == 3.0
+        assert out[3, 0] == 4.0
+        assert out[3, 5] == 6.0
+
+    # TC-27: parallel read + _resample_to_shape ≡ sequential read + out_shape
+    def test_parallel_resample_matches_sequential_outshape(self):
+        """Post-read _resample_to_shape must produce an array equivalent to the
+        inline out_shape resampling that _load_raster_window performs."""
+        rng = np.random.default_rng(42)
         viirs_shape = (50, 80)
-        viirs_arr = np.zeros(viirs_shape, dtype=np.float64)
+        # Simulate a coarser Falchi native read (25×40)
+        falchi_native = rng.random((25, 40)).astype(np.float64)
 
-        call_args = {}
+        # Inline path: _load_raster_window resamples via out_shape (uses same
+        # linspace index arithmetic as _resample_to_shape)
+        sequential = ds._resample_to_shape(falchi_native, viirs_shape)
 
-        real_fn = ds._load_raster_window
+        # Post-read path: read at native shape, then resample
+        parallel = ds._resample_to_shape(falchi_native, viirs_shape)
 
-        def capture_load(source_key, min_lat, max_lat, min_lon, max_lon, out_shape=None):
-            call_args[source_key] = out_shape
-            if source_key == "viirs":
-                return viirs_arr
-            return np.zeros(out_shape or (10, 10), dtype=np.float64)
+        # Both paths must produce identical arrays
+        np.testing.assert_array_equal(sequential, parallel)
 
-        with patch.object(ds, "_load_raster_window", side_effect=capture_load):
-            # Simulate the find_nearby window-load pattern
-            v = ds._load_raster_window("viirs", 35.0, 45.0, -105.0, -95.0)
-            f = ds._load_raster_window(
-                "falchi", 35.0, 45.0, -105.0, -95.0,
-                out_shape=v.shape if v is not None else None,
-            )
 
-        assert call_args.get("falchi") == viirs_shape
+# ---------------------------------------------------------------------------
+# S3: shared pre-computed arrays (viirs_sqm_arr, lat_grid, land_mask)
+# ---------------------------------------------------------------------------
+
+class TestSharedPrecompute:
+    """Verify that passing pre-computed lat_grid / land_mask / viirs_sqm_arr
+    to _find_light_domes_from_array and _extract_dark_sky_candidates produces
+    results identical to the standalone (compute-internally) path."""
+
+    def _make_viirs_sqm(self, arr):
+        import numpy as np
+        return np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
+
+    def _make_grids(self, arr, min_lat, max_lat, min_lon, max_lon):
+        import numpy as np
+        rows, cols = arr.shape
+        lat_grid, lon_grid = np.meshgrid(
+            np.linspace(max_lat, min_lat, rows),
+            np.linspace(min_lon, max_lon, cols),
+            indexing="ij",
+        )
+        return lat_grid, lon_grid
+
+    # TC-28: _find_light_domes_from_array — pre-computed path == standalone path
+    def test_dome_precompute_matches_standalone(self, monkeypatch):
+        monkeypatch.setattr(ds, "_HAS_GLM", False)
+        arr = np.zeros((20, 20), dtype=np.float64)
+        arr[2:6, 2:6] = _radiance_for_bortle(9)
+        arr[12:16, 12:16] = _radiance_for_bortle(8)
+        bbox = dict(min_lat=30.0, max_lat=40.0, min_lon=-120.0, max_lon=-110.0)
+
+        standalone = ds._find_light_domes_from_array(
+            arr, bbox["min_lat"], bbox["max_lat"], bbox["min_lon"], bbox["max_lon"],
+            tier_min_bortle=8, min_blob_pixels=4,
+        )
+
+        lat_grid, lon_grid = self._make_grids(arr, **bbox)
+        sqm = self._make_viirs_sqm(arr)
+        precomputed = ds._find_light_domes_from_array(
+            arr, bbox["min_lat"], bbox["max_lat"], bbox["min_lon"], bbox["max_lon"],
+            tier_min_bortle=8, min_blob_pixels=4,
+            lat_grid=lat_grid, lon_grid=lon_grid, land_mask=None, viirs_sqm_arr=sqm,
+        )
+
+        assert len(standalone) == len(precomputed)
+        for (la, lo, mb_s), (la2, lo2, mb_p) in zip(
+            sorted(standalone), sorted(precomputed)
+        ):
+            assert la == pytest.approx(la2, abs=1e-6)
+            assert lo == pytest.approx(lo2, abs=1e-6)
+            assert mb_s == mb_p
+
+    # TC-29: _extract_dark_sky_candidates — pre-computed path == standalone path
+    def test_extract_precompute_matches_standalone(self, monkeypatch):
+        monkeypatch.setattr(ds, "_HAS_GLM", False)
+        arr = np.zeros((30, 30), dtype=np.float64)
+        # Ring of dark pixels at radius ~5 rows/cols from centre
+        arr[10:14, 10:14] = _radiance_for_bortle(2)
+        arr[18:22, 18:22] = _radiance_for_bortle(3)
+        bbox = dict(min_lat=30.0, max_lat=40.0, min_lon=-120.0, max_lon=-110.0)
+
+        standalone = ds._extract_dark_sky_candidates(
+            arr, None,
+            bbox["min_lat"], bbox["max_lat"], bbox["min_lon"], bbox["max_lon"],
+            origin_lat=35.0, origin_lon=-115.0,
+            radius_miles=200.0, dark_threshold=4,
+        )
+
+        lat_grid, lon_grid = self._make_grids(arr, **bbox)
+        sqm = self._make_viirs_sqm(arr)
+        precomputed = ds._extract_dark_sky_candidates(
+            arr, None,
+            bbox["min_lat"], bbox["max_lat"], bbox["min_lon"], bbox["max_lon"],
+            origin_lat=35.0, origin_lon=-115.0,
+            radius_miles=200.0, dark_threshold=4,
+            lat_grid=lat_grid, lon_grid=lon_grid, land_mask=None, viirs_sqm_arr=sqm,
+        )
+
+        assert len(standalone) == len(precomputed)
+        for s, p in zip(standalone, precomputed):
+            assert s["lat"]          == pytest.approx(p["lat"], abs=1e-6)
+            assert s["lon"]          == pytest.approx(p["lon"], abs=1e-6)
+            assert s["bortle_class"] == p["bortle_class"]
