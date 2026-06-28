@@ -12,6 +12,8 @@ from apps.logging_config import configure as _configure_logging
 _configure_logging()
 
 import calendar as _cal
+import concurrent.futures as _futures
+import functools
 import logging
 import os
 import shutil
@@ -276,7 +278,24 @@ def night(
         )
     except ValueError as e:
         raise HTTPException(400, str(e))          # e.g. polar day/night: no sunset
-    return night_report_to_dict(report)
+    d = night_report_to_dict(report)
+    # Strip sections that were not requested — reduces payload 60–95%.
+    if not satellites:
+        d.pop("sat_passes", None)
+        d.pop("starlink_trains", None)
+    if not targets:
+        d.pop("visible_targets", None)
+        d.pop("mw_summary", None)
+    if not weather:
+        d.pop("weather_points", None)
+    return d
+
+
+@functools.lru_cache(maxsize=512)
+def _suggest_cached(q: str) -> list:
+    """In-process LRU cache for typeahead suggestions.  Avoids repeated Nominatim
+    round-trips for the same prefix within the same Lambda container lifetime."""
+    return _loc.suggest(q)
 
 
 @app.get("/suggest")
@@ -288,7 +307,7 @@ def suggest(q: str = Query(..., min_length=1, max_length=_MAX_NAME_LEN)):
     valid response when nothing matches.
     """
     try:
-        return {"suggestions": _loc.suggest(q)}
+        return {"suggestions": _suggest_cached(q)}
     except RuntimeError as e:
         raise HTTPException(502, str(e))   # geocoder unreachable
 
@@ -335,17 +354,31 @@ def trip(
         raise HTTPException(
             400, f"Date range too large: {(e - s).days} days (max {_MAX_TRIP_DAYS}). "
                  f"Narrow the range.")
-    locs = []
     for name in locations:
         if len(name) > _MAX_NAME_LEN:
             raise HTTPException(400, f"Location name too long (max {_MAX_NAME_LEN}).")
+
+    def _geocode_one(name: str):
         try:
-            la, lo, disp, tz_name = _loc.resolve(name)     # sync: validates + geocodes
+            la, lo, disp, tz_name = _loc.resolve(name)
+            return {"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name}
         except ValueError as ex:
-            raise HTTPException(404, f"{name!r}: {ex}")
+            raise ValueError(f"{name!r}: {ex}")
         except RuntimeError as ex:
-            raise HTTPException(502, f"{name!r}: {ex}")
-        locs.append({"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name})
+            raise RuntimeError(f"{name!r}: {ex}")
+
+    # Geocode all locations in parallel while preserving original order.
+    max_workers = min(len(locations), 10)
+    with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        ordered_futs = [pool.submit(_geocode_one, name) for name in locations]
+    locs = []
+    for fut in ordered_futs:
+        try:
+            locs.append(fut.result())
+        except ValueError as ex:
+            raise HTTPException(404, str(ex))
+        except RuntimeError as ex:
+            raise HTTPException(502, str(ex))
     job_id = jobs.submit({"locs": locs, "start": s.isoformat(),
                           "end": e.isoformat(), "weather": weather})
     return _accepted(job_id)
