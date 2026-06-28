@@ -65,10 +65,6 @@ class GridArray:
         self.x_res = float(meta["x_res"])
         self.y_res = float(meta["y_res"])
         self._tile_elems = self.tile * self.tile
-        # In-process tile cache: keyed by (ty, tx). S3 charges the same RTT for
-        # 4 bytes as for a full 512×512 tile (~1 MB), so we fetch the whole tile
-        # on first access and serve all subsequent pixel reads from memory.
-        self._tile_cache: dict[tuple[int, int], np.ndarray] = {}
 
     # ── coordinate ↔ pixel ────────────────────────────────────────────────────
     def _colrow(self, lat: float, lon: float) -> tuple[int, int]:
@@ -80,21 +76,10 @@ class GridArray:
 
     # ── tile fetch ────────────────────────────────────────────────────────────
     def _read_tile(self, ty: int, tx: int) -> np.ndarray:
-        """Return one tile as a (tile, tile) float32 array.
-
-        First call fetches the full tile from S3 (one ranged GET, ~1 MB) and stores
-        it in _tile_cache. Subsequent calls for the same tile return from memory.
-        Two threads racing on the same cold tile each fetch and store — the second
-        write is harmless (identical data, dict assignment is GIL-atomic)."""
-        key = (ty, tx)
-        cached = self._tile_cache.get(key)
-        if cached is not None:
-            return cached
+        """Return one tile as a (tile, tile) float32 array — one ranged GET on S3."""
         tile_id = ty * self.tiles_x + tx
         flat = self._read_elems(tile_id * self._tile_elems, self._tile_elems)
-        tile = flat.reshape(self.tile, self.tile).astype(np.float32)
-        self._tile_cache[key] = tile
-        return tile
+        return flat.reshape(self.tile, self.tile).astype(np.float32)
 
     def _read_block(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
         """Read the in-bounds raster sub-array [r0:r1, c0:c1] (all within the grid).
@@ -135,7 +120,9 @@ class GridArray:
                 return 0.0                                         # rasterio: outside → nodata → 0
             tx, ty = col // self.tile, row // self.tile
             rit, cit = row - ty * self.tile, col - tx * self.tile
-            value = float(self._read_tile(ty, tx)[rit, cit])
+            tile_id = ty * self.tiles_x + tx
+            elem_off = tile_id * self._tile_elems + rit * self.tile + cit
+            value = float(self._read_elems(elem_off, 1)[0])
             if self.nodata is not None and abs(value - self.nodata) < 1.0:
                 return 0.0
             return max(value, 0.0)

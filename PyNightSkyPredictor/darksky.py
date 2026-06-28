@@ -443,10 +443,16 @@ def lookup(lat: float, lon: float) -> dict | None:
     if _cache_key in _bortle_mem_cache:
         return _bortle_mem_cache[_cache_key]
 
-    # Fetch both rasters in parallel: on a cold container this overlaps the two
-    # S3 pixel GETs (and the two grid-open JSON GETs if not yet cached in-process).
-    # On a warm container the in-process grid cache is already hot so the only cost
-    # is two concurrent 4-byte ranged GETs vs one serial pair.
+    # DynamoDB cache: light pollution is static, so no TTL.
+    # Warm containers hit _bortle_mem_cache above; this layer covers cold containers
+    # that haven't seen this location yet, eliminating the S3 reads entirely.
+    _db_key = f"bortle|{_cache_key[0]:.2f}|{_cache_key[1]:.2f}"
+    _db_result = cache.get(_db_key)
+    if _db_result is not None:
+        _bortle_mem_cache[_cache_key] = _db_result
+        return _db_result
+
+    # S3 fetch (parallel VIIRS + Falchi).
     with ThreadPoolExecutor(max_workers=2) as _pool:
         _viirs_f  = _pool.submit(_viirs_radiance,  lat, lon)
         _falchi_f = _pool.submit(_falchi_luminance, lat, lon)
@@ -468,6 +474,10 @@ def lookup(lat: float, lon: float) -> dict | None:
             "source":         "VIIRS 2025",
         }
         _bortle_mem_cache[_cache_key] = result
+        try:
+            cache.set(_db_key, result)
+        except Exception as _e:
+            log.debug("bortle cache write failed: %s", _e)
         return result
 
     if radiance is None:
@@ -494,6 +504,10 @@ def lookup(lat: float, lon: float) -> dict | None:
         "source":         "Falchi 2016",
     }
     _bortle_mem_cache[_cache_key] = result
+    try:
+        cache.set(_db_key, result)
+    except Exception as _e:
+        log.debug("bortle cache write failed: %s", _e)
     return result
 
 
