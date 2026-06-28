@@ -332,13 +332,34 @@ class SevenTimerProvider(WeatherProvider):
 # 7Timer seeing blend
 # ---------------------------------------------------------------------------
 
+import bisect
+from dataclasses import replace as _dc_replace
+
 def _merge_7timer(points: list, seven: list) -> list:
     """Merge pre-fetched 7Timer ASTRO seeing/transparency into WeatherPoints."""
     if not seven:
         return points
+
+    # Pre-extract epochs once for O(log M) bisection
+    seven_epochs = [s.time.timestamp() for s in seven]
+
     result = []
     for p in points:
-        nearest  = min(seven, key=lambda s: abs((s.time - p.time).total_seconds()))
+        p_epoch = p.time.timestamp()
+        idx = bisect.bisect_left(seven_epochs, p_epoch)
+
+        # Find closest neighbor between the left and right insertion bounds
+        if idx == 0:
+            nearest = seven[0]
+        elif idx >= len(seven):
+            nearest = seven[-1]
+        else:
+            before, after = seven[idx - 1], seven[idx]
+            if (p_epoch - seven_epochs[idx - 1]) <= (seven_epochs[idx] - p_epoch):
+                nearest = before
+            else:
+                nearest = after
+
         gap_secs = abs((nearest.time - p.time).total_seconds())
         if gap_secs <= 5400:   # within 90 minutes
             p = _dc_replace(p,
