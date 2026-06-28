@@ -3,7 +3,8 @@ name: deploy (Lambda + CloudFront)
 # Keyless deploy via GitHub OIDC (no stored AWS keys). Fires only on push to main.
 # Flow: test gate -> assume OIDC deploy role -> build SPA -> cdk deploy PyNightSkyLambda.
 # Both the API and worker are zip Lambdas: CDK asset bundling pip-installs their deps
-# on linux/amd64 during `cdk deploy` — no Docker build or ECR push needed in CI.
+# on linux/arm64 during `cdk deploy` — no Docker build or ECR push needed in CI.
+# QEMU is required so the x86 runner can execute the arm64 bundling container.
 
 on:
   push:
@@ -46,6 +47,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       # --- deploy the stack (CDK asset bundling builds both zip Lambdas inline) ---
+      # QEMU lets the x86 runner execute the linux/arm64 bundling container.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
