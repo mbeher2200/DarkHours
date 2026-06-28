@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
 import {
   formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
@@ -152,18 +152,32 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
   // left open. Only injected when the current moment is inside the night window.
   const [nowTs, setNowTs] = useState(Date.now)
   useEffect(() => {
-    const id = setInterval(() => setNowTs(Date.now()), 30_000)
+    const id = setInterval(() => {
+      // Skip update when the tab is hidden — avoids re-sorting hidden content.
+      if (document.visibilityState === 'visible') setNowTs(Date.now())
+    }, 30_000)
     return () => clearInterval(id)
   }, [])
   const isLive = sunsetTs !== -Infinity && sunriseTs !== Infinity
                && nowTs > sunsetTs && nowTs < sunriseTs
 
   type Row = { kind: 'event'; ev: SkyEvent; ts: number } | { kind: 'wx'; pt: WeatherPoint; ts: number } | { kind: 'now'; ts: number }
-  const rows: Row[] = [
+
+  // Memoize the static sorted rows (events + weather points). These only change when
+  // the underlying data changes, not every 30s when the "now" marker ticks.
+  const baseRows = useMemo<Row[]>(() => [
     ...visibleEvents.map(ev => ({ kind: 'event' as const, ev, ts: new Date(ev.time).getTime() })),
     ...visiblePoints.map(pt => ({ kind: 'wx'    as const, pt, ts: new Date(pt.time).getTime() })),
-    ...(isLive ? [{ kind: 'now' as const, ts: nowTs }] : []),
-  ].sort((a, b) => a.ts - b.ts)
+  ].sort((a, b) => a.ts - b.ts), [visibleEvents, visiblePoints])
+
+  // Insert the live "now" row at the correct sorted position on each tick.
+  const rows = useMemo<Row[]>(() => {
+    if (!isLive) return baseRows
+    const nowRow: Row = { kind: 'now', ts: nowTs }
+    const insertAt = baseRows.findIndex(r => r.ts > nowTs)
+    if (insertAt === -1) return [...baseRows, nowRow]
+    return [...baseRows.slice(0, insertAt), nowRow, ...baseRows.slice(insertAt)]
+  }, [baseRows, isLive, nowTs])
 
   const ip = { size: 12, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
   function evIcon(label: string) {
@@ -927,11 +941,25 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   type EqSample = { l: number; alt: number; az: number; }
   type ArchSegment = { x1: number; y1: number; x2: number; y2: number; glowOpacity: number; coreOpacity: number }
 
-  const allEquatorSamples: EqSample[] = Array.from({ length: 72 }, (_, i) => {
-    const l = i * 5;
-    const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
-    return { l, alt, az };
-  });
+  // Galactic-to-horizontal conversion depends only on location and peak time —
+  // memoised so it does NOT recompute on every heading/tilt drag frame.
+  const allEquatorSamples = useMemo<EqSample[]>(() =>
+    Array.from({ length: 72 }, (_, i) => {
+      const l = i * 5;
+      const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
+      return { l, alt, az };
+    }),
+    [report.lat, report.lon, peakTimeMs]
+  );
+
+  // Arch segment brightness only depends on sky position + light dome — memoised
+  // separately so it survives heading/tilt state changes.
+  const equatorBrightness = useMemo(() =>
+    allEquatorSamples.map(s =>
+      archSegmentBrightness(s.l, s.alt, s.az, report.light_dome ?? null)
+    ),
+    [allEquatorSamples, report.light_dome]
+  );
 
   // Gnomonic (rectilinear/perspective) projection — models a wide-angle camera
   // pointed at the horizon along `heading`. Great circles project to straight lines.
@@ -977,22 +1005,24 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
     'Monoceros': 210,
   };
 
-  const wpDots = waypoints
-    .map(wp => {
-      const l = WAYPOINT_L[wp.name];
+  // Waypoint alt/az is also stable wrt heading/tilt — memoised separately.
+  const wpDotsRaw = useMemo(() =>
+    waypoints
+      .map(wp => {
+        const l = WAYPOINT_L[wp.name];
+        if (l != null) {
+          const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
+          return { name: wp.name, alt, az };
+        }
+        const w = bestWindow(wp);
+        return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg ?? 0 };
+      })
+      .filter(p => p.alt > 0),
+    [waypoints, report.lat, report.lon, peakTimeMs]
+  );
 
-      // If we know the galactic longitude, calculate its exact position at the time of the arch
-      if (l != null) {
-        const { alt, az } = galToAltAz(l, 0, report.lat, report.lon, peakTimeMs);
-        return { name: wp.name, alt, az };
-      }
-
-      // Fallback just in case a new target is added to the backend later
-      const w = bestWindow(wp);
-      return { name: wp.name, alt: w.peak_alt_deg ?? -1, az: w.peak_az_deg ?? 0 };
-    })
-    .filter(p => p.alt > 0)
-    .map(p => ({ ...p, proj: project(p.alt, p.az) }));
+  // Project waypoints using current heading/tilt (view-dependent).
+  const wpDots = wpDotsRaw.map(p => ({ ...p, proj: project(p.alt, p.az) }));
 
   const doubled = [...allEquatorSamples, ...allEquatorSamples];
   let longestStreak: EqSample[] = [];
@@ -1006,13 +1036,14 @@ function MilkyWayDome({ summary, waypoints, report }: { summary: MilkyWaySummary
   }
   const visibleArc = longestStreak.slice(0, 73).map(s => ({ ...s, proj: project(s.alt, s.az) }))
 
-  // Build per-segment brightness for the variable-opacity arch rendering.
+  // Build per-segment brightness using the pre-computed equatorBrightness cache.
+  // l is always a multiple of 5 in [0,355], so index = (l/5) % 72.
   const visibleSegments: ArchSegment[] = []
   for (let i = 0; i < visibleArc.length - 1; i++) {
     const a = visibleArc[i], b = visibleArc[i + 1]
     if (!a.proj.isFront || !b.proj.isFront) continue
-    const bA = archSegmentBrightness(a.l, a.alt, a.az, report.light_dome ?? null)
-    const bB = archSegmentBrightness(b.l, b.alt, b.az, report.light_dome ?? null)
+    const bA = equatorBrightness[Math.round(a.l / 5) % 72]
+    const bB = equatorBrightness[Math.round(b.l / 5) % 72]
     visibleSegments.push({
       x1: a.proj.x, y1: a.proj.y,
       x2: b.proj.x, y2: b.proj.y,
@@ -1623,12 +1654,15 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
   const displayType = (t: VisibleTarget) => DSO_TYPES.has(t.type) ? 'dso' : t.type
 
   function sortAndGroup(list: VisibleTarget[], blocked = false): RowItem[] {
+    // Pre-compute bestWindow once per target so the sort comparator doesn't
+    // call it O(n log n) times — sort only reads from this map.
+    const bwMap = new Map(list.map(t => [t, bestWindow(t)]))
     const sorted = [...list].sort((a, b) => {
       const ao = TYPE_ORDER[displayType(a)] ?? 99
       const bo = TYPE_ORDER[displayType(b)] ?? 99
       if (ao !== bo) return ao - bo
-      const at = bestWindow(a).peak_time ?? ''
-      const bt = bestWindow(b).peak_time ?? ''
+      const at = bwMap.get(a)!.peak_time ?? ''
+      const bt = bwMap.get(b)!.peak_time ?? ''
       return at.localeCompare(bt)
     })
     const groups: { type: string; targets: VisibleTarget[] }[] = []
@@ -2098,6 +2132,7 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
     if (!panel) return
     // ResizeObserver on the panel itself (flex: 0 0 100% — outer size is CSS-controlled,
     // not affected by canvas content changes, so no feedback loop).
+    let rafId = 0
     const measure = () => {
       const body = panel.querySelector('.ld-body') as HTMLElement | null
       const isRow = !!body && getComputedStyle(body).flexDirection === 'row'
@@ -2107,9 +2142,15 @@ function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; impe
       const avail   = panel.clientWidth - captionW - gap
       setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
     }
-    const ro = new ResizeObserver(measure)
+    // Debounce ResizeObserver: skip intermediate firings during layout reflow,
+    // coalescing them into one rAF-deferred measurement per animation frame.
+    const onResize = () => {
+      cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(measure)
+    }
+    const ro = new ResizeObserver(onResize)
     ro.observe(panel)
-    return () => ro.disconnect()
+    return () => { ro.disconnect(); cancelAnimationFrame(rafId) }
   }, [])
 
   useEffect(() => {

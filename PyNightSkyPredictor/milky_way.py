@@ -199,11 +199,34 @@ def bt_interp_moon_alt(t: datetime, moon_alts: list) -> float:
     return a0 + (a1 - a0) * (t - t0).total_seconds() / span
 
 
-def bt_cloud_frac(t: datetime, weather_points: list) -> float:
-    """Nearest-neighbour cloud fraction (0–1) at time t from WeatherPoint list."""
+def bt_cloud_frac(
+    t: datetime,
+    weather_points: list,
+    wx_epochs: "list[float] | None" = None,
+) -> float:
+    """Nearest-neighbour cloud fraction (0–1) at time t from WeatherPoint list.
+
+    Pass ``wx_epochs`` (pre-built via ``[p.time.timestamp() for p in weather_points]``)
+    when calling from a tight loop to avoid rebuilding the epoch list on every call.
+    Without it, falls back to an O(n) linear scan.
+    """
+    import bisect
     if not weather_points:
         return 0.0
-    nearest = min(weather_points, key=lambda p: abs((p.time - t).total_seconds()))
+    t_epoch = t.timestamp()
+    if wx_epochs is not None:
+        keys = wx_epochs
+        idx  = bisect.bisect_left(keys, t_epoch)
+        if idx == 0:
+            nearest = weather_points[0]
+        elif idx >= len(weather_points):
+            nearest = weather_points[-1]
+        else:
+            before  = weather_points[idx - 1]
+            after   = weather_points[idx]
+            nearest = before if (t_epoch - keys[idx - 1]) <= (keys[idx] - t_epoch) else after
+    else:
+        nearest = min(weather_points, key=lambda p: abs((p.time - t).total_seconds()))
     if nearest.cloud_cover_pct is None:
         return 0.0
     return nearest.cloud_cover_pct / 100.0
