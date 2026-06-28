@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Night sky prediction engine — assembles a NightReport for a given location and date."""
 
+import bisect as _bisect
 import concurrent.futures as _futures
 import dataclasses
 import logging
@@ -166,6 +167,9 @@ def _bt_window_best(
     if max_alt <= 0:
         return eff_start
 
+    # Pre-build epoch list once so bt_cloud_frac can bisect instead of linear-scan.
+    wx_epochs = [p.time.timestamp() for p in weather_points] if weather_points else None
+
     best_t, best_score = eff_start, -1.0
     t = eff_start
     while t <= eff_end:
@@ -190,7 +194,7 @@ def _bt_window_best(
             glow = 0.0
         moon_s = math.exp(-_BT_K_MOON * glow)
 
-        cloud  = _bt_cloud_frac(t, weather_points) if weather_points else 0.0
+        cloud  = _bt_cloud_frac(t, weather_points, wx_epochs) if weather_points else 0.0
         wx_s   = max(0.0, 1.0 - cloud)
 
         score  = alt_s * moon_s * wx_s
@@ -352,10 +356,16 @@ def _apply_condition_vectors(
 
             # --- Weather score at best time ----------------------------------
             if window.best_time is not None and weather_points:
-                nearest = min(
-                    weather_points,
-                    key=lambda p: abs((p.time - window.best_time).total_seconds()),
-                )
+                _bt_epoch  = window.best_time.timestamp()
+                _wt_epochs = [p.time.timestamp() for p in weather_points]
+                _idx = _bisect.bisect_left(_wt_epochs, _bt_epoch)
+                if _idx == 0:
+                    nearest = weather_points[0]
+                elif _idx >= len(weather_points):
+                    nearest = weather_points[-1]
+                else:
+                    _b, _a = weather_points[_idx - 1], weather_points[_idx]
+                    nearest = _b if (_bt_epoch - _wt_epochs[_idx - 1]) <= (_wt_epochs[_idx] - _bt_epoch) else _a
                 if abs((nearest.time - window.best_time).total_seconds()) <= _WEATHER_GAP_SECS:
                     window.weather_score_at_best = wx.rate_conditions(nearest)
 

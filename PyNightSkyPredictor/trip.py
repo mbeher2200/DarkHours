@@ -10,6 +10,8 @@ NightSummary / TripReport dataclasses.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone as _utc
 
@@ -223,24 +225,32 @@ def plan_trip(
     Returns:
         TripReport with all nights and a ranked list sorted best → worst.
     """
-    n_days  = (date_end - date_start).days + 1
-    total   = n_days * len(locations)
-    done    = 0
-    nights  = []
+    n_days = (date_end - date_start).days + 1
+    total  = n_days * len(locations)
+    nights: list = []
+    _lock  = threading.Lock()
+    _done  = [0]
 
-    for loc in locations:
+    def _fetch_one(loc, d):
         tz = ZoneInfo(loc["tz_name"])
-        for i in range(n_days):
-            d = date_start + timedelta(days=i)
-            summary = fetch_night(
-                loc["lat"], loc["lon"], d, tz,
-                loc["display_name"], fetch_weather,
-            )
-            done += 1
-            if progress_fn:
-                progress_fn(done, total)
-            if summary is not None:
-                nights.append(summary)
+        return fetch_night(loc["lat"], loc["lon"], d, tz, loc["display_name"], fetch_weather)
+
+    tasks = [
+        (loc, date_start + timedelta(days=i))
+        for loc in locations
+        for i in range(n_days)
+    ]
+    max_workers = min(20, len(tasks))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futs = {pool.submit(_fetch_one, loc, d): (loc, d) for loc, d in tasks}
+        for fut in as_completed(futs):
+            summary = fut.result()
+            with _lock:
+                _done[0] += 1
+                if progress_fn:
+                    progress_fn(_done[0], total)
+                if summary is not None:
+                    nights.append(summary)
 
     ranked = sorted(
         [n for n in nights if n.score is not None],
