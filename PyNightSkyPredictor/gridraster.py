@@ -65,6 +65,10 @@ class GridArray:
         self.x_res = float(meta["x_res"])
         self.y_res = float(meta["y_res"])
         self._tile_elems = self.tile * self.tile
+        # In-process tile cache: keyed by (ty, tx). S3 charges the same RTT for
+        # 4 bytes as for a full 512×512 tile (~1 MB), so we fetch the whole tile
+        # on first access and serve all subsequent pixel reads from memory.
+        self._tile_cache: dict[tuple[int, int], np.ndarray] = {}
 
     # ── coordinate ↔ pixel ────────────────────────────────────────────────────
     def _colrow(self, lat: float, lon: float) -> tuple[int, int]:
@@ -76,10 +80,21 @@ class GridArray:
 
     # ── tile fetch ────────────────────────────────────────────────────────────
     def _read_tile(self, ty: int, tx: int) -> np.ndarray:
-        """Return one tile as a (tile, tile) float32 array — one ranged GET on S3."""
+        """Return one tile as a (tile, tile) float32 array.
+
+        First call fetches the full tile from S3 (one ranged GET, ~1 MB) and stores
+        it in _tile_cache. Subsequent calls for the same tile return from memory.
+        Two threads racing on the same cold tile each fetch and store — the second
+        write is harmless (identical data, dict assignment is GIL-atomic)."""
+        key = (ty, tx)
+        cached = self._tile_cache.get(key)
+        if cached is not None:
+            return cached
         tile_id = ty * self.tiles_x + tx
         flat = self._read_elems(tile_id * self._tile_elems, self._tile_elems)
-        return flat.reshape(self.tile, self.tile).astype(np.float32)
+        tile = flat.reshape(self.tile, self.tile).astype(np.float32)
+        self._tile_cache[key] = tile
+        return tile
 
     def _read_block(self, r0: int, r1: int, c0: int, c1: int) -> np.ndarray:
         """Read the in-bounds raster sub-array [r0:r1, c0:c1] (all within the grid).
@@ -120,9 +135,7 @@ class GridArray:
                 return 0.0                                         # rasterio: outside → nodata → 0
             tx, ty = col // self.tile, row // self.tile
             rit, cit = row - ty * self.tile, col - tx * self.tile
-            tile_id = ty * self.tiles_x + tx
-            elem_off = tile_id * self._tile_elems + rit * self.tile + cit
-            value = float(self._read_elems(elem_off, 1)[0])
+            value = float(self._read_tile(ty, tx)[rit, cit])
             if self.nodata is not None and abs(value - self.nodata) < 1.0:
                 return 0.0
             return max(value, 0.0)
@@ -200,15 +213,20 @@ def open_local(prefix: str | Path) -> GridArray:
     return GridArray(meta, read_elems)
 
 
-def open_s3(bucket: str, key_prefix: str, client=None) -> GridArray:
+def open_s3(bucket: str, key_prefix: str, client=None,
+            meta: dict | None = None) -> GridArray:
     """Open a grid stored on S3 as ``{key_prefix}.json`` / ``{key_prefix}.bin``.
-    Reads the tiny JSON once; the .bin is range-read on demand (never downloaded)."""
+    Reads the tiny JSON once; the .bin is range-read on demand (never downloaded).
+
+    Pass ``meta`` to skip the JSON GET entirely (use hardcoded grid parameters).
+    """
     import boto3
 
     client = client or boto3.client("s3")
-    meta = json.loads(
-        client.get_object(Bucket=bucket, Key=f"{key_prefix}.json")["Body"].read()
-    )
+    if meta is None:
+        meta = json.loads(
+            client.get_object(Bucket=bucket, Key=f"{key_prefix}.json")["Body"].read()
+        )
     dtype = np.dtype(meta["dtype"])
     bin_key = f"{key_prefix}.bin"
 
