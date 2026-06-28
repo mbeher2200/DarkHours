@@ -433,7 +433,7 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 const satGlow = report.light_dome
                   ? glowToward(report.light_dome, p.peak_az_deg, p.peak_alt_deg)
                   : null
-                const wxAtPeak = wxAtTime(report.weather_points, p.peak_time)
+                const wxAtPeak = wxAtTime(report.weather_points || [], p.peak_time)
                 const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
                 if (satCloudy) return (
                   <tr key={i} className="tg-row-blocked">
@@ -575,7 +575,7 @@ function WaypointsAccordion({ waypoints, summary, report }: {
               const showGlow = glow != null && glow >= 0.03
               const bestT = w.best_time ?? w.peak_time
               const wxPt = !report.wx_no_data && !report.wx_pending
-                ? wxAtTime(report.weather_points, bestT)
+                ? wxAtTime(report.weather_points || [], bestT)
                 : null
               const waypointCloudy = wxPt != null && wxPt.cloud_cover_pct != null && wxPt.cloud_cover_pct > 70
               if (waypointCloudy) return (
@@ -1711,7 +1711,7 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
 
     // Conditions: weather icon and glow inline in Target cell
     const wxPt = peakForSky && !report.wx_no_data && !report.wx_pending
-      ? wxAtTime(report.weather_points, peakForSky)
+      ? wxAtTime(report.weather_points || [], peakForSky)
       : null
     const glow = report.light_dome && w.peak_alt_deg != null
       ? glowToward(report.light_dome, w.peak_az_deg, w.peak_alt_deg)
@@ -2354,8 +2354,8 @@ export default function ReportCard({
   // Falls back to purely astronomical intervals when no weather data is present.
   const CLOUD_CLEAR_THRESHOLD = 50
   const clearDarkIntervals: [string, string][] | null = (() => {
-    const pts = r.weather_points.filter(p => p.cloud_cover_pct != null && p.cloud_cover_pct <= CLOUD_CLEAR_THRESHOLD)
-    if (!r.weather_points.length || !r.weather_points.some(p => p.cloud_cover_pct != null)) return null
+    const pts = (r.weather_points || []).filter(p => p.cloud_cover_pct != null && p.cloud_cover_pct <= CLOUD_CLEAR_THRESHOLD)
+    if (!(r.weather_points || []).length || !(r.weather_points || []).some(p => p.cloud_cover_pct != null)) return null
     if (!r.dark_intervals.length) return []
     const HOUR_MS = 3600 * 1000
     const raw: [number, number][] = []
@@ -2466,7 +2466,7 @@ export default function ReportCard({
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~7-day forecast horizon)" />}
         {showWeather && r.wx_no_data && <MetaRow k="Weather" v="No data  (not covered for this location/date)" />}
-        {showWeather && r.wx_error && !r.weather_points.length && <MetaRow k="Weather" v="Temporarily unavailable: weather providers are down" />}
+        {showWeather && r.wx_error && !(r.weather_points?.length) && <MetaRow k="Weather" v="Temporarily unavailable: weather providers are down" />}
         <MetaRow k="Lunar Conditions" v={moonStrCard}
           icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={30} />}
         />
@@ -2503,9 +2503,9 @@ export default function ReportCard({
         </div>
       </details>
 
-      {(r.events.length > 0 || (showWeather && r.weather_points.length > 0)) && (
+      {(r.events.length > 0 || (showWeather && (r.weather_points?.length ?? 0) > 0)) && (
         <WeatherTable
-          points={showWeather ? r.weather_points : []}
+          points={showWeather ? (r.weather_points ?? []) : []}
           events={r.events}
           tz={tz}
           imperial={imperial}
