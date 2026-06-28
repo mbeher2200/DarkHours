@@ -402,9 +402,8 @@ def assemble_night(
     # darksky (S3 raster) and weather (HTTP) need only lat/lon, which we have now.
     # They run concurrently with sky_events + moon + lunar_cycle on the main thread.
     _wx_cache_key = f"wx2|{lat:.2f}|{lon:.2f}|{target.isoformat()}"
-    _wx_cached    = None
     _wx_exc       = None
-    _wx_thread    = None
+    _wx_future: _futures.Future | None = None
 
     # TLE fetches also need nothing from Skyfield — start them alongside weather.
     _tle_futures: dict[int, _futures.Future] = {}
@@ -425,10 +424,18 @@ def assemble_night(
         # (e.g. 03:00 UTC — still before sunrise for a US location). Subtracting
         # 1 day catches that case; the precise _future_date check after sky_events
         # discards the thread result if the night has already fully passed.
+        #
+        # The DynamoDB cache check runs inside the thread so the main thread never
+        # blocks on it: on a cache miss the HTTP fetch starts immediately after the
+        # check with zero gap; on a hit the result is ready without touching the
+        # main thread at all.
         if fetch_weather and target >= datetime.now(timezone.utc).date() - timedelta(days=1):
-            _wx_cached = _ports.get_backend().cache.get(_wx_cache_key)
-            if _wx_cached is None:
-                _wx_thread = _pool.submit(wx.forecast, lat, lon)
+            def _wx_io(_key=_wx_cache_key):
+                _c = _ports.get_backend().cache.get(_key)
+                if _c is not None:
+                    return ("hit", _c)
+                return ("fresh", wx.forecast(lat, lon))
+            _wx_future = _pool.submit(_wx_io)
 
         # TLE fetches — start immediately, overlaps with ~600 ms of Skyfield work.
         if fetch_satellites:
@@ -533,25 +540,26 @@ def assemble_night(
         # safe on the initial page-load path. None when outside the index coverage.
         light_dome_info = _ld.lightdome_lookup(lat, lon)
 
-        # Collect weather future (started at entry; may still be running if
-        # Open-Meteo is slower than the Skyfield work above)
-        if _wx_thread is not None:
+        # Collect weather future (cache check + HTTP fetch both ran off-thread).
+        _wx_fetched = None
+        _wx_cached  = None
+        if _wx_future is not None:
             if _future_date:
                 try:
-                    _wx_fetched = _wx_thread.result()
-                    try:
-                        _ports.get_backend().cache.set(
-                            _wx_cache_key, _wx_serialize(*_wx_fetched), ttl_seconds=_WX_CACHE_TTL
-                        )
-                    except Exception as _ce:
-                        log.debug("Weather cache write failed (non-fatal): %s", _ce)
+                    _wx_tag, _wx_data = _wx_future.result()
+                    if _wx_tag == "hit":
+                        _wx_cached = _wx_data
+                    else:
+                        _wx_fetched = _wx_data
+                        try:
+                            _ports.get_backend().cache.set(
+                                _wx_cache_key, _wx_serialize(*_wx_fetched), ttl_seconds=_WX_CACHE_TTL
+                            )
+                        except Exception as _ce:
+                            log.debug("Weather cache write failed (non-fatal): %s", _ce)
                 except RuntimeError as _e:
-                    _wx_exc     = _e
-                    _wx_fetched = None
-            else:
-                _wx_fetched = None   # night already past; thread runs to completion in background
-        else:
-            _wx_fetched = None
+                    _wx_exc = _e
+            # else: night already past; let thread drain naturally
 
         _t["io_wait_ms"] = round((time.monotonic() - _tc) * 1000)
 
