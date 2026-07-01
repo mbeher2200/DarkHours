@@ -620,7 +620,7 @@ export default function App() {
         Source:{' '}
         <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
                 <br /><br />
-        DarkHours is free, open source, and will never require your email address.
+        DarkHours is free, open source, and will never require your email address. Visit our <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
       </footer>
     </div>
   )
