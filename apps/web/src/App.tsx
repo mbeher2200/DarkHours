@@ -55,8 +55,8 @@ export default function App() {
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     if (link) {
       const svg = redMode
-        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#000" rx="4"/><rect x="6" y="6" width="8" height="8" fill="none" stroke="#F00" stroke-width="1.5" rx="1"/><rect x="18" y="6" width="8" height="8" fill="#F00" fill-opacity=".4" rx="1"/><rect x="6" y="18" width="8" height="8" fill="#F00" fill-opacity=".7" rx="1"/><rect x="18" y="18" width="8" height="8" fill="#F00" rx="1"/></svg>`
-        : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1e1e1e" rx="4"/><rect x="6" y="6" width="8" height="8" fill="#D9534F" rx="1"/><rect x="18" y="6" width="8" height="8" fill="#F0AD4E" rx="1"/><rect x="6" y="18" width="8" height="8" fill="#5CB85C" rx="1"/><rect x="18" y="18" width="8" height="8" fill="#5BC0DE" rx="1"/></svg>`
+        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#000" rx="4"/><rect x="4" y="5" width="14" height="4" fill="none" stroke="#F00" stroke-width="1.5" rx="1"/><rect x="4" y="11" width="20" height="4" fill="#F00" fill-opacity=".4" rx="1"/><rect x="4" y="17" width="10" height="4" fill="#F00" fill-opacity=".7" rx="1"/><rect x="4" y="23" width="24" height="4" fill="#F00" rx="1"/></svg>`
+        : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1e1e1e" rx="4"/><rect x="4" y="5" width="14" height="4" fill="#D9534F" rx="1"/><rect x="4" y="11" width="20" height="4" fill="#F0AD4E" rx="1"/><rect x="4" y="17" width="10" height="4" fill="#5CB85C" rx="1"/><rect x="4" y="23" width="24" height="4" fill="#5BC0DE" rx="1"/></svg>`
       link.href = `data:image/svg+xml;base64,${btoa(svg)}`
     }
   }, [redMode])
@@ -282,10 +282,10 @@ export default function App() {
 
         <h1>
           <span className="masthead-logo" aria-hidden="true">
-            <span className="masthead-logo-cell" style={{background:'#D9534F'}} />
-            <span className="masthead-logo-cell" style={{background:'#F0AD4E'}} />
-            <span className="masthead-logo-cell" style={{background:'#5CB85C'}} />
-            <span className="masthead-logo-cell" style={{background:'#5BC0DE'}} />
+            <span className="masthead-logo-cell" style={{background:'#D9534F', width:'14px'}} />
+            <span className="masthead-logo-cell" style={{background:'#F0AD4E', width:'20px'}} />
+            <span className="masthead-logo-cell" style={{background:'#5CB85C', width:'10px'}} />
+            <span className="masthead-logo-cell" style={{background:'#5BC0DE', width:'24px'}} />
           </span>
           DarkHours
         </h1>
