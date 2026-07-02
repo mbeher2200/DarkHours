@@ -101,8 +101,8 @@ def test_run_job_nearby_raises_when_none(monkeypatch):
         jobs.run_job({"type": "nearby", "lat": 0.0, "lon": 0.0})
 
 
-def test_run_job_defaults_to_trip_when_type_absent(monkeypatch):
-    """Existing calendar/trip jobs (no 'type' key) still reach plan_trip."""
+def test_run_job_defaults_to_calendar_when_type_absent(monkeypatch):
+    """Legacy calendar job records (no 'type' key) still reach plan_trip."""
     called = {}
 
     class _FakeReport:
@@ -112,7 +112,7 @@ def test_run_job_defaults_to_trip_when_type_absent(monkeypatch):
         nights     = []
         ranked     = []
 
-    def fake_plan_trip(locs, start, end, fetch_weather):
+    def fake_plan_trip(locs, start, end, fetch_weather, weather_horizon_days=None):
         called["ok"] = True
         return _FakeReport()
 
@@ -122,3 +122,26 @@ def test_run_job_defaults_to_trip_when_type_absent(monkeypatch):
     except Exception:
         pass   # serializer may fail on the fake report — what matters is plan_trip was called
     assert called.get("ok"), "plan_trip was not called for a job without 'type'"
+
+
+def test_run_job_calendar_threads_weather_horizon(monkeypatch):
+    """A calendar job's weather_horizon_days param reaches plan_trip unchanged."""
+    captured = {}
+
+    class _FakeReport:
+        date_start = __import__("datetime").date(2026, 6, 1)
+        date_end   = __import__("datetime").date(2026, 6, 2)
+        locations  = []
+        nights     = []
+        ranked     = []
+
+    def fake_plan_trip(locs, start, end, fetch_weather, weather_horizon_days=None):
+        captured["weather_horizon_days"] = weather_horizon_days
+        return _FakeReport()
+
+    monkeypatch.setattr(jobs._trip, "plan_trip", fake_plan_trip)
+    jobs.run_job({
+        "type": "calendar", "locs": [], "start": "2026-06-01", "end": "2026-06-02",
+        "weather": True, "weather_horizon_days": 7,
+    })
+    assert captured["weather_horizon_days"] == 7

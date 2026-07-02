@@ -234,10 +234,10 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(route_policy)
 
         # --- async jobs: SQS queue + zip-Lambda worker (M6.3) ---
-        # Long async computes (/nearby) run off the request path. The API enqueues a
-        # job; this worker runs find_nearby and writes the result into the cache, where
-        # /jobs/{id} reads it. visibility_timeout must exceed the worker timeout; a DLQ
-        # catches messages that can't be processed.
+        # Long async computes (/nearby, /calendar) run off the request path. The API
+        # enqueues a job; this worker runs find_nearby or plan_trip and writes the
+        # result into the cache, where /jobs/{id} reads it. visibility_timeout must
+        # exceed the worker timeout; a DLQ catches messages that can't be processed.
         #
         # The worker is a zip Lambda (not a container): with rasterio/GDAL, pyarrow and
         # scipy removed from the runtime, the deps fit the 250 MB zip limit (~169 MB
@@ -413,11 +413,24 @@ class LambdaApiStack(Stack):
         #                                (~200 WCU). Low false-positive risk on a JSON API.
         #   2  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
         #                                Each /nearby spawns an SQS job; this caps worker cost.
-        #   3  RateLimitPerIp          — block any single IP exceeding 60 requests / 5 min
-        #                                across all endpoints. A human uses the app a handful
-        #                                of times per session; 60 throttles scripted abuse.
-        # Total ~229 WCU, well under the 1500-WCU default WebACL capacity. Managed groups use
-        # override_action=none so each group's own block/count actions apply unchanged.
+        #   3  RateLimitCalendarPerIp  — block any IP exceeding 30 /calendar requests / 5 min.
+        #                                One /calendar call = one SQS job, bounded to <=30
+        #                                location-nights (_MAX_CALENDAR_DAYS). The web client
+        #                                now auto-fires this once per distinct location viewed
+        #                                (not just on manual range-picker use), so the limit is
+        #                                sized for someone actively comparing several spots in
+        #                                one session rather than a single opt-in click.
+        #   4  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
+        #                                across all endpoints. Raised alongside the calendar
+        #                                auto-fire above: each location view now costs ~1
+        #                                /night + 1 /calendar submit + a few /jobs/{id} polls
+        #                                (polls aren't covered by the per-endpoint rules, only
+        #                                this global one), plus typeahead /suggest calls. Still
+        #                                well below anything a scripted scraper needs seconds,
+        #                                not minutes, to exceed.
+        # Total ~231 WCU, well under the 1500-WCU default WebACL capacity (rate-based rule cost
+        # doesn't scale with the numeric limit). Managed groups use override_action=none so each
+        # group's own block/count actions apply unchanged.
         managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
             managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
                 vendor_name=vendor, name=name,
@@ -471,12 +484,34 @@ class LambdaApiStack(Stack):
                     visibility_config=vis("RateLimitNearbyPerIp"),
                 ),
                 wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitPerIp",
+                    name="RateLimitCalendarPerIp",
                     priority=3,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                            limit=60,                  # requests per IP per 5-min window
+                            limit=30,                  # /calendar per IP per 5-min window
+                            aggregate_key_type="IP",
+                            scope_down_statement=wafv2.CfnWebACL.StatementProperty(
+                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(uri_path={}),
+                                    positional_constraint="STARTS_WITH",
+                                    search_string="/calendar",
+                                    text_transformations=[wafv2.CfnWebACL.TextTransformationProperty(
+                                        priority=0, type="NONE",
+                                    )],
+                                ),
+                            ),
+                        ),
+                    ),
+                    visibility_config=vis("RateLimitCalendarPerIp"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitPerIp",
+                    priority=4,
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=150,                 # requests per IP per 5-min window
                             aggregate_key_type="IP",
                         ),
                     ),
@@ -518,6 +553,7 @@ class LambdaApiStack(Stack):
                 "/suggest":  api_cached,   # autocomplete: edge-cache by query string
                 "/healthz":  open_cached,
                 "/nearby":   no_cache,
+                "/calendar": no_cache,
                 "/jobs/*":   no_cache,
             },
         )
