@@ -69,16 +69,6 @@ def test_night_bad_date_returns_400():
     assert r.status_code == 400
 
 
-def test_calendar_bad_month_returns_400():
-    r = client.get("/calendar", params={"lat": 35.2, "lon": -111.6, "month": "2026-13"})
-    assert r.status_code == 400
-
-
-def test_trip_missing_params_returns_422():
-    # locations/start/end are required query params → FastAPI validation error
-    assert client.get("/trip").status_code == 422
-
-
 # ── input bounds (data sanity + abuse/DoS guards) — all hermetic ─────────────
 
 def test_night_lat_out_of_range_422():
@@ -96,21 +86,6 @@ def test_night_date_outside_ephemeris_400():
 
 def test_night_location_too_long_422():
     assert client.get("/night", params={"location": "x" * 201}).status_code == 422
-
-
-def test_trip_range_too_large_400():
-    r = client.get("/trip", params={"locations": "x", "start": "2026-01-01", "end": "2026-12-31"})
-    assert r.status_code == 400
-
-
-def test_trip_end_before_start_400():
-    r = client.get("/trip", params={"locations": "x", "start": "2026-06-10", "end": "2026-06-01"})
-    assert r.status_code == 400
-
-
-def test_trip_too_many_locations_400():
-    params = [("locations", f"loc{i}") for i in range(11)] + [("start", "2026-06-01"), ("end", "2026-06-02")]
-    assert client.get("/trip", params=params).status_code == 400
 
 
 # ── /nearby endpoint ──────────────────────────────────────────────────────────

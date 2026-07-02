@@ -1,7 +1,7 @@
 """PyNightSky HTTP API — a thin JSON layer over the engine.
 
-Wraps predictor.assemble_night() and trip.plan_trip() as FastAPI endpoints,
-reusing the same location/timezone resolution the CLI uses. No engine logic
+Wraps predictor.assemble_night() as FastAPI endpoints, reusing the same
+location/timezone resolution the CLI uses. No engine logic
 lives here; handlers only resolve inputs, call the engine, and serialize.
 
 Run locally:   uvicorn apps.api.main:app --reload --port 8080
@@ -11,8 +11,6 @@ Backend:       PYNIGHTSKY_BACKEND=local (default) or =aws (+ table/bucket env).
 from apps.logging_config import configure as _configure_logging
 _configure_logging()
 
-import calendar as _cal
-import concurrent.futures as _futures
 import functools
 import logging
 import os
@@ -131,8 +129,6 @@ if _xray_enabled:
 # ── input bounds (data sanity + abuse/DoS guards) ────────────────────────────
 _MIN_DATE = date(1900, 1, 1)        # de421.bsp ephemeris coverage (~1900–2050)
 _MAX_DATE = date(2050, 12, 31)
-_MAX_TRIP_DAYS = 30                  # /trip date-range span cap
-_MAX_TRIP_LOCATIONS = 10            # /trip location-count cap
 _MAX_NAME_LEN = 200                 # geocode query length cap
 _NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
 _NEARBY_RADIUS_MAX = 120            # 10 of 11 sample rings; good density up to ~2.5h drive
@@ -212,23 +208,6 @@ def _resolve(location: str | None, lat: float | None, lon: float | None):
         disp = _loc.reverse_geocode(lat, lon) or f"{lat:.4f}°, {lon:.4f}°"
         return lat, lon, disp, tz
     raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
-
-
-def _month_bounds(month: str | None) -> tuple[date, date]:
-    if not month:
-        start = datetime.now(timezone.utc).date().replace(day=1)
-    else:
-        try:
-            start = datetime.strptime(month, "%Y-%m").date().replace(day=1)
-        except ValueError:
-            raise HTTPException(400, f"Invalid month {month!r} (expected YYYY-MM).")
-    last = _cal.monthrange(start.year, start.month)[1]
-    end = start.replace(day=last)
-    if start < _MIN_DATE or end > _MAX_DATE:
-        raise HTTPException(
-            400, f"month {start.strftime('%Y-%m')} is outside the supported range "
-                 f"{_MIN_DATE.year}..{_MAX_DATE.year}.")
-    return start, end
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
@@ -319,69 +298,6 @@ def _accepted(job_id: str) -> JSONResponse:
         content={"job_id": job_id, "status": "pending", "poll": f"/jobs/{job_id}"},
     )
 
-
-@app.get("/calendar")
-def calendar(
-    location: str | None = Query(None, max_length=_MAX_NAME_LEN),
-    lat: float | None = Query(None, ge=-90, le=90),
-    lon: float | None = Query(None, ge=-180, le=180),
-    month: str | None = Query(None, description="YYYY-MM; default current month"),
-    weather: bool = False,
-):
-    """Submit a month-view job for one location → 202 + job_id (poll /jobs/{id})."""
-    la, lo, disp, tz = _resolve(location, lat, lon)        # sync: validates + geocodes
-    start, end = _month_bounds(month)
-    loc_dict = {"lat": la, "lon": lo, "display_name": disp, "tz_name": str(tz)}
-    job_id = jobs.submit({"locs": [loc_dict], "start": start.isoformat(),
-                          "end": end.isoformat(), "weather": weather})
-    return _accepted(job_id)
-
-
-@app.get("/trip")
-def trip(
-    locations: list[str] = Query(..., description="Repeatable location name(s) to compare"),
-    start: str = Query(..., description="YYYY-MM-DD"),
-    end: str = Query(..., description="YYYY-MM-DD"),
-    weather: bool = False,
-):
-    """Submit a multi-location score-matrix job → 202 + job_id (poll /jobs/{id})."""
-    if len(locations) > _MAX_TRIP_LOCATIONS:
-        raise HTTPException(400, f"Too many locations: {len(locations)} (max {_MAX_TRIP_LOCATIONS}).")
-    s, e = _parse_date(start, "start"), _parse_date(end, "end")
-    if e < s:
-        raise HTTPException(400, "'end' must be on or after 'start'.")
-    if (e - s).days > _MAX_TRIP_DAYS:
-        raise HTTPException(
-            400, f"Date range too large: {(e - s).days} days (max {_MAX_TRIP_DAYS}). "
-                 f"Narrow the range.")
-    for name in locations:
-        if len(name) > _MAX_NAME_LEN:
-            raise HTTPException(400, f"Location name too long (max {_MAX_NAME_LEN}).")
-
-    def _geocode_one(name: str):
-        try:
-            la, lo, disp, tz_name = _loc.resolve(name)
-            return {"lat": la, "lon": lo, "display_name": disp, "tz_name": tz_name}
-        except ValueError as ex:
-            raise ValueError(f"{name!r}: {ex}")
-        except RuntimeError as ex:
-            raise RuntimeError(f"{name!r}: {ex}")
-
-    # Geocode all locations in parallel while preserving original order.
-    max_workers = min(len(locations), 10)
-    with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        ordered_futs = [pool.submit(_geocode_one, name) for name in locations]
-    locs = []
-    for fut in ordered_futs:
-        try:
-            locs.append(fut.result())
-        except ValueError as ex:
-            raise HTTPException(404, str(ex))
-        except RuntimeError as ex:
-            raise HTTPException(502, str(ex))
-    job_id = jobs.submit({"locs": locs, "start": s.isoformat(),
-                          "end": e.isoformat(), "weather": weather})
-    return _accepted(job_id)
 
 
 @app.get("/nearby")
