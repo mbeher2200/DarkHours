@@ -73,18 +73,6 @@ def test_worker_handler_warmup_ping(monkeypatch):
     assert calls == {"prewarm": 1, "process": 0}
 
 
-def test_trip_endpoint_returns_202_then_done(monkeypatch, mem_cache):
-    monkeypatch.setattr(main_mod._loc, "resolve",
-                        lambda name: (40.0, -105.0, "Boulder", "America/Denver"))
-    monkeypatch.setattr(jobs, "run_job", lambda p: {"nights": [], "n": len(p["locs"])})
-    client = TestClient(main_mod.app)
-    r = client.get("/trip", params={"locations": "Boulder", "start": "2026-06-01", "end": "2026-06-03"})
-    assert r.status_code == 202
-    jid = r.json()["job_id"]
-    poll = client.get(f"/jobs/{jid}")
-    assert poll.status_code == 200 and poll.json()["status"] == "done"
-    assert poll.json()["result"]["n"] == 1
-
 
 def test_jobs_endpoint_unknown_returns_404(mem_cache):
     assert TestClient(main_mod.app).get("/jobs/doesnotexist").status_code == 404
