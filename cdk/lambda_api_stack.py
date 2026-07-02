@@ -234,8 +234,8 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(route_policy)
 
         # --- async jobs: SQS queue + zip-Lambda worker (M6.3) ---
-        # Long /calendar+/trip computes run off the request path. The API enqueues a
-        # job; this worker runs plan_trip and writes the result into the cache, where
+        # Long async computes (/nearby) run off the request path. The API enqueues a
+        # job; this worker runs find_nearby and writes the result into the cache, where
         # /jobs/{id} reads it. visibility_timeout must exceed the worker timeout; a DLQ
         # catches messages that can't be processed.
         #
@@ -326,7 +326,7 @@ class LambdaApiStack(Stack):
             enable_accept_encoding_gzip=True,
         )
 
-        # The async endpoints must NOT be cached: /trip + /calendar return a fresh
+        # The async endpoints must NOT be cached: /nearby and /jobs return a fresh
         # job_id each call, and /jobs/{id} status changes as the job runs. Disable
         # caching but still forward the query string to the origin.
         fwd_qs = cloudfront.OriginRequestPolicy(
@@ -411,10 +411,12 @@ class LambdaApiStack(Stack):
         #                                (cheapest reject; ~25 WCU).
         #   1  KnownBadInputs          — block request patterns tied to known exploits/probes
         #                                (~200 WCU). Low false-positive risk on a JSON API.
-        #   2  RateLimitPerIp          — block any single IP exceeding 200 requests / 5 min.
-        #                                Most legit /night hits are CloudFront cache hits and
-        #                                never reach this count; this throttles scripted abuse.
-        # Total ~227 WCU, well under the 1500-WCU default WebACL capacity. Managed groups use
+        #   2  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
+        #                                Each /nearby spawns an SQS job; this caps worker cost.
+        #   3  RateLimitPerIp          — block any single IP exceeding 60 requests / 5 min
+        #                                across all endpoints. A human uses the app a handful
+        #                                of times per session; 60 throttles scripted abuse.
+        # Total ~229 WCU, well under the 1500-WCU default WebACL capacity. Managed groups use
         # override_action=none so each group's own block/count actions apply unchanged.
         managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
             managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
@@ -447,12 +449,34 @@ class LambdaApiStack(Stack):
                     visibility_config=vis("KnownBadInputs"),
                 ),
                 wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitPerIp",
+                    name="RateLimitNearbyPerIp",
                     priority=2,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                            limit=200,                 # requests per IP per 5-min window
+                            limit=10,                  # /nearby per IP per 5-min window
+                            aggregate_key_type="IP",
+                            scope_down_statement=wafv2.CfnWebACL.StatementProperty(
+                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(uri_path={}),
+                                    positional_constraint="STARTS_WITH",
+                                    search_string="/nearby",
+                                    text_transformations=[wafv2.CfnWebACL.TextTransformationProperty(
+                                        priority=0, type="NONE",
+                                    )],
+                                ),
+                            ),
+                        ),
+                    ),
+                    visibility_config=vis("RateLimitNearbyPerIp"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitPerIp",
+                    priority=3,
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=60,                  # requests per IP per 5-min window
                             aggregate_key_type="IP",
                         ),
                     ),
@@ -493,8 +517,6 @@ class LambdaApiStack(Stack):
                 "/night":    api_cached,
                 "/suggest":  api_cached,   # autocomplete: edge-cache by query string
                 "/healthz":  open_cached,
-                "/calendar": no_cache,
-                "/trip":     no_cache,
                 "/nearby":   no_cache,
                 "/jobs/*":   no_cache,
             },
