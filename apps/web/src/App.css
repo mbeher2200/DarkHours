@@ -199,6 +199,10 @@ html.red-mode .dp-popover {
   border: 1px solid rgba(255, 0, 0, 0.20);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.60);
 }
+html.red-mode .crp-popover {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.60);
+}
 html.red-mode .dp-header {
   background: rgba(255, 0, 0, 0.06);
   border-bottom-color: rgba(255, 0, 0, 0.18);
@@ -256,6 +260,25 @@ html.red-mode .nearby-trigger {
 }
 html.red-mode .nearby-trigger:active {
   border: 1px solid rgba(255, 0, 0, 0.20);
+}
+/* .heatmap-cell uses namespaced hm-poor/fair/good/excellent classes (not the
+   app's bare band-* names) specifically to avoid colliding with the generic
+   score-card tint rule above. But --poor/fair/good/excellent are themselves
+   near-identical dark reds in red-mode (single-hue palette), which reads as
+   one indistinct color across the tiny heatmap squares. Same fix as the
+   .bar-fill bands above: differentiate by fill saturation, not hue. */
+html.red-mode .heatmap-cell.hm-poor {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.45);
+}
+html.red-mode .heatmap-cell.hm-fair {
+  background: rgba(255, 0, 0, 0.30);
+}
+html.red-mode .heatmap-cell.hm-good {
+  background: rgba(255, 0, 0, 0.62);
+}
+html.red-mode .heatmap-cell.hm-excellent {
+  background: rgba(255, 0, 0, 0.88);
 }
 html.red-mode .mode-toggle,
 html.red-mode .units-toggle {
@@ -1192,6 +1215,20 @@ details summary {
   gap: 3px;
 }
 
+/* ── planning tools section ──────────────────────────────────────────────── */
+.planning-tools-body {
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.planning-tool-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 /* ── nearby dark-sky section ─────────────────────────────────────────────── */
 .nearby-body {
   padding-top: 10px;
@@ -1289,6 +1326,245 @@ details summary {
 .nearby-dome-dist {
   white-space: nowrap;
   text-align: right;
+}
+/* ── calendar range picker (Grafana-style trigger + popover) ────────────── */
+.crp-wrap {
+  position: relative;
+  display: inline-block;
+}
+.crp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* .nearby-trigger's mono/uppercase/tracking suits short fixed labels
+     (60 MI, 7 DAYS); this button shows a dynamic date-range summary and
+     sits beside Search a place / Use my location, so match those instead —
+     plain body font, sentence case, no letter-spacing. */
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.crp-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  width: max-content;
+  max-width: min(560px, 92vw);
+  background: var(--pop-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 14px;
+  animation: dropdown-in 0.13s ease both;
+}
+.crp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+.crp-col-presets {
+  min-width: 160px;
+  border-left: 1px solid var(--card-border);
+  padding-left: 18px;
+}
+.crp-col-title {
+  /* Matches .planning-tool-title / .nearby-highlight-label — the app's
+     sub-section-label convention (sentence case, not uppercase). */
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.crp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.crp-field label {
+  /* Matches .field > span — the app's form-field-label convention
+     (uppercase mono), since From/To are literal form field labels. */
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.crp-field .dp-trigger {
+  /* DatePicker's trigger uses font: inherit, sized for the primary search
+     field; scale it down to match this dense popover instead of inheriting
+     the page's larger base font. */
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.crp-apply {
+  margin-top: 4px;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.crp-apply:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.crp-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.crp-preset-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.crp-preset-list button:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+}
+.crp-preset-list button.active {
+  border-left-color: var(--accent);
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+  color: var(--accent);
+  font-weight: 600;
+}
+/* ── outlook telemetry ribbon ─────────────────────────────────────────────── */
+.telemetry-ribbon {
+  border: 1px solid var(--card-border);
+}
+/* Best-night hero metric — same pattern as .overall-num/.overall-label/
+   .overall-sub on the main score card, scaled down for this compact panel. */
+.telemetry-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+.telemetry-hero-num {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.telemetry-hero-num.band-excellent { color: var(--excellent); }
+.telemetry-hero-num.band-good      { color: var(--good); }
+.telemetry-hero-num.band-fair      { color: var(--fair); }
+.telemetry-hero-num.band-poor      { color: var(--poor); }
+.telemetry-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.telemetry-hero-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.telemetry-hero-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.heatmap-body {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--card-border);
+}
+.heatmap-dow-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  max-width: 220px;
+  margin-bottom: 3px;
+}
+.heatmap-dow-row span {
+  text-align: center;
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  max-width: 220px;
+}
+.heatmap-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  background: var(--text-dim);
+  cursor: pointer;
+}
+.heatmap-cell-empty {
+  background: transparent;
+  cursor: default;
+  visibility: hidden;
+}
+.heatmap-cell.hm-excellent { background: var(--excellent); }
+.heatmap-cell.hm-good      { background: var(--good); }
+.heatmap-cell.hm-fair      { background: var(--fair); }
+.heatmap-cell.hm-poor      { background: var(--poor); }
+.heatmap-cell.muted { opacity: 0.4; }
+.heatmap-cell.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.telemetry-readout {
+  padding: 10px 12px;
+  background: var(--field-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.telemetry-readout .meta-row { font-size: 13px; }
+.telemetry-selected-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.telemetry-selected-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.telemetry-score-excellent { color: var(--excellent); font-weight: 600; }
+.telemetry-score-good      { color: var(--good);      font-weight: 600; }
+.telemetry-score-fair      { color: var(--fair);       font-weight: 600; }
+.telemetry-score-poor      { color: var(--poor);       font-weight: 600; }
+.telemetry-mini-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+.telemetry-mini-bars .bar-row {
+  grid-template-columns: 84px 1fr 30px;
+  gap: 8px;
+  font-size: 12px;
+}
+.telemetry-mini-bars .bar-track {
+  height: 5px;
 }
 /* POI-first reachability affordances */
 .poi-namelink {
@@ -2205,6 +2481,10 @@ html.red-mode .wx-now-row td.wx-now-time {
   top: calc(100% + 6px);
   left: 0;
   width: min(100%, 340px);
+  /* width:100% resolves against .dp-wrap, which shrinks to its trigger's
+     content width in a flex row (e.g. the calendar custom-range pickers) —
+     without a floor here the 7-column day grid gets squeezed illegibly. */
+  min-width: 260px;
   z-index: 60;
   background: var(--pop-bg);
   border-top: 1px solid rgba(255, 255, 255, 0.85);
@@ -2507,6 +2787,18 @@ html.red-mode .wx-now-row td.wx-now-time {
   /* Blocked target rows: allow badge text to wrap instead of clipping */
   .tg-row-blocked td {
     white-space: normal;
+  }
+  .heatmap-body {
+    padding: 6px;
+  }
+  .heatmap-dow-row,
+  .heatmap-grid {
+    max-width: 180px;
+    gap: 2px;
+  }
+  .telemetry-readout {
+    font-size: 11px;
+    padding: 8px;
   }
 }
 

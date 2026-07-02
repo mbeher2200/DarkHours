@@ -137,8 +137,8 @@ def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
     return f"night_v3:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
 
 
-def _within_forecast_window(d: date) -> bool:
-    return (d - datetime.now(_utc).date()).days <= _FORECAST_DAYS
+def _within_forecast_window(d: date, horizon_days: int = _FORECAST_DAYS) -> bool:
+    return (d - datetime.now(_utc.utc).date()).days <= horizon_days
 
 
 def fetch_night(
@@ -148,15 +148,18 @@ def fetch_night(
     tz: ZoneInfo,
     display_name: str,
     fetch_weather: bool = True,
+    weather_horizon_days: int = _FORECAST_DAYS,
 ) -> NightSummary | None:
     """
     Return a NightSummary for one location and date, using cache where possible.
 
-    Weather is only fetched for dates within the 16-day forecast window;
-    beyond that the score uses astronomical factors only (weights
-    redistribute automatically in rate_night).
+    Weather is only fetched for dates within `weather_horizon_days` (default the
+    16-day Open-Meteo forecast window); beyond that the score uses astronomical
+    factors only (weights redistribute automatically in rate_night). Callers with a
+    stricter product-level cutoff (e.g. the calendar tool's 7-day trust window) can
+    override this per call.
     """
-    use_weather = fetch_weather and _within_forecast_window(d)
+    use_weather = fetch_weather and _within_forecast_window(d, weather_horizon_days)
     key = _cache_key(lat, lon, d, use_weather)
 
     cached = _cache.get(key)
@@ -168,6 +171,7 @@ def fetch_night(
             lat, lon, d, tz,
             display_name=display_name,
             fetch_weather=use_weather,
+            use_cycle_window=True,
         )
     except ValueError as e:
         log.warning("Skipping %s on %s: %s", display_name, d, e)
@@ -210,6 +214,7 @@ def plan_trip(
     date_start: date,
     date_end: date,
     fetch_weather: bool = True,
+    weather_horizon_days: int = _FORECAST_DAYS,
     progress_fn=None,
 ) -> TripReport:
     """
@@ -220,6 +225,8 @@ def plan_trip(
         date_start:   first night of the range
         date_end:     last night of the range (inclusive)
         fetch_weather: include weather for dates within the forecast window
+        weather_horizon_days: per-night cutoff (days from today) for including
+                       weather in the score; defaults to the 16-day forecast window
         progress_fn:  optional callable(completed, total) for progress reporting
 
     Returns:
@@ -233,7 +240,8 @@ def plan_trip(
 
     def _fetch_one(loc, d):
         tz = ZoneInfo(loc["tz_name"])
-        return fetch_night(loc["lat"], loc["lon"], d, tz, loc["display_name"], fetch_weather)
+        return fetch_night(loc["lat"], loc["lon"], d, tz, loc["display_name"],
+                            fetch_weather, weather_horizon_days)
 
     tasks = [
         (loc, date_start + timedelta(days=i))
