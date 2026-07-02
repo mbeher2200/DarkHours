@@ -3,11 +3,12 @@
 
 import concurrent.futures as _futures
 import json
+import threading
 import time as _time
 import logging
 import math
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from skyfield.api import Loader, load, wgs84
@@ -161,9 +162,83 @@ def dark_moon_intervals(events: list, night_start, night_end) -> list:
 # entirely for locations already computed in this container's lifetime.
 _mem_dark_cycle: dict[str, dict] = {}
 
+# Per-location locks serialize the expensive Skyfield compute path in
+# lunar_cycle_dark_analysis. Without this, a /calendar request dispatches
+# ~20 nights at once to a shared thread pool, and every one of them misses
+# the still-empty cache and redundantly computes its own ~30-night window
+# (profiling: 20/30 calls paying the full ~3s cost instead of ~1-3). The
+# lock lets concurrent callers wait for an in-flight computation and reuse
+# it via the overlap check below, instead of racing past it.
+_dark_cycle_locks: dict[str, threading.Lock] = {}
+_dark_cycle_locks_guard = threading.Lock()
+
+
+def _dark_cycle_lock_for(lat: float, lon: float) -> threading.Lock:
+    key = f"{lat:.2f},{lon:.2f}"
+    with _dark_cycle_locks_guard:
+        lock = _dark_cycle_locks.get(key)
+        if lock is None:
+            lock = _dark_cycle_locks[key] = threading.Lock()
+        return lock
+
+
+def _dark_cycle_overlap_hit(loc_prefix: str, target_date: date) -> dict | None:
+    """Dark stats from any cached window for this location that covers target_date."""
+    for mk, entry in _mem_dark_cycle.items():
+        if not mk.startswith(loc_prefix):
+            continue
+        cached_ws  = date.fromisoformat(entry["window_start"])
+        cached_end = cached_ws + timedelta(days=len(entry["nights"]) - 1)
+        if cached_ws <= target_date <= cached_end:
+            tonight_idx = (target_date - cached_ws).days
+            log.debug("Dark cycle mem-cache hit (overlap) for %s idx %d", mk, tonight_idx)
+            return _dark_stats(entry["nights"], tonight_idx)
+    return None
+
 
 def _dark_cycle_db_key(lat: float, lon: float, window_start: date) -> str:
-    return f"dark_cycle|{lat:.2f}|{lon:.2f}|{window_start.isoformat()}"
+    # v2: each night is a record (sunset/sunrise/night_start/night_end/dark_hours)
+    # instead of a bare dark-hours float, so assemble_night()'s calendar path can
+    # derive moon_score/weather-windowing inputs from this window instead of an
+    # independent sky_events() call.
+    return f"dark_cycle_v2|{lat:.2f}|{lon:.2f}|{window_start.isoformat()}"
+
+
+def _nights_to_json(nights: list[dict]) -> list[dict]:
+    """Serialize a per-night dark-cycle window for cache storage (datetimes -> ISO strings)."""
+    def _iso(t):
+        return t.isoformat() if t is not None else None
+    return [
+        {
+            "sunset":      _iso(n["sunset"]),
+            "sunrise":     _iso(n["sunrise"]),
+            "night_start": _iso(n["night_start"]),
+            "night_end":   _iso(n["night_end"]),
+            "dark_hours":  n["dark_hours"],
+        }
+        for n in nights
+    ]
+
+
+def _nights_from_json(raw: list[dict]) -> list[dict]:
+    """Restore a per-night dark-cycle window from cache storage (ISO strings -> datetimes)."""
+    def _dt(s):
+        if s is None:
+            return None
+        t = datetime.fromisoformat(s)
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t
+    return [
+        {
+            "sunset":      _dt(n["sunset"]),
+            "sunrise":     _dt(n["sunrise"]),
+            "night_start": _dt(n["night_start"]),
+            "night_end":   _dt(n["night_end"]),
+            "dark_hours":  n["dark_hours"],
+        }
+        for n in raw
+    ]
 
 
 def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> list:
@@ -232,12 +307,17 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
     tw_after  = (_t_nb   - _t_set ).total_seconds() if (_t_set and _t_nb)   else None
     tw_before = (_t_rise - _t_ne  ).total_seconds() if (_t_rise and _t_ne)  else None
 
+    # Sanity bound for the fixed twilight-offset approximation applied below: a
+    # real astronomical-twilight duration is minutes to a couple hours, never
+    # anywhere close to this. If it ever is, something's wrong with the inputs
+    # (e.g. bad ephemeris data) — log it and treat that night as degenerate
+    # rather than silently emit a night_start/night_end that could have drifted
+    # onto the wrong calendar day.
+    _MAX_SANE_TWILIGHT_OFFSET_S = 6 * 3600
+
     _t_loop0 = _time.monotonic()
-    hours = []
+    nights = []
     for offset in range(-14, 16):
-        if tw_after is None or tw_before is None:
-            hours.append(0.0)
-            continue
         night_date = target_date + timedelta(days=offset)
         sunset = next(
             (e["time"] for e in all_events
@@ -245,34 +325,59 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
              and e["time"].astimezone(tz).date() == night_date),
             None,
         )
-        if not sunset:
-            hours.append(0.0)
-            continue
-        sunrise = find_event(all_events, "Sunrise", after=sunset)
-        if not sunrise:
-            hours.append(0.0)
-            continue
+        sunrise = find_event(all_events, "Sunrise", after=sunset) if sunset else None
 
-        night_start = sunset  + timedelta(seconds=tw_after)
-        night_end   = sunrise - timedelta(seconds=tw_before)
-        if night_end <= night_start:
-            hours.append(0.0)
-            continue
-        intervals  = dark_moon_intervals(all_events, night_start, night_end)
-        total_secs = sum((e - s).total_seconds() for s, e in intervals)
-        hours.append(total_secs / 3600)
+        night_start = night_end = None
+        dark_hours  = 0.0
+        if (sunset and sunrise and tw_after is not None and tw_before is not None
+                and tw_after <= _MAX_SANE_TWILIGHT_OFFSET_S
+                and tw_before <= _MAX_SANE_TWILIGHT_OFFSET_S):
+            night_start = sunset  + timedelta(seconds=tw_after)
+            night_end   = sunrise - timedelta(seconds=tw_before)
+            if night_end > night_start:
+                intervals  = dark_moon_intervals(all_events, night_start, night_end)
+                total_secs = sum((e - s).total_seconds() for s, e in intervals)
+                dark_hours = total_secs / 3600
+            else:
+                # Degenerate window (offset pushed past a real boundary) — don't
+                # expose a night_start/night_end that's no longer meaningful.
+                log.warning(
+                    "dark_cycle: degenerate window for %s at offset %+d (night_end <= night_start)",
+                    night_date, offset,
+                )
+                night_start = night_end = None
+        elif tw_after is not None and (
+                tw_after > _MAX_SANE_TWILIGHT_OFFSET_S or (tw_before or 0) > _MAX_SANE_TWILIGHT_OFFSET_S):
+            log.warning("dark_cycle: implausible twilight offset for %s (tw_after=%s tw_before=%s) — skipping",
+                        night_date, tw_after, tw_before)
+
+        nights.append({
+            "sunset":      sunset,
+            "sunrise":     sunrise,
+            "night_start": night_start,
+            "night_end":   night_end,
+            "dark_hours":  dark_hours,
+        })
 
     log.info("dark_cycle loop=%dms", round((_time.monotonic() - _t_loop0) * 1000))
-    return hours
+    return nights
 
 
-def _dark_stats(dark_hours: list, tonight_idx: int) -> dict:
-    """Derive mean, stdev, and ratio-to-maximum score from a dark-hours array.
+def _dark_stats(nights: list, tonight_idx: int) -> dict:
+    """Derive mean, stdev, and ratio-to-maximum score from a dark-hours window.
 
     Score = tonight / cycle_max × 10.  The best night of the cycle earns 10;
     every other night scales linearly from there.  Zero dark hours = 0.
+
+    Also returns a read-only copy of the requested night's own record (sunset/
+    sunrise/night_start/night_end/dark_hours) so assemble_night()'s calendar
+    path can derive moon_score/weather-windowing inputs from it instead of an
+    independent sky_events() call. A copy, not a reference — nights[tonight_idx]
+    may be a live entry inside the shared _mem_dark_cycle cache.
     """
-    tonight = dark_hours[tonight_idx]
+    dark_hours   = [n["dark_hours"] for n in nights]
+    tonight_rec  = dict(nights[tonight_idx])
+    tonight      = dark_hours[tonight_idx]
     mean_h  = statistics.mean(dark_hours)
     stdev_h = statistics.stdev(dark_hours) if len(dark_hours) > 1 else 0.0
     max_h   = max(dark_hours)
@@ -284,6 +389,7 @@ def _dark_stats(dark_hours: list, tonight_idx: int) -> dict:
         "mean_hours":    round(mean_h,  1),
         "stdev_hours":   round(stdev_h, 1),
         "score":         round(min(10.0, max(0.0, score)), 1),
+        "tonight":       tonight_rec,
     }
 
 
@@ -292,50 +398,65 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
     Return dark sky stats for a 30-night window centred on target_date.
 
     Three-layer lookup:
-      1. Module-level dict (_mem_dark_cycle) — zero-cost on warm containers.
+      1. Module-level dict (_mem_dark_cycle) — zero-cost on warm containers,
+         including an overlap check: any cached window for this location that
+         covers target_date is reused, not just an exact window_start match.
       2. DynamoDB per-window key — shared across containers, no TTL (astronomical
          data is immutable for a given location+window).
-      3. Compute fresh via Skyfield (~410ms at 3008 MB), then populate both layers.
+      3. Compute fresh via Skyfield (~2-3s at 3008 MB — see scripts/profile_calendar.py),
+         then populate both layers.
+
+    Steps 2-3 run under a per-location lock (_dark_cycle_lock_for) so concurrent
+    callers for overlapping windows wait for an in-flight computation and reuse
+    it via the overlap check, rather than each redundantly computing their own.
     """
     window_start = target_date - timedelta(days=14)
     mem_key      = f"{lat:.2f},{lon:.2f}:{window_start.isoformat()}"
     db_key       = _dark_cycle_db_key(lat, lon, window_start)
+    loc_prefix   = f"{lat:.2f},{lon:.2f}:"
 
     # 1. In-process cache — exact hit
     if mem_key in _mem_dark_cycle:
         log.debug("Dark cycle mem-cache hit (exact) for %s", mem_key)
-        return _dark_stats(_mem_dark_cycle[mem_key]["dark_hours"], 14)
+        return _dark_stats(_mem_dark_cycle[mem_key]["nights"], 14)
 
-    # 1b. In-process cache — overlap: any cached window for this location covers target_date
-    loc_prefix = f"{lat:.2f},{lon:.2f}:"
-    for mk, entry in _mem_dark_cycle.items():
-        if not mk.startswith(loc_prefix):
-            continue
-        cached_ws  = date.fromisoformat(entry["window_start"])
-        cached_end = cached_ws + timedelta(days=len(entry["dark_hours"]) - 1)
-        if cached_ws <= target_date <= cached_end:
-            tonight_idx = (target_date - cached_ws).days
-            log.debug("Dark cycle mem-cache hit (overlap) for %s idx %d", mk, tonight_idx)
-            return _dark_stats(entry["dark_hours"], tonight_idx)
+    # 1b. In-process cache — overlap
+    hit = _dark_cycle_overlap_hit(loc_prefix, target_date)
+    if hit is not None:
+        return hit
 
-    # 2. DynamoDB cache
-    cached = _cache.get(db_key)
-    if cached:
-        log.debug("Dark cycle DynamoDB hit for %s", db_key)
-        _mem_dark_cycle[mem_key] = cached
-        return _dark_stats(cached["dark_hours"], 14)
+    with _dark_cycle_lock_for(lat, lon):
+        # Re-check — a concurrent caller for this location may have just
+        # finished and populated the cache while we were waiting for the lock.
+        if mem_key in _mem_dark_cycle:
+            log.debug("Dark cycle mem-cache hit (exact, post-lock) for %s", mem_key)
+            return _dark_stats(_mem_dark_cycle[mem_key]["nights"], 14)
+        hit = _dark_cycle_overlap_hit(loc_prefix, target_date)
+        if hit is not None:
+            return hit
 
-    # 3. Compute and persist
-    log.debug("Dark cycle cache miss for %s — computing 30-night window", mem_key)
-    dark_hours = _compute_dark_hours_cycle(lat, lon, target_date, tz)
-    entry = {"window_start": window_start.isoformat(), "dark_hours": dark_hours}
-    try:
-        _cache.set(db_key, entry)
-    except Exception as e:
-        log.warning("Dark cycle cache write failed (non-fatal): %s", e)
-    _mem_dark_cycle[mem_key] = entry
+        # 2. DynamoDB cache — stored as ISO strings (json.dumps can't handle
+        # raw datetimes), so parse back into real datetimes before caching
+        # in-process or handing off to _dark_stats.
+        cached = _cache.get(db_key)
+        if cached:
+            log.debug("Dark cycle DynamoDB hit for %s", db_key)
+            nights = _nights_from_json(cached["nights"])
+            _mem_dark_cycle[mem_key] = {"window_start": cached["window_start"], "nights": nights}
+            return _dark_stats(nights, 14)
 
-    return _dark_stats(dark_hours, 14)
+        # 3. Compute and persist
+        log.debug("Dark cycle cache miss for %s — computing 30-night window", mem_key)
+        nights = _compute_dark_hours_cycle(lat, lon, target_date, tz)
+        entry = {"window_start": window_start.isoformat(), "nights": nights}
+        try:
+            _cache.set(db_key, {"window_start": window_start.isoformat(),
+                                "nights": _nights_to_json(nights)})
+        except Exception as e:
+            log.warning("Dark cycle cache write failed (non-fatal): %s", e)
+        _mem_dark_cycle[mem_key] = entry
+
+        return _dark_stats(nights, 14)
 
 
 def moon_phase_info(at_utc: object) -> tuple:

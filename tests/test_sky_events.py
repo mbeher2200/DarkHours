@@ -5,7 +5,7 @@ Pure-math helpers (dark_moon_intervals, find_event, find_last_event) need no
 fixtures.  Ephemeris-dependent integration tests are marked @pytest.mark.eph.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -213,3 +213,150 @@ class TestSkyEventsIntegration:
         labels = {e["label"] for e in events}
         assert "Moonrise" in labels, "No Moonrise found for eclipse night"
         assert "Moonset"  in labels, "No Moonset found for eclipse night"
+
+
+# ---------------------------------------------------------------------------
+# lunar_cycle_dark_analysis — per-location lock (no ephemeris needed: the
+# Skyfield compute step itself is mocked out so these stay hermetic/fast)
+# ---------------------------------------------------------------------------
+
+def _fake_night(d: date, dark_hours: float = 5.0) -> dict:
+    """A plausible per-night dark-cycle record for a given calendar date, matching
+    the shape _compute_dark_hours_cycle() now returns (sunset/sunrise/night_start/
+    night_end/dark_hours) — used to mock it out without needing real Skyfield data."""
+    sunset  = datetime(d.year, d.month, d.day, 20, 0, tzinfo=timezone.utc)
+    sunrise = sunset + timedelta(hours=10)
+    return {
+        "sunset":      sunset,
+        "sunrise":     sunrise,
+        "night_start": sunset + timedelta(hours=1, minutes=30),
+        "night_end":   sunrise - timedelta(hours=1, minutes=30),
+        "dark_hours":  dark_hours,
+    }
+
+
+class TestLunarCycleDarkAnalysis:
+    """Regression coverage for the per-location lock that keeps concurrent
+    /calendar requests from each redundantly computing their own overlapping
+    30-night window (see scripts/profile_calendar.py: 20/30 calls paying the
+    full Skyfield cost before the lock, ~1-8/30 after), and for the per-night
+    record shape (sunset/sunrise/night_start/night_end/dark_hours) that
+    replaced a bare dark-hours float list."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self, monkeypatch):
+        import PyNightSkyPredictor.sky_events as se
+        # Fresh in-process state per test, and no real cache/network I/O.
+        monkeypatch.setattr(se, "_mem_dark_cycle", {})
+        monkeypatch.setattr(se, "_dark_cycle_locks", {})
+        monkeypatch.setattr(se._cache, "get", lambda k: None)
+        monkeypatch.setattr(se._cache, "set", lambda k, v, **kw: None)
+
+    def test_overlapping_target_dates_reuse_one_computation(self, monkeypatch):
+        import PyNightSkyPredictor.sky_events as se
+        from datetime import timedelta
+
+        calls = []
+
+        def fake_compute(lat, lon, target_date, tz):
+            calls.append(target_date)
+            window_start = target_date - timedelta(days=14)
+            return [_fake_night(window_start + timedelta(days=i)) for i in range(30)]
+
+        monkeypatch.setattr(se, "_compute_dark_hours_cycle", fake_compute)
+
+        base = date(2026, 7, 2)
+        r1 = se.lunar_cycle_dark_analysis(40.0, -105.0, base, None)
+        r2 = se.lunar_cycle_dark_analysis(40.0, -105.0, base + timedelta(days=1), None)
+        r3 = se.lunar_cycle_dark_analysis(40.0, -105.0, base + timedelta(days=5), None)
+
+        assert len(calls) == 1, "second and third calls should reuse the first's cached window"
+        assert r1["tonight_hours"] == r2["tonight_hours"] == r3["tonight_hours"] == 5.0
+        assert r1["tonight"]["sunset"].date() == base
+        assert r2["tonight"]["sunset"].date() == base + timedelta(days=1)
+
+    def test_concurrent_overlapping_requests_dont_each_compute_independently(self, monkeypatch):
+        import threading
+        import time as _t
+        from datetime import timedelta
+        import PyNightSkyPredictor.sky_events as se
+
+        calls = []
+        calls_lock = threading.Lock()
+
+        def fake_compute(lat, lon, target_date, tz):
+            with calls_lock:
+                calls.append(target_date)
+            _t.sleep(0.05)  # long enough for concurrent callers to actually race
+            window_start = target_date - timedelta(days=14)
+            return [_fake_night(window_start + timedelta(days=i)) for i in range(30)]
+
+        monkeypatch.setattr(se, "_compute_dark_hours_cycle", fake_compute)
+
+        base = date(2026, 7, 2)
+        dates = [base + timedelta(days=i) for i in range(20)]  # all within one 30-night window
+        results: list = [None] * len(dates)
+
+        def worker(i, d):
+            results[i] = se.lunar_cycle_dark_analysis(40.0, -105.0, d, None)
+
+        threads = [threading.Thread(target=worker, args=(i, d)) for i, d in enumerate(dates)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Without the lock, all 20 concurrent callers would miss the empty
+        # cache and compute independently. With it, far fewer real computes
+        # are needed to cover all 20 (overlapping) nights.
+        assert len(calls) < len(dates)
+        assert all(r["tonight_hours"] == 5.0 for r in results)
+
+    def test_dynamodb_hit_roundtrips_iso_strings_to_datetimes(self, monkeypatch):
+        """json.dumps() (both cache backends — see cache.py) can't handle raw
+        datetimes, so the DynamoDB layer stores ISO strings (_nights_to_json)
+        and must parse them back (_nights_from_json) on a hit. A real
+        LocalFileCache-style round trip through json.dumps/loads, not just an
+        in-memory dict, so a missed conversion would actually surface here."""
+        import json as _json
+        import PyNightSkyPredictor.sky_events as se
+
+        base = date(2026, 7, 2)
+        window_start = base - timedelta(days=14)
+        nights = [_fake_night(window_start + timedelta(days=i), dark_hours=float(i)) for i in range(30)]
+        stored = {"window_start": window_start.isoformat(), "nights": se._nights_to_json(nights)}
+
+        # Round-trip through json.dumps/loads for real, like LocalFileCache/DynamoCache do.
+        db_backing = {se._dark_cycle_db_key(40.0, -105.0, window_start): _json.loads(_json.dumps(stored))}
+        monkeypatch.setattr(se._cache, "get", lambda k: db_backing.get(k))
+
+        result = se.lunar_cycle_dark_analysis(40.0, -105.0, base, None)
+
+        assert result["tonight_hours"] == 14.0  # index 14 == base itself
+        assert isinstance(result["tonight"]["sunset"], datetime)
+        assert result["tonight"]["sunset"].tzinfo is not None
+        assert result["tonight"]["sunset"].date() == base
+
+    def test_tonight_record_is_a_copy_not_a_cache_reference(self, monkeypatch):
+        """The returned 'tonight' dict must be safe to mutate — it's read from a
+        cache entry (_mem_dark_cycle) shared across every concurrent caller for
+        overlapping dates. Mutating it must not corrupt what the next caller sees."""
+        import PyNightSkyPredictor.sky_events as se
+
+        def fake_compute(lat, lon, target_date, tz):
+            window_start = target_date - timedelta(days=14)
+            return [_fake_night(window_start + timedelta(days=i)) for i in range(30)]
+
+        monkeypatch.setattr(se, "_compute_dark_hours_cycle", fake_compute)
+
+        base = date(2026, 7, 2)
+        r1 = se.lunar_cycle_dark_analysis(40.0, -105.0, base, None)
+        r1["tonight"]["sunset"] = "corrupted"
+        r1["tonight"]["dark_hours"] = -999
+        r1["tonight"]["new_key"] = "should not leak into the cache"
+
+        r2 = se.lunar_cycle_dark_analysis(40.0, -105.0, base + timedelta(days=1), None)
+
+        assert r2["tonight"]["sunset"] != "corrupted"
+        assert r2["tonight"]["dark_hours"] == 5.0
+        assert "new_key" not in r2["tonight"]

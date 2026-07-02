@@ -249,3 +249,16 @@ export function tonightIso(): string {
   }
   return toIsoDate(now)
 }
+
+export function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return toIsoDate(d)
+}
+
+// Inclusive night count spanning [startIso, endIso].
+export function daySpan(startIso: string, endIso: string): number {
+  const s = new Date(startIso + 'T00:00:00')
+  const e = new Date(endIso + 'T00:00:00')
+  return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1
+}

@@ -111,7 +111,7 @@ class TestPlanTripParallel:
         from PyNightSkyPredictor.trip import plan_trip, NightSummary, TripReport
         from datetime import date
 
-        def _fake_fetch_night(lat, lon, d, tz, display_name, fetch_weather):
+        def _fake_fetch_night(lat, lon, d, tz, display_name, fetch_weather, weather_horizon_days=None):
             return NightSummary(
                 date=d, display_name=display_name, lat=lat, lon=lon,
                 score=round(lat + lon + d.day, 1),

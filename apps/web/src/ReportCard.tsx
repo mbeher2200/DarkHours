@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction } from './types'
+import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, MilkyWaySummary, NearbyResult, NearbyPlace, LightDomeSummary, Direction, CalendarResult } from './types'
 import {
   formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
-  scoreBand, scoreLabel, moonWashSeverity, moonUpAt,
+  scoreBand, scoreLabel, moonWashSeverity, moonUpAt, tonightIso,
 } from './format'
-import { fetchNearby, ApiRequestError } from './api'
+import { fetchNearby, fetchCalendar, ApiRequestError } from './api'
+import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
+import CalendarRangePicker, { type CalendarPickerState } from './CalendarRangePicker'
+import { MoonPhaseSvg, ScoreBar } from './shared'
 import {
   Sunrise, Sunset, Moon, Star, Stars,
   MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
@@ -13,6 +16,54 @@ import {
   Droplet, Wind, TriangleAlert, Navigation,
   type LucideIcon,
 } from 'lucide-react'
+
+// Mirrors apps/api/main.py's _MAX_CALENDAR_DAYS — the outlook auto-loads at the
+// full cap so the user never has to open the range picker just to see it.
+const AUTO_CALENDAR_DAYS = 30
+
+// ReportCard fully unmounts and remounts on every /night fetch, including
+// same-location day navigation (App.tsx only renders it once `report` is set
+// and `loading` is false — see the `report && !loading` gate). Without this,
+// the effect below would re-hit /calendar on every single day-nav click. Cache
+// the in-flight promise (not just the settled result) at module scope, keyed
+// by location, so remounts for a location already loading/loaded reuse it —
+// this also collapses React StrictMode's dev-mode double-invoke into one call.
+const _autoCalendarCache = new Map<string, Promise<CalendarResult>>()
+
+function autoFetchCalendar(lat: number, lon: number): Promise<CalendarResult> {
+  const key = `${lat},${lon}`
+  let p = _autoCalendarCache.get(key)
+  if (!p) {
+    p = fetchCalendar(lat, lon, tonightIso(), AUTO_CALENDAR_DAYS)
+    p.catch(() => _autoCalendarCache.delete(key)) // don't cache failures — allow retry on next mount
+    _autoCalendarCache.set(key, p)
+  }
+  return p
+}
+
+// Same remount problem as the calendar cache above, applied to Find Sky Nearby.
+// Nearby search stays manual/opt-in (no auto-fire) — this only restores a
+// search the user already ran for this location, instead of dropping back to
+// the two radius buttons on every day-nav click. Keyed by lat,lon,radius for
+// the fetch cache; lat,lon alone for "which radius did they last pick here".
+const _nearbyFetchCache = new Map<string, Promise<NearbyResult>>()
+const _nearbyLastRadius = new Map<string, number>()
+
+function nearbyLocKey(lat: number, lon: number) {
+  return `${lat},${lon}`
+}
+
+function fetchNearbyCached(lat: number, lon: number, radius: number): Promise<NearbyResult> {
+  const key = `${lat},${lon},${radius}`
+  let p = _nearbyFetchCache.get(key)
+  if (!p) {
+    p = fetchNearby(lat, lon, radius)
+    p.catch(() => _nearbyFetchCache.delete(key))
+    _nearbyFetchCache.set(key, p)
+  }
+  _nearbyLastRadius.set(nearbyLocKey(lat, lon), radius)
+  return p
+}
 
 // ── WMO weather code icons ───────────────────────────────────────────────────
 
@@ -61,37 +112,6 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 19 }: { code: number
 // first, then altitude — e.g. "Az 195° S · Alt 42°".
 function fmtPos(altDeg: number, azDeg: number): string {
   return `Az ${Math.round(azDeg)}° ${cardinal(azDeg)} · Alt ${Math.round(altDeg)}°`
-}
-
-// ── Moon phase image (NASA SVS) ──────────────────────────────────────────────
-// Uses NASA Scientific Visualization Studio 1024×1024 phase images
-// (public domain, downloaded to /moon-phases/).
-
-function MoonPhaseSvg({ phaseName, size = 22 }: {
-  phaseName: string
-  illuminationPct?: number   // kept for API compat; image handles accuracy
-  size?: number
-}) {
-  const p   = phaseName.toLowerCase()
-  const src = p.includes('new')                               ? '/moon-phases/new.jpg'
-            : p.includes('waxing') && p.includes('crescent') ? '/moon-phases/waxing-crescent.jpg'
-            : p.includes('first')                             ? '/moon-phases/first-quarter.jpg'
-            : p.includes('waxing') && p.includes('gibbous')  ? '/moon-phases/waxing-gibbous.jpg'
-            : p.includes('full')                              ? '/moon-phases/full.jpg'
-            : p.includes('waning') && p.includes('gibbous')  ? '/moon-phases/waning-gibbous.jpg'
-            : p.includes('last') || p.includes('third')      ? '/moon-phases/last-quarter.jpg'
-            : p.includes('waning') && p.includes('crescent') ? '/moon-phases/waning-crescent.jpg'
-            : '/moon-phases/full.jpg'
-
-  return (
-    <img
-      src={src}
-      alt={phaseName}
-      width={size}
-      height={size}
-      style={{ borderRadius: '50%', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
-    />
-  )
 }
 
 // ── Weather table ────────────────────────────────────────────────────────────
@@ -302,21 +322,6 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
         </table>
       </div>
     </details>
-  )
-}
-
-// ── Score bar ────────────────────────────────────────────────────────────────
-
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  const pct = Math.max(0, Math.min(100, value * 10))
-  return (
-    <div className="bar-row">
-      <span className="bar-label">{label}</span>
-      <span className="bar-track">
-        <span className={`bar-fill band-${scoreBand(value)}`} style={{ width: `${pct}%` }} />
-      </span>
-      <span className="bar-value">{value.toFixed(1)}</span>
-    </div>
   )
 }
 
@@ -2295,12 +2300,15 @@ export default function ReportCard({
     | { phase: 'loading'; radius: number }
     | { phase: 'done'; data: NearbyResult }
     | { phase: 'error'; message: string }
-  >({ phase: 'idle' })
+  >(() => {
+    const radius = _nearbyLastRadius.get(nearbyLocKey(report.lat, report.lon))
+    return radius != null ? { phase: 'loading', radius } : { phase: 'idle' }
+  })
 
   async function handleFindNearby(radius: number) {
     setNearbyState({ phase: 'loading', radius })
     try {
-      const data = await fetchNearby(report.lat, report.lon, radius)
+      const data = await fetchNearbyCached(report.lat, report.lon, radius)
       setNearbyState({ phase: 'done', data })
     } catch (err) {
       setNearbyState({
@@ -2309,6 +2317,74 @@ export default function ReportCard({
       })
     }
   }
+
+  // Restores a previously-run nearby search across the remount that same-location
+  // day navigation causes (see the calendar auto-load effect below). No-ops if the
+  // user hasn't searched nearby for this location yet — nearbyState stays idle,
+  // same as today.
+  useEffect(() => {
+    const radius = _nearbyLastRadius.get(nearbyLocKey(report.lat, report.lon))
+    if (radius == null) return
+    let cancelled = false
+    fetchNearbyCached(report.lat, report.lon, radius).then(data => {
+      if (!cancelled) setNearbyState({ phase: 'done', data })
+    }).catch(err => {
+      if (!cancelled) {
+        setNearbyState({
+          phase: 'error',
+          message: err instanceof ApiRequestError ? err.message : 'Nearby search failed.',
+        })
+      }
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report.lat, report.lon])
+
+  const [calendarState, setCalendarState] = useState<CalendarPickerState>({ phase: 'idle' })
+  // Sidesteps a race: if the user opens the picker and applies a range before the
+  // auto-load below resolves, the auto-load's eventual result must not clobber
+  // their explicit choice.
+  const manualCalendarRef = useRef(false)
+
+  async function handleFindCalendar(start: string, days: number) {
+    manualCalendarRef.current = true
+    setCalendarState({ phase: 'loading', start, days })
+    try {
+      const data = await fetchCalendar(report.lat, report.lon, start, days)
+      setCalendarState({ phase: 'done', data, days })
+    } catch (err) {
+      setCalendarState({
+        phase: 'error',
+        message: err instanceof ApiRequestError ? err.message : 'Calendar search failed.',
+      })
+    }
+  }
+
+  // Auto-load the outlook as soon as a location's report is up, instead of waiting
+  // for the user to open the range picker — the calendar's own backend cost is
+  // already cheap (dark-cycle window is cached/deduped per location). [lat, lon]
+  // rather than [report] limits this to firing once per distinct location; the
+  // module-level cache in autoFetchCalendar handles dedup across the remounts
+  // that same-location day navigation still causes.
+  useEffect(() => {
+    manualCalendarRef.current = false
+    let cancelled = false
+    setCalendarState({ phase: 'loading', start: tonightIso(), days: AUTO_CALENDAR_DAYS })
+    autoFetchCalendar(report.lat, report.lon).then(data => {
+      if (!cancelled && !manualCalendarRef.current) {
+        setCalendarState({ phase: 'done', data, days: AUTO_CALENDAR_DAYS })
+      }
+    }).catch(err => {
+      if (!cancelled && !manualCalendarRef.current) {
+        setCalendarState({
+          phase: 'error',
+          message: err instanceof ApiRequestError ? err.message : 'Calendar search failed.',
+        })
+      }
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report.lat, report.lon])
 
   const r   = report
   const tz  = r.tz_name
@@ -2482,24 +2558,42 @@ export default function ReportCard({
       </div>
 
 
-        <details className="nearby-section" open>
-        <summary>Find Sky Nearby</summary>
-        <div className="nearby-body">
-          {nearbyState.phase === 'idle' && (
-            <div className="nearby-radius-toggle">
-              <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
-              <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
+        <details className="planning-tools-section" open>
+        <summary>Planning Tools</summary>
+        <div className="planning-tools-body">
+          <div className="planning-tool">
+            <h4 className="planning-tool-title">Find Sky Nearby</h4>
+            <div className="nearby-body">
+              {nearbyState.phase === 'idle' && (
+                <div className="nearby-radius-toggle">
+                  <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
+                  <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
+                </div>
+              )}
+              {nearbyState.phase === 'loading' && (
+                <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
+              )}
+              {nearbyState.phase === 'error' && (
+                <p className="sat-notice">{nearbyState.message}</p>
+              )}
+              {nearbyState.phase === 'done' && (
+                <NearbyResults data={nearbyState.data} imperial={imperial} originLat={report.lat} originLon={report.lon} />
+              )}
             </div>
-          )}
-          {nearbyState.phase === 'loading' && (
-            <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
-          )}
-          {nearbyState.phase === 'error' && (
-            <p className="sat-notice">{nearbyState.message}</p>
-          )}
-          {nearbyState.phase === 'done' && (
-            <NearbyResults data={nearbyState.data} imperial={imperial} originLat={report.lat} originLon={report.lon} />
-          )}
+          </div>
+
+          <div className="planning-tool">
+            <h4 className="planning-tool-title">Calendar — Next Good Night</h4>
+            <div className="nearby-body">
+              <CalendarRangePicker state={calendarState} onApply={handleFindCalendar} />
+              {calendarState.phase === 'error' && (
+                <p className="sat-notice">{calendarState.message}</p>
+              )}
+              {calendarState.phase === 'done' && (
+                <OutlookTelemetryRibbon data={calendarState.data} days={calendarState.days} />
+              )}
+            </div>
+          </div>
         </div>
       </details>
 
