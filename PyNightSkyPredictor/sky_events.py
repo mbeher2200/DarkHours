@@ -429,7 +429,7 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
         # Re-check — a concurrent caller for this location may have just
         # finished and populated the cache while we were waiting for the lock.
         if mem_key in _mem_dark_cycle:
-            log.debug("Dark cycle mem-cache hit (exact, post-lock) for %s", mem_key)
+            log.debug("Dark cycle mem-cache hit (exact, post-lock) for window starting %s", window_start.isoformat())
             return _dark_stats(_mem_dark_cycle[mem_key]["nights"], 14)
         hit = _dark_cycle_overlap_hit(loc_prefix, target_date)
         if hit is not None:
@@ -440,13 +440,13 @@ def lunar_cycle_dark_analysis(lat: float, lon: float, target_date: date, tz) -> 
         # in-process or handing off to _dark_stats.
         cached = _cache.get(db_key)
         if cached:
-            log.debug("Dark cycle DynamoDB hit for %s", db_key)
+            log.debug("Dark cycle DynamoDB hit for window starting %s", window_start.isoformat())
             nights = _nights_from_json(cached["nights"])
             _mem_dark_cycle[mem_key] = {"window_start": cached["window_start"], "nights": nights}
             return _dark_stats(nights, 14)
 
         # 3. Compute and persist
-        log.debug("Dark cycle cache miss for %s — computing 30-night window", mem_key)
+        log.debug("Dark cycle cache miss — computing 30-night window starting %s", window_start.isoformat())
         nights = _compute_dark_hours_cycle(lat, lon, target_date, tz)
         entry = {"window_start": window_start.isoformat(), "nights": nights}
         try:
