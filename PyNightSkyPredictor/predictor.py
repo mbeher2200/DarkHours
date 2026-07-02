@@ -394,12 +394,22 @@ def assemble_night(
     fetch_weather: bool = True,
     fetch_targets: bool = False,
     fetch_satellites: bool = False,
+    use_cycle_window: bool = False,
 ) -> NightReport:
     """
     Compute a complete NightReport for the given location and date.
 
     Raises ValueError if no sunset or sunrise can be found for the
     date/location (e.g. polar day/night).
+
+    use_cycle_window=True (calendar/trip path only — /night and the CLI leave
+    this False): derive sunset/sunrise/night_start/night_end/dark_hours_tonight
+    from lunar_cycle_dark_analysis()'s already-computed 30-night window instead
+    of an independent sky_events() call. No event timeline, no moonrise/moonset —
+    NightSummary (the calendar path's result type) doesn't carry any of those.
+    This extends the same fixed-twilight-offset approximation dark_score already
+    accepts (see sky_events.py) to moon_score/weather-windowing too, but only
+    for this path; output is otherwise unaffected.
     """
     def _local(dt):
         return dt.astimezone(tz)
@@ -457,32 +467,59 @@ def assemble_night(
                 _sl_future = _pool.submit(_tle_mod.get_starlink_train_tles)
 
         # --- Skyfield work runs concurrently with the I/O threads above ---
-        events = se.sky_events(lat, lon, target)
-        _t["sky_events_ms"] = round((time.monotonic() - _t0) * 1000)
+        _precomputed_dark_hours_tonight = None
+        cycle = None
+        if use_cycle_window:
+            # Calendar/trip path: reuse the (already-deduplicated across a calendar
+            # range — see sky_events.py's per-location lock) dark-cycle window
+            # instead of an independent sky_events() call.
+            _t["sky_events_ms"] = 0
+            _tc = time.monotonic()
+            cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
+            dark_score = cycle["score"]
+            _t["lunar_cycle_ms"] = round((time.monotonic() - _tc) * 1000)
 
-        # --- Key event times ---
-        _tc = time.monotonic()
-        sunset = next(
-            (e["time"] for e in events
-             if e["label"] == "Sunset" and _local(e["time"]).date() == target),
-            None,
-        )
-        if not sunset:
-            raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
+            tonight = cycle["tonight"]
+            sunset  = tonight["sunset"]
+            if not sunset:
+                raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
+            sunrise = tonight["sunrise"]
+            if not sunrise:
+                raise ValueError(f"No sunrise found after sunset on {target}")
 
-        sunrise = se.find_event(events, "Sunrise", after=sunset)
-        if not sunrise:
-            raise ValueError(f"No sunrise found after sunset on {target}")
+            moonrise = moonset = None
+            night_start = tonight["night_start"]
+            night_end   = tonight["night_end"]
+            night_events = []
+            _precomputed_dark_hours_tonight = tonight["dark_hours"]
+            _tc = time.monotonic()  # for the event_parse_ms line below (~0ms here)
+        else:
+            events = se.sky_events(lat, lon, target)
+            _t["sky_events_ms"] = round((time.monotonic() - _t0) * 1000)
 
-        moonrise    = se.find_last_event(events, "Moonrise", before=sunrise)
-        moonset     = se.find_event(events, "Moonset", after=sunset)
-        night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise)
-        night_end   = se.find_event(events, "Astronomical night ends",   after=night_start or sunset, before=sunrise)
+            # --- Key event times ---
+            _tc = time.monotonic()
+            sunset = next(
+                (e["time"] for e in events
+                 if e["label"] == "Sunset" and _local(e["time"]).date() == target),
+                None,
+            )
+            if not sunset:
+                raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
 
-        # Events within the display window (sunset/moonrise → sunrise/moonset)
-        window_start = min(sunset, moonrise) if moonrise and moonrise < sunset else sunset
-        window_end   = max(sunrise, moonset) if moonset  and moonset  > sunrise else sunrise
-        night_events = [e for e in events if window_start <= e["time"] <= window_end]
+            sunrise = se.find_event(events, "Sunrise", after=sunset)
+            if not sunrise:
+                raise ValueError(f"No sunrise found after sunset on {target}")
+
+            moonrise    = se.find_last_event(events, "Moonrise", before=sunrise)
+            moonset     = se.find_event(events, "Moonset", after=sunset)
+            night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise)
+            night_end   = se.find_event(events, "Astronomical night ends",   after=night_start or sunset, before=sunrise)
+
+            # Events within the display window (sunset/moonrise → sunrise/moonset)
+            window_start = min(sunset, moonrise) if moonrise and moonrise < sunset else sunset
+            window_end   = max(sunrise, moonset) if moonset  and moonset  > sunrise else sunrise
+            night_events = [e for e in events if window_start <= e["time"] <= window_end]
 
         _t["event_parse_ms"] = round((time.monotonic() - _tc) * 1000)
 
@@ -496,8 +533,15 @@ def assemble_night(
 
         # --- Dark intervals ---
         if night_start and night_end:
-            intervals          = se.dark_moon_intervals(events, night_start, night_end)
-            dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
+            if _precomputed_dark_hours_tonight is not None:
+                # use_cycle_window path: already computed by the dark-cycle window
+                # loop (which folds moonrise/moonset into this scalar internally —
+                # see sky_events.py); NightSummary doesn't need the raw intervals.
+                dark_hours_tonight = _precomputed_dark_hours_tonight
+                intervals = []
+            else:
+                intervals          = se.dark_moon_intervals(events, night_start, night_end)
+                dark_hours_tonight = sum((e - s).total_seconds() for s, e in intervals) / 3600
             total_astro_hours  = (night_end - night_start).total_seconds() / 3600
 
             # Moon score: weight moonlit fraction by K&S sky-brightening credit rather
@@ -534,10 +578,13 @@ def assemble_night(
             moon_score             = round(10 * ks_moon_credit(illumination), 1)
 
         # --- Lunar cycle dark analysis ---
-        _tc = time.monotonic()
-        cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
-        dark_score = cycle["score"]
-        _t["lunar_cycle_ms"] = round((time.monotonic() - _tc) * 1000)
+        # (already computed above for the use_cycle_window path — cycle/dark_score
+        # were set together with sunset/sunrise/night_start/night_end in that case)
+        if cycle is None:
+            _tc = time.monotonic()
+            cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
+            dark_score = cycle["score"]
+            _t["lunar_cycle_ms"] = round((time.monotonic() - _tc) * 1000)
 
         # --- Collect I/O (weather + darksky started at function entry) ---
         _tc = time.monotonic()
