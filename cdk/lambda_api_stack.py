@@ -153,13 +153,44 @@ class LambdaApiStack(Stack):
         )
 
         # --- Scheduled warmup ping — keeps one container alive, prevents cold starts ---
-        # EventBridge invokes Lambda directly every 4 minutes; LWA converts to POST /warmup.
+        # EventBridge invokes Lambda directly every 4 minutes with a synthetic Function URL
+        # v2.0 payload so Mangum can infer the HTTPGateway handler (raw EB events have no
+        # requestContext and crash Mangum before any code runs).
         # Cost: ~10,800 invocations/month + ~1,620 GB-s — both within Lambda free tier.
         warmup_rule = events.Rule(
             self, "WarmupRule",
             schedule=events.Schedule.rate(Duration.minutes(4)),
         )
-        warmup_rule.add_target(targets.LambdaFunction(fn))
+        warmup_rule.add_target(targets.LambdaFunction(
+            fn,
+            event=events.RuleTargetInput.from_object({
+                "version": "2.0",
+                "routeKey": "POST /warmup",
+                "rawPath": "/warmup",
+                "rawQueryString": "",
+                "headers": {
+                    "host": "warmup.internal",
+                    "x-forwarded-proto": "https",
+                },
+                "requestContext": {
+                    "accountId": "warmup",
+                    "apiId": "warmup",
+                    "domainName": "warmup.internal",
+                    "http": {
+                        "method": "POST",
+                        "path": "/warmup",
+                        "protocol": "HTTP/1.1",
+                        "sourceIp": "127.0.0.1",
+                        "userAgent": "EventBridge/warmup",
+                    },
+                    "requestId": "warmup",
+                    "routeKey": "$default",
+                    "stage": "$default",
+                    "timeEpoch": 0,
+                },
+                "isBase64Encoded": False,
+            }),
+        ))
 
         # least-privilege data access (reference foundational resources)
         bucket = s3.Bucket.from_bucket_name(self, "RasterBucket", raster_bucket)
