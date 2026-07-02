@@ -275,3 +275,33 @@ export type NearbyJobRecord =
   | { status: 'pending' }
   | { status: 'done'; result: NearbyResult }
   | { status: 'error'; error: string }
+
+// ── Calendar / "next good night" outlook ───────────────────────────────────────
+
+export interface CalendarNight {
+  date: string // YYYY-MM-DD
+  score: number | null
+  score_components: ScoreComponents
+  phase_name: string
+  illumination_pct: number
+  dark_hours: number
+  bortle_score: number | null
+  weather_score: number | null
+  // False beyond the calendar tool's 7-day weather-trust cutoff — score is
+  // astronomy-only for that night (moon + dark hours + bortle, weights redistribute).
+  weather_informed: boolean
+  wx_pending: boolean
+  wx_no_data: boolean
+}
+
+export interface CalendarResult {
+  date_start: string
+  date_end: string
+  nights: CalendarNight[]
+  ranked: CalendarNight[] // sorted best → worst by score
+}
+
+export type CalendarJobRecord =
+  | { status: 'pending' }
+  | { status: 'done'; result: CalendarResult }
+  | { status: 'error'; error: string }

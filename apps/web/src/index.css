@@ -69,8 +69,8 @@
   --accent: #4A5EA8;       /* Sun blue */
 
   /* ── Semantic Data ──────────────────────────────────────────── */
-  --excellent: #4A5EA8;    /* Sun blue */
-  --good: #5CB85C;         /* Success green */
+  --excellent: #5CB85C;    /* Success green */
+  --good: #4A5EA8;         /* Sun blue */
   --fair: #F0AD4E;         /* Warning amber */
   --poor: #D9534F;         /* Danger red */
 

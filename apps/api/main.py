@@ -1,7 +1,7 @@
 """PyNightSky HTTP API — a thin JSON layer over the engine.
 
-Wraps predictor.assemble_night() as FastAPI endpoints, reusing the same
-location/timezone resolution the CLI uses. No engine logic
+Wraps predictor.assemble_night() and trip.plan_trip() as FastAPI endpoints,
+reusing the same location/timezone resolution the CLI uses. No engine logic
 lives here; handlers only resolve inputs, call the engine, and serialize.
 
 Run locally:   uvicorn apps.api.main:app --reload --port 8080
@@ -17,7 +17,7 @@ import os
 import shutil
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
@@ -132,6 +132,8 @@ _MAX_DATE = date(2050, 12, 31)
 _MAX_NAME_LEN = 200                 # geocode query length cap
 _NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
 _NEARBY_RADIUS_MAX = 120            # 10 of 11 sample rings; good density up to ~2.5h drive
+_MAX_CALENDAR_DAYS = 30              # /calendar range-length cap (mirrors old _MAX_TRIP_DAYS)
+_CALENDAR_WEATHER_HORIZON_DAYS = 7   # per-night weather cutoff for the calendar tool specifically
 
 
 # ── health check helpers ──────────────────────────────────────────────────────
@@ -320,6 +322,33 @@ def nearby(
     else:
         raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
     job_id = jobs.submit({"type": "nearby", "lat": la, "lon": lo, "radius_miles": radius})
+    return _accepted(job_id)
+
+
+@app.get("/calendar")
+def calendar_view(
+    location: str | None = Query(None, max_length=_MAX_NAME_LEN),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
+    start: str | None = Query(None, description="YYYY-MM-DD; default today"),
+    days: int = Query(7, ge=1, le=_MAX_CALENDAR_DAYS, description="Range length in days"),
+):
+    """Submit a multi-night outlook job for one location → 202 + job_id (poll /jobs/{id}).
+
+    Weather is only included in a night's score within _CALENDAR_WEATHER_HORIZON_DAYS
+    of today; nights further out score on astronomical factors alone.
+    """
+    la, lo, disp, tz = _resolve(location, lat, lon)
+    s = _parse_date(start, "start")
+    e = s + timedelta(days=days - 1)
+    if e > _MAX_DATE:
+        raise HTTPException(400, f"end date {e} is outside the supported ephemeris range.")
+    loc_dict = {"lat": la, "lon": lo, "display_name": disp, "tz_name": str(tz)}
+    job_id = jobs.submit({
+        "type": "calendar", "locs": [loc_dict],
+        "start": s.isoformat(), "end": e.isoformat(),
+        "weather": True, "weather_horizon_days": _CALENDAR_WEATHER_HORIZON_DAYS,
+    })
     return _accepted(job_id)
 
 

@@ -1,4 +1,4 @@
-import type { ApiError, NightReport, NearbyResult, NearbyJobRecord } from './types'
+import type { ApiError, NightReport, NearbyResult, NearbyJobRecord, CalendarResult, CalendarJobRecord } from './types'
 
 export interface NightQuery {
   location?: string
@@ -41,7 +41,7 @@ const NEARBY_TIMEOUT_MS = 120_000
 
 /**
  * Submit a nearby dark-sky search and poll until complete.
- * Uses the same async SQS+job pattern as /calendar and /trip.
+ * Uses the same async SQS+job pattern as /calendar.
  */
 export async function fetchNearby(lat: number, lon: number, radius = 60): Promise<NearbyResult> {
   const p = new URLSearchParams({ lat: String(lat), lon: String(lon), radius: String(radius) })
@@ -77,6 +77,51 @@ export async function fetchNearby(lat: number, lon: number, radius = 60): Promis
     if (rec.status === 'error') throw new ApiRequestError(500, rec.error)
   }
   throw new ApiRequestError(0, 'Nearby search timed out. Try a smaller radius.')
+}
+
+// A calendar job can cover up to 30 location-nights (vs /nearby's fixed single-point
+// scan), so give it more headroom before giving up; same backoff shape otherwise.
+const CALENDAR_POLL_BACKOFF_MS = [500, 1_000, 2_000, 3_000]
+const CALENDAR_TIMEOUT_MS = 180_000
+
+/**
+ * Submit a multi-night outlook search for one location and poll until complete.
+ * Uses the same async SQS+job pattern as /nearby.
+ */
+export async function fetchCalendar(lat: number, lon: number, start: string, days: number): Promise<CalendarResult> {
+  const p = new URLSearchParams({ lat: String(lat), lon: String(lon), start, days: String(days) })
+  let res: Response
+  try {
+    res = await fetch(`/calendar?${p}`)
+  } catch {
+    throw new ApiRequestError(0, 'Could not reach the API. Check your connection and try again.')
+  }
+  if (res.status !== 202) {
+    let detail = `Calendar request failed (${res.status}).`
+    try {
+      const b = (await res.json()) as ApiError
+      if (b?.detail) detail = b.detail
+    } catch { /* non-JSON error body */ }
+    throw new ApiRequestError(res.status, detail)
+  }
+  const { job_id } = (await res.json()) as { job_id: string }
+
+  const deadline = Date.now() + CALENDAR_TIMEOUT_MS
+  for (let attempt = 0; Date.now() < deadline; attempt++) {
+    const wait = CALENDAR_POLL_BACKOFF_MS[Math.min(attempt, CALENDAR_POLL_BACKOFF_MS.length - 1)]
+    await new Promise(r => setTimeout(r, wait))
+    let poll: Response
+    try {
+      poll = await fetch(`/jobs/${job_id}`)
+    } catch {
+      throw new ApiRequestError(0, 'Lost connection while waiting for calendar results.')
+    }
+    if (!poll.ok) throw new ApiRequestError(poll.status, `Poll failed (${poll.status}).`)
+    const rec = (await poll.json()) as CalendarJobRecord
+    if (rec.status === 'done')  return rec.result
+    if (rec.status === 'error') throw new ApiRequestError(500, rec.error)
+  }
+  throw new ApiRequestError(0, 'Calendar search timed out. Try a shorter range.')
 }
 
 /**

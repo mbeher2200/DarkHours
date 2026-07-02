@@ -1,4 +1,4 @@
-"""Async job lifecycle for the long /calendar + /trip computes (M6.3).
+"""Async job lifecycle for the long /calendar + /nearby computes (M6.3).
 
 Fully-async contract: the endpoints resolve + validate synchronously (fast, cached
 geocode; 4xx on bad input immediately), then hand the heavy multi-night compute to a
@@ -51,18 +51,20 @@ def _run_nearby_job(params: dict) -> dict:
 def run_job(params: dict) -> dict:
     """Dispatch a job to the appropriate handler based on params['type'].
 
-    params for "nearby": {"type": "nearby", "lat": float, "lon": float, "radius_miles": int}
-    params for "trip"  : {"locs": [...], "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "weather": bool}
-    Defaulting to "trip" when "type" is absent keeps all existing calendar/trip jobs working.
+    params for "nearby"   : {"type": "nearby", "lat": float, "lon": float, "radius_miles": int}
+    params for "calendar" : {"type": "calendar", "locs": [...], "start": "YYYY-MM-DD",
+                             "end": "YYYY-MM-DD", "weather": bool, "weather_horizon_days"?: int}
+    Defaulting to the calendar path when "type" is absent keeps old records working.
     """
     if params.get("type") == "nearby":
         return _run_nearby_job(params)
-    # trip/calendar path — locations already geocoded at submit time
+    # calendar path — locations already geocoded at submit time
     report = _trip.plan_trip(
         params["locs"],
         date.fromisoformat(params["start"]),
         date.fromisoformat(params["end"]),
         fetch_weather=bool(params.get("weather", False)),
+        weather_horizon_days=params.get("weather_horizon_days") or _trip._FORECAST_DAYS,
     )
     return trip_report_to_dict(report)
 
