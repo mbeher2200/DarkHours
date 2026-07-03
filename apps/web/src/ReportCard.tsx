@@ -2590,7 +2590,7 @@ export default function ReportCard({
                 <p className="sat-notice">{calendarState.message}</p>
               )}
               {calendarState.phase === 'done' && (
-                <OutlookTelemetryRibbon data={calendarState.data} days={calendarState.days} />
+                <OutlookTelemetryRibbon data={calendarState.data} days={calendarState.days} lat={report.lat} lon={report.lon} />
               )}
             </div>
           </div>
