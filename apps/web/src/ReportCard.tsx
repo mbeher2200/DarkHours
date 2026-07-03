@@ -92,16 +92,29 @@ function CloudStar({ size = 19 }: { size?: number }) {
   )
 }
 
-function WmoIcon({ code, cloudCover, moonUp = false, size = 19, aod, visibilityM, precipType }: {
+function WmoIcon({ code, cloudCover, moonUp = false, size = 19, aod, pm25, visibilityM, precipType }: {
   code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number
-  aod?: number | null; visibilityM?: number | null; precipType?: string | null
+  aod?: number | null; pm25?: number | null; visibilityM?: number | null; precipType?: string | null
 }) {
   if (code == null) return null
-  // Haze: AOD/visibility-driven, only when there's no active precip event (precip icons
-  // — fog/rain/snow/etc — take priority; haze is a "clear but hazy" state).
-  const isHazy = (precipType == null || precipType === 'none') &&
-    ((aod != null && aod > 0.3) || (visibilityM != null && visibilityM < 10000 && visibilityM >= 1000))
-  if (isHazy) return <Haze size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+  // Haze: AOD/PM2.5/visibility-driven, only when there's no active precip event (precip
+  // icons — fog/rain/snow/etc — take priority; haze is a "clear but hazy" state).
+  // Thresholds mirror rate_conditions()'s limiter curves: AOD 0.3 and PM2.5 35 µg/m³ are
+  // both where the gentle taper gives way to the steep power-curve penalty.
+  const isNoPrecip = precipType == null || precipType === 'none'
+  const aodHazy = isNoPrecip && aod != null && aod > 0.3
+  const pmHazy  = isNoPrecip && aod == null && pm25 != null && pm25 > 35
+  const visHazy = isNoPrecip && visibilityM != null && visibilityM < 10000 && visibilityM >= 1000
+  if (aodHazy || pmHazy || visHazy) {
+    const detail = aodHazy ? `Haze — AOD ${aod!.toFixed(2)}`
+      : pmHazy ? `Haze — PM2.5 ${pm25!.toFixed(0)} µg/m³`
+      : `Haze — Visibility ${(visibilityM! / 1000).toFixed(1)} km`
+    return (
+      <span title={detail} style={{ display: 'inline-flex' }}>
+        <Haze size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+      </span>
+    )
+  }
   // For pure sky-state codes (0–3), cloud cover % is more precise than the API code
   if (code <= 3 && cloudCover != null) {
     if (cloudCover <= 25) return moonUp
@@ -316,7 +329,7 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
                   <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
                     {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
                       moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
-                      aod={p.aerosol_optical_depth} visibilityM={p.visibility_m} precipType={p.precip_type} />)}
+                      aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type} />)}
                   </td>
                   <td className="wx-num wx-cloud-col">
                     {cell(isFetching,
