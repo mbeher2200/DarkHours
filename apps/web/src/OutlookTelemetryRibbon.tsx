@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import type { CalendarNight, CalendarResult } from './types'
 import { scoreBand, scoreLabel, tonightIso, formatHm } from './format'
 import { MoonPhaseSvg, ScoreBar } from './shared'
@@ -14,6 +14,17 @@ function dateParts(iso: string): { dow: string; mmdd: string; long: string } {
   return { dow: DOW[d.getDay()], mmdd: `${mm}/${dd}`, long }
 }
 
+// Monochromatic luminance map: the raw score alone drives the cell wash's
+// opacity (continuous, not banded) — hue never changes, and higher scores
+// are darker/more saturated. A score of 0 is fully clear (no tint at all —
+// just the plain card background); opacity scales linearly up to ~15% for
+// the best possible night, maintaining contrast while preventing the pure
+// black wash from reading too heavily.
+function cellAlpha(score: number): number {
+  const clamped = Math.max(0, Math.min(9, score))
+  return (clamped / 9) * 0.15
+}
+
 /**
  * Compact calendar-style heat map: one small square per night, colored by
  * score band, laid out in day-of-week-aligned rows (like a contribution
@@ -22,11 +33,14 @@ function dateParts(iso: string): { dow: string; mmdd: string; long: string } {
  * returned — moon + dark hours + weather + bortle only, satellites never
  * factor in.
  */
-export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
+export default function OutlookTelemetryRibbon({
+  data, days, onViewDetails, isFetchingDetails, viewDetailsError,
+}: {
   data: CalendarResult
   days: number
-  lat: number
-  lon: number
+  onViewDetails: (date: string) => void
+  isFetchingDetails?: boolean
+  viewDetailsError?: string | null
 }) {
   const nights = useMemo(() => [...data.nights].sort((a, b) => a.date.localeCompare(b.date)), [data.nights])
   const best = data.ranked[0] as CalendarNight | undefined
@@ -35,8 +49,17 @@ export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
   const today = tonightIso()
 
   // Pad leading cells so the grid's columns line up with day-of-week, like a real calendar.
+  // Trailing cells are padded too — a 7- or 14-day range otherwise leaves the
+  // last grid row incomplete, and those missing slots have no cell element at
+  // all, so the grid container's own dark hairline background shows through
+  // solid instead of the same empty-cell treatment leading blanks get.
   const leadingBlanks = nights.length ? new Date(nights[0].date + 'T00:00:00').getDay() : 0
-  const cells: (CalendarNight | null)[] = [...Array<null>(leadingBlanks).fill(null), ...nights]
+  const trailingBlanks = (7 - ((leadingBlanks + nights.length) % 7)) % 7
+  const cells: (CalendarNight | null)[] = [
+    ...Array<null>(leadingBlanks).fill(null),
+    ...nights,
+    ...Array<null>(trailingBlanks).fill(null),
+  ]
 
   const bestBand = best?.score != null ? scoreBand(best.score) : null
   const selectedBand = selected?.score != null ? scoreBand(selected.score) : null
@@ -66,24 +89,29 @@ export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
             const isPast = n.date < today
             const isMuted = isPast || n.score == null
             const isSelected = n.date === selectedDate
+            const isBest = n.date === best?.date
             const { dow, mmdd } = dateParts(n.date)
+            const dayNum = Number(n.date.slice(8, 10))
             return (
-              <a
+              <button
                 key={n.date}
-                href={`?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&date=${n.date}`}
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
                 className={[
                   'heatmap-cell',
                   band ? `hm-${band}` : '',
                   isMuted ? 'muted' : '',
                   isSelected ? 'selected' : '',
+                  isBest ? 'best' : '',
                 ].filter(Boolean).join(' ')}
-                onMouseEnter={() => setSelectedDate(n.date)}
+                style={n.score != null ? ({ '--cell-alpha': cellAlpha(n.score) } as CSSProperties) : undefined}
                 onClick={() => setSelectedDate(n.date)}
-                title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'} — opens in a new tab`}
-                aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}, opens in a new tab`}
-              />
+                aria-pressed={isSelected}
+                title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''}`}
+                aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}${isBest ? ', best night' : ''}${isSelected ? ', currently selected' : ''}`}
+              >
+                <span className="hm-day">{dayNum}</span>
+                <span className="hm-score">{n.score != null ? n.score.toFixed(1) : '—'}</span>
+              </button>
             )
           })}
         </div>
@@ -111,7 +139,14 @@ export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
               <span className="meta-v">{selected.phase_name} · {selected.illumination_pct.toFixed(0)}% illuminated</span>
             </div>
             {!selected.weather_informed && (
-              <p className="sat-notice">Astronomy-only estimate — beyond the 7-day forecast horizon</p>
+              <p className="sat-notice">
+                Astronomy-only estimate —{' '}
+                {selected.wx_pending
+                  ? 'forecast not yet available for this date'
+                  : selected.wx_no_data
+                  ? 'weather provider returned no data for this date'
+                  : 'beyond the 7-day forecast horizon'}
+              </p>
             )}
             {sc && (
               <div className="telemetry-mini-bars">
@@ -121,6 +156,15 @@ export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
                 {selected.weather_informed && sc.weather != null && <ScoreBar label="Weather" value={sc.weather} />}
               </div>
             )}
+            <button
+              type="button"
+              className="telemetry-view-details submit"
+              disabled={isFetchingDetails}
+              onClick={() => onViewDetails(selected.date)}
+            >
+              {isFetchingDetails ? 'Loading…' : 'View Details'}
+            </button>
+            {viewDetailsError && <p className="sat-notice">{viewDetailsError}</p>}
           </>
         ) : (
           <p className="sat-notice">No data</p>

@@ -1,4 +1,4 @@
-import type { ApiError, NightReport, NearbyResult, NearbyJobRecord, CalendarResult, CalendarJobRecord } from './types'
+import type { ApiError, NightReport, DateOnlyNightReport, NearbyResult, NearbyJobRecord, CalendarResult, CalendarJobRecord } from './types'
 
 export interface NightQuery {
   location?: string
@@ -171,4 +171,45 @@ export async function fetchNight(q: NightQuery): Promise<NightReport> {
     throw new ApiRequestError(res.status, detail)
   }
   return (await res.json()) as NightReport
+}
+
+export interface DateOnlyNightQuery {
+  lat: number
+  lon: number
+  date: string
+  weather: boolean
+  targets: boolean
+  satellites: boolean
+}
+
+/**
+ * Fetch only the date-dependent fields of a report for a location whose
+ * location-keyed fields (light_pollution/bortle_score/light_dome) are already
+ * known client-side from a prior full /night response. Always uses lat/lon —
+ * never `location=` — since the location is already resolved and re-geocoding
+ * a place name here could silently drift to different coordinates.
+ */
+export async function fetchNightDateOnly(q: DateOnlyNightQuery): Promise<DateOnlyNightReport> {
+  const p = new URLSearchParams({
+    lat: String(q.lat), lon: String(q.lon), date: q.date,
+    weather: String(q.weather), targets: String(q.targets), satellites: String(q.satellites),
+    date_only: 'true',
+  })
+  let res: Response
+  try {
+    res = await fetch(`/night?${p}`)
+  } catch {
+    throw new ApiRequestError(0, 'Could not reach the API. Check your connection and try again.')
+  }
+  if (!res.ok) {
+    let detail = `Request failed (${res.status}).`
+    try {
+      const body = (await res.json()) as ApiError
+      if (body?.detail) detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the generic message */
+    }
+    throw new ApiRequestError(res.status, detail)
+  }
+  return (await res.json()) as DateOnlyNightReport
 }
