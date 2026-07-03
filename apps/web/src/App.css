@@ -1448,42 +1448,15 @@ details summary {
 .telemetry-ribbon {
   border: 1px solid var(--card-border);
 }
-/* Best-night hero metric — same pattern as .overall-num/.overall-label/
-   .overall-sub on the main score card, scaled down for this compact panel. */
+/* Best-night line — plain text, colored/bolded via .telemetry-score-* (same
+   classes the selected-night score below uses), not a separate hero number. */
 .telemetry-hero {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--card-border);
-}
-.telemetry-hero-num {
-  font-size: 32px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.01em;
-  color: var(--text-h);
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-.telemetry-hero-num.band-excellent { color: var(--excellent); }
-.telemetry-hero-num.band-good      { color: var(--good); }
-.telemetry-hero-num.band-fair      { color: var(--fair); }
-.telemetry-hero-num.band-poor      { color: var(--poor); }
-.telemetry-hero-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  font-size: 13px;
 }
 .telemetry-hero-label {
-  font-size: 14px;
-  font-weight: 600;
   color: var(--text-h);
-}
-.telemetry-hero-sub {
-  font-size: 12px;
-  color: var(--text-dim);
-  font-weight: 500;
 }
 .heatmap-body {
   padding: 8px 10px;
@@ -1509,12 +1482,14 @@ details summary {
   max-width: 220px;
 }
 .heatmap-cell {
+  display: block;
   width: 100%;
   aspect-ratio: 1;
   padding: 0;
   border: none;
   background: var(--text-dim);
   cursor: pointer;
+  text-decoration: none;
 }
 .heatmap-cell-empty {
   background: transparent;
