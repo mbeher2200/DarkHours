@@ -233,6 +233,12 @@ export interface ApiError {
   detail: string
 }
 
+// Fields NightReport carries that are location-keyed, not date-keyed — never
+// re-fetched/re-merged by the date-only ("View Details") drill-in flow.
+export type LocationFields = 'light_pollution' | 'bortle_score' | 'light_dome'
+
+export type DateOnlyNightReport = Omit<NightReport, LocationFields>
+
 // ── Nearby dark-sky search ────────────────────────────────────────────────────
 
 // poi_type values mirror PyNightSkyPredictor _POI_TYPE_LABELS / osm_poi_builder.

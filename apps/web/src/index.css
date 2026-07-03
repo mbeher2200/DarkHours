@@ -1,55 +1,3 @@
-  /*
-  :root {
-    --bg: #0A0C10;
-    --bg-grad: radial-gradient(1600px 900px at 50% -20%, #232b54 0%, #141a30 42%, #0e1122 68%);
-    --card: #12151C;
-    --card-border: #222734;
-    --text: #BAC2D4;
-    --text-dim: #8086a6;
-    --text-h: #F0F2F8;
-    --accent: #638DFF ;
-
-    --excellent: #5ad19a;
-    --good: #7aa2ff;
-    --fair: #a78bfa;
-    --poor: #f87171;
-
-    --sans: 'Poppins', system-ui, 'Segoe UI', Roboto, sans-serif;
-    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-
-    font: 1rem/1.6 var(--sans);
-    color: var(--text);
-    color-scheme: dark;
-    font-kerning: normal;
-    font-optical-sizing: auto;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
-  body {
-    margin: 0;
-    min-height: 100svh;
-    background: var(--bg) var(--bg-grad) no-repeat fixed;
-    letter-spacing: 0.01em;
-  }
-
-  h1,
-  h2 {
-    color: var(--text-h);
-    font-weight: 700;
-    margin: 0;
-    letter-spacing: -0.02em;
-  }
-
-  a {
-    color: var(--accent);
-  }
-*/
-
 :root {
   /* ── Canvas & Surfaces ──────────────────────────────────────── */
   --bg: #E8EAEE;           /* Light neutral gray page */
@@ -82,6 +30,14 @@
   --ev-sun:   oklch(0.62 0.17 63);   /* warm amber */
   --ev-moon:  oklch(0.48 0.10 248);  /* cool blue */
   --ev-astro: oklch(0.42 0.16 272);  /* deep indigo */
+
+  /* Outlook heatmap cell shading: a neutral black-alpha wash (same technique
+     as details summary's rgba(0,0,0,0.05) header bars) rather than a tinted
+     hue — reads as the same muted gray as headers / the Use My Location
+     button's --field-bg surface. Distinct from --tint-rgb (which stays blue
+     in light mode) — under red-mode this must stay pure red, never gray, so
+     it gets its own red-mode override below rather than reusing --tint-rgb. */
+  --dh-wash-rgb: 17, 19, 22;
 }
 
 *, *::before, *::after {

@@ -262,3 +262,13 @@ export function daySpan(startIso: string, endIso: string): number {
   const e = new Date(endIso + 'T00:00:00')
   return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1
 }
+
+// Weather forecast (7-day) and satellite TLE accuracy ([0,10]-day) horizons —
+// mirrors apps/api's fetch limits. Shared by App.tsx's form-level gating and
+// ReportCard's per-date "View Details" gating so the two never drift.
+export function availabilityFor(dateIso: string): { wxUnavail: boolean; satUnavail: boolean } {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const d = new Date(dateIso + 'T00:00:00')
+  const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
+  return { wxUnavail: days > 7, satUnavail: days < 0 || days > 10 }
+}

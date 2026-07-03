@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react'
 import './App.css'
 import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
-import { tonightIso, toIsoDate, defaultImperial } from './format'
+import { tonightIso, toIsoDate, defaultImperial, availabilityFor } from './format'
 import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
@@ -93,18 +93,11 @@ export default function App() {
 
   const { wxForecastUnavailable, satUnavailable, isPastDate } = (() => {
     if (!date) return { wxForecastUnavailable: false, satUnavailable: false, isPastDate: false }
+    const { wxUnavail, satUnavail } = availabilityFor(date)
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    const d = new Date(date + 'T00:00:00')
-    const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
-    return { wxForecastUnavailable: days > 7, satUnavailable: days < 0 || days > 10, isPastDate: days < 0 }
+    const days = Math.round((new Date(date + 'T00:00:00').getTime() - today.getTime()) / 86_400_000)
+    return { wxForecastUnavailable: wxUnavail, satUnavailable: satUnavail, isPastDate: days < 0 }
   })()
-
-  function availabilityFor(d: string) {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const dd = new Date(d + 'T00:00:00')
-    const days = Math.round((dd.getTime() - today.getTime()) / 86_400_000)
-    return { wxUnavail: days > 7, satUnavail: days < 0 || days > 10 }
-  }
 
   async function runQuery(q: NightQuery) {
     setLoading(true)
@@ -213,6 +206,18 @@ export default function App() {
       q.lon = lo
     }
     runQuery(q)
+  }
+
+  // Bubble-up target for ReportCard's "View Details" drill-in (a date-only
+  // fetch for the same location). Never touches `loading`, so the
+  // `report && !loading` gate below never flips and ReportCard stays mounted —
+  // Night Timeline/Satellite Ephemeris update in place instead of unmounting.
+  function handleDateDetail(next: NightReport, nextDate: string) {
+    setReport(next)
+    setDate(nextDate)
+    const p = new URLSearchParams(window.location.search)
+    p.set('date', nextDate)
+    history.replaceState(null, '', '?' + p.toString())
   }
 
   function quickSearch(location: string) {
@@ -593,6 +598,7 @@ export default function App() {
           showSatellites={reportSatellites}
           imperial={imperial}
           onToggleUnits={toggleUnits}
+          onDateDetail={handleDateDetail}
         />
       )}
 

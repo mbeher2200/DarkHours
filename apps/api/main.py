@@ -248,6 +248,7 @@ def night(
     weather: bool = True,
     targets: bool = False,
     satellites: bool = False,
+    date_only: bool = Query(False, description="Omit location-keyed fields (light_pollution/bortle_score/light_dome) the client already has from a prior full fetch for this location"),
 ):
     """Single-night report for a location/date (mirrors the CLI single-night path)."""
     la, lo, disp, tz = _resolve(location, lat, lon)
@@ -269,6 +270,12 @@ def night(
         d.pop("mw_summary", None)
     if not weather:
         d.pop("weather_points", None)
+    if date_only:
+        # Location-keyed, not date-keyed — the client already has these from
+        # the initial full fetch for this location and doesn't need them again.
+        d.pop("light_pollution", None)
+        d.pop("bortle_score", None)
+        d.pop("light_dome", None)
     return d
 
 

@@ -1,3 +1,42 @@
+/* ── Typography Unification Rules ──────────────────────────────────────────── */
+
+/* Rule 1: The Micro-Label Standard (Data & Keys) */
+.field-label,
+.field > span,
+.meta-k,
+.bar-label,
+.mw-label,
+.wx-table th,
+.tg-table th,
+.tg-unviable-hdr td,
+.dp-month-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+/* Rule 2: The Sub-Section Standard (Groupings) */
+.planning-tool-title,
+.nearby-highlight-label,
+.crp-col-title,
+.mw-section-label,
+.ld-title,
+.mw-dome-title,
+.sat-trains-label,
+.nearby-domes-label {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-h);
+}
+
+
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -124,6 +163,9 @@ html.red-mode {
   --tint-rgb: 255, 0, 0;
   --hairline-rgb: 255, 0, 0;
   --surface-2: rgba(255, 0, 0, 0.14);
+  /* Stays pure red here (NOT gray) — a true neutral gray requires equal
+     green/blue channels, which is exactly what red-mode exists to avoid. */
+  --dh-wash-rgb: 255, 0, 0;
   --ev-sun:   var(--text-dim);
   --ev-moon:  var(--text-dim);
   --ev-astro: var(--text-dim);
@@ -260,25 +302,6 @@ html.red-mode .nearby-trigger {
 }
 html.red-mode .nearby-trigger:active {
   border: 1px solid rgba(255, 0, 0, 0.20);
-}
-/* .heatmap-cell uses namespaced hm-poor/fair/good/excellent classes (not the
-   app's bare band-* names) specifically to avoid colliding with the generic
-   score-card tint rule above. But --poor/fair/good/excellent are themselves
-   near-identical dark reds in red-mode (single-hue palette), which reads as
-   one indistinct color across the tiny heatmap squares. Same fix as the
-   .bar-fill bands above: differentiate by fill saturation, not hue. */
-html.red-mode .heatmap-cell.hm-poor {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.45);
-}
-html.red-mode .heatmap-cell.hm-fair {
-  background: rgba(255, 0, 0, 0.30);
-}
-html.red-mode .heatmap-cell.hm-good {
-  background: rgba(255, 0, 0, 0.62);
-}
-html.red-mode .heatmap-cell.hm-excellent {
-  background: rgba(255, 0, 0, 0.88);
 }
 html.red-mode .mode-toggle,
 html.red-mode .units-toggle {
@@ -780,11 +803,11 @@ html.red-mode .scope-brk {
   cursor: default;
 }
 
-/* ── report ───────────────────────────────────────────────── */
-@keyframes report-in {
+* ── report ───────────────────────────────────────────────── */
+/*@keyframes report-in {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
-}
+}*/
 
 .report {
   display: flex;
@@ -803,10 +826,17 @@ html.red-mode .scope-brk {
   gap: 16px;
   margin-bottom: 16px;
 }
-.report-head-meta { min-width: 0; }
+.report-head-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .report-head .place {
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
 }
 .place-mappin {
   display: inline-flex;
@@ -826,13 +856,16 @@ html.red-mode .scope-brk {
 .report-head .place-sub {
   color: var(--text-dim);
   font-size: 13px;
-  margin: 2px 0 0;
+  margin: 0;
 }
 .report-head .when {
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 500;
-  margin-top: 4px;
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
 }
 .stale-notice {
   background: rgba(var(--tint-rgb), 0.07);
@@ -843,7 +876,6 @@ html.red-mode .scope-brk {
   color: var(--accent);
   text-align: center;
 }
-
 .overall {
   display: flex;
   flex-wrap: wrap; /* FIXED: Allows the meta block to wrap under the score */
@@ -897,7 +929,6 @@ html.red-mode .scope-brk {
 }
 
 /* ── Light dome panel (all-sky fisheye) ─────────────────────── */
-/* Full-width row in the score card; canvas scales to available width. */
 .lightdome-panel {
   flex: 0 0 100%;
   display: flex;
@@ -907,15 +938,9 @@ html.red-mode .scope-brk {
   margin-top: -8px;
 }
 .ld-title {
-  font-size: 13px;
-  font-weight: 600;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text);
+  /* Removed local font-family, font-size, font-weight, text-transform, letter-spacing so it defers to the shared Rule 2 */
   text-align: center;
 }
-/* Disk on the left, caption + legend stacked to the right of it. */
 .ld-body {
   display: flex;
   flex-direction: row;
@@ -1333,16 +1358,12 @@ details summary {
   display: inline-block;
 }
 .crp-trigger {
+  /* Colors/border/hover/active/disabled/red-mode come from .submit (shared
+     with "Score the night"/"View Details"/60 MI/120 MI) — this class only
+     adds the icon + label + chevron flex layout .submit doesn't need. */
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* .nearby-trigger's mono/uppercase/tracking suits short fixed labels
-     (60 MI, 7 DAYS); this button shows a dynamic date-range summary and
-     sits beside Search a place / Use my location, so match those instead —
-     plain body font, sentence case, no letter-spacing. */
-  font: inherit;
-  text-transform: none;
-  letter-spacing: normal;
 }
 .crp-popover {
   position: absolute;
@@ -1444,12 +1465,12 @@ details summary {
   color: var(--accent);
   font-weight: 600;
 }
+/* ... [Unchanged Card and Block Elements] ... */
+
 /* ── outlook telemetry ribbon ─────────────────────────────────────────────── */
 .telemetry-ribbon {
   border: 1px solid var(--card-border);
 }
-/* Best-night line — plain text, colored/bolded via .telemetry-score-* (same
-   classes the selected-night score below uses), not a separate hero number. */
 .telemetry-hero {
   padding: 12px 14px;
   border-bottom: 1px solid var(--card-border);
@@ -1465,53 +1486,112 @@ details summary {
 .heatmap-dow-row {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
-  max-width: 220px;
-  margin-bottom: 3px;
+  gap: 1px;
+  margin-bottom: 4px;
 }
 .heatmap-dow-row span {
   text-align: center;
   font-size: 9px;
+  font-weight: 700;
   font-family: var(--mono);
   color: var(--text-dim);
 }
 .heatmap-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
-  max-width: 220px;
+  gap: 1px;
+  background: var(--text-h);
+  border: 1px solid var(--text-h);
 }
 .heatmap-cell {
-  display: block;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   aspect-ratio: 1;
-  padding: 0;
+  padding: 4px;
   border: none;
-  background: var(--text-dim);
+  border-radius: 0;
+  background-color: var(--card);
+  background-image: linear-gradient(rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)), rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)));
+  color: var(--text-h);
+  font-family: var(--mono);
   cursor: pointer;
   text-decoration: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .heatmap-cell-empty {
-  background: transparent;
+  background: var(--field-bg);
   cursor: default;
-  visibility: hidden;
 }
-.heatmap-cell.hm-excellent { background: var(--excellent); }
-.heatmap-cell.hm-good      { background: var(--good); }
-.heatmap-cell.hm-fair      { background: var(--fair); }
-.heatmap-cell.hm-poor      { background: var(--poor); }
 .heatmap-cell.muted { opacity: 0.4; }
+.hm-day {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-h);
+}
+html.red-mode .heatmap-cell.hm-good .hm-score {
+  color: var(--good);
+}
+
+html.red-mode .heatmap-cell.hm-excellent .hm-score {
+  color: var(--excellent);
+}
+.hm-score {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* Deepened Contrast Colors for Heatmap Scores */
+.heatmap-cell.hm-poor      .hm-score { color: #B91C1C; }
+.heatmap-cell.hm-fair      .hm-score { color: #92400E; }
+.heatmap-cell.hm-good      .hm-score { color: #115E59; }
+.heatmap-cell.hm-excellent .hm-score { color: #065F46; }
+
+html.red-mode .heatmap-cell.hm-fair .hm-score {
+  color: var(--fair);
+}
+html.red-mode .heatmap-cell.hm-good .hm-score {
+  color: var(--good);
+}
+html.red-mode .heatmap-cell.hm-excellent .hm-score {
+  color: var(--excellent);
+}
+.heatmap-cell.best {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .heatmap-cell.selected {
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--card), inset 0 0 0 3px var(--text-h);
+}
+.heatmap-cell.best.selected {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 0 3px var(--card),
+    inset 0 0 0 5px var(--text-h);
 }
 .telemetry-readout {
   padding: 10px 12px;
-  background: var(--field-bg);
+  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .telemetry-readout .meta-row { font-size: 13px; }
+.telemetry-readout .meta-v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.telemetry-mini-bars .bar-value { font-family: var(--mono); }
+/* Colors/border/hover/active/disabled/red-mode all come from .submit (shared
+   with "Score the night") — this class only positions it in the flex column. */
+.telemetry-view-details {
+  align-self: flex-start;
+  margin-top: 4px;
+}
 .telemetry-selected-head {
   display: flex;
   align-items: center;
@@ -1522,6 +1602,13 @@ details summary {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-h);
+}
+.telemetry-score-excellent,
+.telemetry-score-good,
+.telemetry-score-fair,
+.telemetry-score-poor {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .telemetry-score-excellent { color: var(--excellent); font-weight: 600; }
 .telemetry-score-good      { color: var(--good);      font-weight: 600; }
@@ -1534,12 +1621,15 @@ details summary {
   margin-top: 4px;
 }
 .telemetry-mini-bars .bar-row {
-  grid-template-columns: 84px 1fr 30px;
-  gap: 8px;
-  font-size: 12px;
+  display: grid;
+  grid-template-columns: 112px 1fr 36px; /* Matches the main scorecard's label/value spacing */
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
 }
+
 .telemetry-mini-bars .bar-track {
-  height: 5px;
+  height: 6px; /* Restored to original telemetry height */
 }
 /* POI-first reachability affordances */
 .poi-namelink {
@@ -1673,53 +1763,60 @@ details summary {
   margin-top: 10px;
   margin-bottom: 6px;
 }
-/* Two-column layout: text left, arch dome right */
-.mw-layout {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 1.5rem;
-}
-.mw-section-label {
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-dim);
-  padding: 0 0 7px;
-}
+
 .mw-card {
   display: flex;
   flex-direction: column;
   gap: 7px;
   font-size: 13px;
 }
-.mw-score-row {
-  display: flex;
+
+/* Replaces .mw-layout for the top metadata grouping */
+.mw-top-section {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
-.mw-score-left {
+
+.mw-meta-block {
   display: flex;
-  align-items: baseline;
-  gap: 14px;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 0;
+  flex-direction: column;
+  gap: 8px; /* Consistent with telemetry cards */
+  margin-bottom: 16px;
 }
+
+.mw-mid-section {
+  display: flex;
+  flex-direction: row;        /* Side-by-side */
+  align-items: center;        /* Vertically centered */
+  justify-content: center;    /* Keeps the whole group centered in the card */
+  gap: 24px;
+  margin-top: 8px;
+  margin-bottom: 20px;
+}
+
+.mw-notes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;    /* Keeps the notes left-aligned within their column */
+  width: 100%;
+  max-width: 160px;
+}
+
 .mw-score {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-h);
-  line-height: 1;
+  font-size: 13px; /* Reduced from 22px to match .meta-v size */
+  font-weight: 600; /* Medium-bold for readability */
+  line-height: 1.5; /* Matches the telemetry row line-height */
 }
+
 .mw-score-denom {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-dim);
+  font-size: 13px; /* Reduced from 14px */
+  font-weight: 500; /* Slightly lighter than the score */
+  color: inherit;
+  margin-left: 4px;
 }
 .mw-sub-scores {
   display: flex;
@@ -1806,20 +1903,25 @@ details summary {
 /* Half-dome SVG visualization */
 .mw-dome-wrap {
   flex-shrink: 0;
-  width: 260px;
+  width: 400px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 0px;
 }
-.mw-dome-title {
-  font-size: 13px;
-  font-weight: 600;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text);
+.mw-group-title {
   text-align: center;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+  text-transform: none; /* Enforces the removal of all-caps */
+  margin-bottom: 8px;   /* Adds breathing room before the graphic/notes */
+  width: 100%;
+}
+/* Hide the old internal label rendered by the MilkyWayDome component */
+.mw-dome-title {
+  display: none !important;
 }
 .mw-dome-subtitle {
   font-size: 9px;
@@ -2315,6 +2417,72 @@ html.red-mode .wx-now-row td.wx-now-time {
   text-align: center;
 }
 
+/* ── terminal-recalculation ("View Details" date-only fetch) ─────────────────
+   Phase B/C for Night Timeline / Satellite Ephemeris only — see the
+   isFetching/cathodeSnap props on WeatherTable/SatellitePasses. */
+.wx-table-wrap {
+  position: relative;
+}
+.wx-table-wrap.is-recalculating .wx-table {
+  opacity: 0.3;
+  pointer-events: none;
+}
+.recalc-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--card);
+  opacity: 0.92;
+  pointer-events: none;
+  z-index: 3; /* above sticky .wx-time (1) and sticky header (2) */
+}
+.recalc-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  animation: recalc-blink 1s steps(1) infinite;
+}
+@keyframes recalc-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recalc-cursor { animation: none; }
+}
+html.red-mode .recalc-overlay {
+  /* var(--accent)/var(--card) already resolve correctly under red-mode;
+     explicit block kept per this file's "no implicit inheritance" convention. */
+  color: var(--accent);
+  background: var(--card);
+}
+
+/* Phase C — 50ms inverse-contrast flash on hydration (cathodeSnap prop).
+   Variable-driven, not filter: invert() — an ancestor filter doesn't apply
+   to GPU-composited descendants for a frame (see the red-mode note above the
+   :root block) and would fight red-mode's own SVG-filter usage elsewhere. */
+.wx-table-wrap.cathode-snap,
+.wx-table-wrap.cathode-snap .wx-table,
+.wx-table-wrap.cathode-snap .wx-table td,
+.wx-table-wrap.cathode-snap .wx-table th {
+  background: var(--text-h);
+  color: var(--card);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wx-table-wrap.cathode-snap,
+  .wx-table-wrap.cathode-snap .wx-table,
+  .wx-table-wrap.cathode-snap .wx-table td,
+  .wx-table-wrap.cathode-snap .wx-table th {
+    background: none;
+    color: inherit;
+  }
+}
+
 /* ── empty state ──────────────────────────────────────────── */
 .empty-state {
   display: flex;
@@ -2622,8 +2790,6 @@ html.red-mode .wx-now-row td.wx-now-time {
   .masthead {
     margin-bottom: 10px;
   }
-  /* Narrow screens: lift the toggle out of the corner (it would overlap the
-     title) into its own centered row above the wordmark. */
   .night-vision-toggle {
     position: static;
     display: flex;
@@ -2637,7 +2803,6 @@ html.red-mode .wx-now-row td.wx-now-time {
     border-radius: 2px;
     padding: 8px;
   }
-  /* Mode toggle: allow buttons to wrap so "Enter coordinates" doesn't clip */
   .mode-toggle button {
     font-size: 0.6875rem;
     padding: 7px 4px;
@@ -2646,26 +2811,24 @@ html.red-mode .wx-now-row td.wx-now-time {
     text-align: center;
     min-width: 0;
   }
-  /* Stack lat/lon inputs vertically */
   .coords {
     grid-template-columns: 1fr;
   }
-  /* Scope grid: tighter column gap on narrow screens */
   .scope-grid {
     column-gap: 12px;
   }
   .units-toggle {
     margin-left: auto;
   }
-  /* Report head: allow units toggle to wrap below on narrow screens */
   .report-head {
     flex-wrap: wrap;
   }
-  /* Report head: slightly smaller location name on mobile */
+
+  /* Report head: properly scales down location name on mobile */
   .report-head .place {
-    font-size: 1.125rem;
+    font-size: 14px;
   }
-  /* Hide report-head coordinates (lat/lon) — too long for narrow screens */
+
   .report-head-coords {
     display: none;
   }
@@ -2691,6 +2854,30 @@ html.red-mode .wx-now-row td.wx-now-time {
     width: 100%;
     max-width: 420px;
     margin: 0 auto;
+  }
+    /* MW card: collapse to single column so dome stacks below scores */
+  .mw-top-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .mw-mid-section {
+    flex-direction: column;
+    align-items: center;  /* Centers the graphic and the notes block */
+    gap: 16px;            /* Adds breathing room between the dome and the notes */
+  }
+
+.mw-dome-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Keep notes left-aligned in their own block below the dome */
+.mw-notes-container {
+    align-items: center;  /* Centers the badges horizontally */
+    margin-top: 0;        /* Resets the desktop nudge */
+    max-width: 100%;      /* Allows it to use the full width */
   }
   /* Restore nearby table layout for mobile, matching the Excel mockup */
   .nearby-table {
@@ -2766,11 +2953,11 @@ html.red-mode .wx-now-row td.wx-now-time {
   .heatmap-body {
     padding: 6px;
   }
-  .heatmap-dow-row,
-  .heatmap-grid {
-    max-width: 180px;
-    gap: 2px;
+  .heatmap-cell {
+    padding: 3px;
   }
+  .hm-day { font-size: 9px; }
+  .hm-score { font-size: 13px; }
   .telemetry-readout {
     font-size: 11px;
     padding: 8px;

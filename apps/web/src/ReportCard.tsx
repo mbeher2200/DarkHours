@@ -3,9 +3,9 @@ import type { NightReport, SkyEvent, WeatherPoint, VisibleTarget, TargetWindow, 
 import {
   formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
-  scoreBand, scoreLabel, moonWashSeverity, moonUpAt, tonightIso,
+  scoreBand, scoreLabel, moonWashSeverity, moonUpAt, tonightIso, availabilityFor,
 } from './format'
-import { fetchNearby, fetchCalendar, ApiRequestError } from './api'
+import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
 import CalendarRangePicker, { type CalendarPickerState } from './CalendarRangePicker'
 import { MoonPhaseSvg, ScoreBar } from './shared'
@@ -114,9 +114,17 @@ function fmtPos(altDeg: number, azDeg: number): string {
   return `Az ${Math.round(azDeg)}° ${cardinal(azDeg)} · Alt ${Math.round(altDeg)}°`
 }
 
+// Phase A of the "View Details" terminal-recalculation sequence: while a
+// date-only fetch is in flight, value cells render this placeholder instead of
+// their (now-stale) content — row/column structure never changes, so there's
+// no layout shift to guard against.
+function cell(isFetching: boolean, value: React.ReactNode): React.ReactNode {
+  return isFetching ? '—' : value
+}
+
 // ── Weather table ────────────────────────────────────────────────────────────
 
-function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonrise, moonset }: {
+function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonrise, moonset, isFetching = false, cathodeSnap = false }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
@@ -124,6 +132,8 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
   darkIntervals?: [string, string][]
   moonrise?: string | null
   moonset?: string | null
+  isFetching?: boolean
+  cathodeSnap?: boolean
 }) {
   // Clip the table to the sunset→sunrise window. Events/points outside this
   // range are daytime and not useful once the astro-night band conveys darkness.
@@ -191,13 +201,15 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
   ].sort((a, b) => a.ts - b.ts), [visibleEvents, visiblePoints])
 
   // Insert the live "now" row at the correct sorted position on each tick.
+  // Suppressed while recalculating — showing "now" against stale, about-to-be-
+  // replaced rows is misleading mid-fetch.
   const rows = useMemo<Row[]>(() => {
-    if (!isLive) return baseRows
+    if (!isLive || isFetching) return baseRows
     const nowRow: Row = { kind: 'now', ts: nowTs }
     const insertAt = baseRows.findIndex(r => r.ts > nowTs)
     if (insertAt === -1) return [...baseRows, nowRow]
     return [...baseRows.slice(0, insertAt), nowRow, ...baseRows.slice(insertAt)]
-  }, [baseRows, isLive, nowTs])
+  }, [baseRows, isLive, isFetching, nowTs])
 
   const ip = { size: 12, strokeWidth: 1.5, style: { flexShrink: 0 } } as const
   function evIcon(label: string) {
@@ -224,7 +236,12 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
         {sunsetTs !== -Infinity && sunriseTs !== Infinity &&
           `: ${formatDayTime(new Date(sunsetTs).toISOString(), tz)} → ${formatDayTime(new Date(sunriseTs).toISOString(), tz)}`}
       </summary>
-      <div className="wx-table-wrap">
+      <div className={`wx-table-wrap${isFetching ? ' is-recalculating' : ''}${cathodeSnap ? ' cathode-snap' : ''}`}>
+        {isFetching && (
+          <div className="recalc-overlay" role="status" aria-live="polite">
+            RECALCULATING...<span className="recalc-cursor" aria-hidden="true">█</span>
+          </div>
+        )}
         <table className="wx-table">
           {hasWx && (
             <thead>
@@ -284,36 +301,38 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
                 <tr key={`wx-${i}`} className={isAstro ? 'wx-row-astro' : undefined}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
                   <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
-                    <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct} moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)} />
+                    {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct} moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)} />)}
                   </td>
-                  <td className="wx-num">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</td>
+                  <td className="wx-num">{cell(isFetching, p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—')}</td>
                   {hasTransp && (
                     <td className="wx-num">
-                      {p.transparency != null
+                      {cell(isFetching, p.transparency != null
                         ? `${{ Excellent: 10, Good: 8, Fair: 4, Poor: 1 }[p.transparency] ?? 5}/10`
-                        : '—'}
+                        : '—')}
                     </td>
                   )}
                   {hasSeeing && (
                     <td className="wx-num">
-                      {p.seeing_arcsec != null
+                      {cell(isFetching, p.seeing_arcsec != null
                         ? <>{Math.max(1, Math.min(10, Math.round((3.0 - p.seeing_arcsec) / 2.6 * 10)))}/10<span className="wx-seeing-detail">{` (${p.seeing_arcsec.toFixed(2)}")`}</span></>
-                        : '—'}
+                        : '—')}
                     </td>
                   )}
-                  {hasTemp   && <td className="wx-num">{fmtTemp(p.temperature_c, imperial)}</td>}
+                  {hasTemp   && <td className="wx-num">{cell(isFetching, fmtTemp(p.temperature_c, imperial))}</td>}
                   {hasDew    && (
                     <td className={`wx-num wx-dew-col${dewGate ? ' wx-gate-warn' : ''}`}>
-                      {fmtTemp(p.dew_point_c, imperial)}{dewGate && <Droplet size={dewSpread! <= 3 ? 14 : 11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />}
+                      {cell(isFetching, <>{fmtTemp(p.dew_point_c, imperial)}{dewGate && <Droplet size={dewSpread! <= 3 ? 14 : 11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />}</>)}
                     </td>
                   )}
                   <td className={`wx-num${windSevere ? ' wx-gate-warn' : ''}`}>
-                    {fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}
-                    {windSevere
-                      ? <TriangleAlert size={13} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
-                      : windWarn
-                      ? <Wind size={11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
-                      : null}
+                    {cell(isFetching, <>
+                      {fmtWind(p.wind_speed_ms, p.wind_direction_deg, imperial)}
+                      {windSevere
+                        ? <TriangleAlert size={13} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
+                        : windWarn
+                        ? <Wind size={11} strokeWidth={1.5} style={{ marginLeft: 3, verticalAlign: 'middle', flexShrink: 0 }} />
+                        : null}
+                    </>)}
                   </td>
                 </tr>
               )
@@ -340,7 +359,7 @@ function MetaRow({ k, v, icon }: { k: string; v: string; icon?: React.ReactNode 
 
 // ── Satellite passes ─────────────────────────────────────────────────────────
 
-function SatellitePasses({ report }: { report: NightReport; }) {
+function SatellitePasses({ report, isFetching = false, cathodeSnap = false }: { report: NightReport; isFetching?: boolean; cathodeSnap?: boolean }) {
   const tz = report.tz_name
 
   // Unavailability notices
@@ -404,7 +423,12 @@ function SatellitePasses({ report }: { report: NightReport; }) {
       )}
 
       {display.length > 0 && (
-        <div className="wx-table-wrap">
+        <div className={`wx-table-wrap${isFetching ? ' is-recalculating' : ''}${cathodeSnap ? ' cathode-snap' : ''}`}>
+          {isFetching && (
+            <div className="recalc-overlay" role="status" aria-live="polite">
+              RECALCULATING...<span className="recalc-cursor" aria-hidden="true">█</span>
+            </div>
+          )}
           <table className="wx-table sat-table">
             <thead>
               <tr>
@@ -442,36 +466,38 @@ function SatellitePasses({ report }: { report: NightReport; }) {
                 const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
                 if (satCloudy) return (
                   <tr key={i} className="tg-row-blocked">
-                    <td>{label}</td>
+                    <td>{cell(isFetching, label)}</td>
                     <td className="wx-num" colSpan={11 + (satGlow != null ? 1 : 0)}>
-                      <span className="mw-moon-badge badge-poor">Clouded out</span>
+                      {cell(isFetching, <span className="mw-moon-badge badge-poor">Clouded out</span>)}
                     </td>
                   </tr>
                 )
                 return (
                   <tr key={i}>
-                    <td>{label}</td>
-                    <td className="wx-num">{formatTime(p.rise_time, tz)}</td>
-                    <td className="wx-num">{p.rise_alt_deg.toFixed(0)}°</td>
-                    <td className="wx-num">{az(p.rise_az_deg)}</td>
+                    <td>{cell(isFetching, label)}</td>
+                    <td className="wx-num">{cell(isFetching, formatTime(p.rise_time, tz))}</td>
+                    <td className="wx-num">{cell(isFetching, `${p.rise_alt_deg.toFixed(0)}°`)}</td>
+                    <td className="wx-num">{cell(isFetching, az(p.rise_az_deg))}</td>
                     <td className="wx-num">
-                      {formatTime(p.peak_time, tz)}
-                      {wxAtPeak && (
-                        <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxAtPeak))}`}>
-                          <WmoIcon code={wxAtPeak.weather_code} size={12} />
-                        </span>
-                      )}
+                      {cell(isFetching, <>
+                        {formatTime(p.peak_time, tz)}
+                        {wxAtPeak && (
+                          <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxAtPeak))}`}>
+                            <WmoIcon code={wxAtPeak.weather_code} size={12} />
+                          </span>
+                        )}
+                      </>)}
                     </td>
-                    <td className="wx-num">{p.peak_alt_deg.toFixed(0)}°</td>
-                    <td className="wx-num sat-peak-az-col">{az(p.peak_az_deg)}</td>
-                    <td className="wx-num sat-set-col">{formatTime(p.set_time, tz)}</td>
-                    <td className="wx-num sat-set-col">{setAlt}</td>
-                    <td className="wx-num sat-set-col">{az(p.set_az_deg)}</td>
-                    <td className="wx-num sat-dur-col">{p.duration_min.toFixed(0)}m</td>
-                    <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{moonStr}</td>
+                    <td className="wx-num">{cell(isFetching, `${p.peak_alt_deg.toFixed(0)}°`)}</td>
+                    <td className="wx-num sat-peak-az-col">{cell(isFetching, az(p.peak_az_deg))}</td>
+                    <td className="wx-num sat-set-col">{cell(isFetching, formatTime(p.set_time, tz))}</td>
+                    <td className="wx-num sat-set-col">{cell(isFetching, setAlt)}</td>
+                    <td className="wx-num sat-set-col">{cell(isFetching, az(p.set_az_deg))}</td>
+                    <td className="wx-num sat-dur-col">{cell(isFetching, `${p.duration_min.toFixed(0)}m`)}</td>
+                    <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{cell(isFetching, moonStr)}</td>
                     {report.light_dome && (
                       <td className="wx-num cond-glow" style={satGlow != null && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
-                        {satGlow != null && satGlow >= 0.03 ? glowLabel(satGlow) : '—'}
+                        {cell(isFetching, satGlow != null && satGlow >= 0.03 ? glowLabel(satGlow) : '—')}
                       </td>
                     )}
                   </tr>
@@ -1383,87 +1409,78 @@ export function MilkyWayCard({ summary, waypoints, report }: {
     s.core_moon_alt_deg ?? null,
   )
 
-  return (
+      return (
     <div className="mw-card">
-
-      <div className="mw-layout">
-
-        {/* Left Column Container reproducing the natural 7px vertical gap of mw-card */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-
-          <div className="mw-score-row">
-            <div className="mw-score-left">
-              <div style={{display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap'}}>
-                <span className={`mw-score mw-score-band-${scoreBand(s.local_score)}`}>{s.local_score.toFixed(1)}<span className="mw-score-denom">/10</span></span>
-                {s.weather_blocked && <span className="mw-moon-badge badge-poor">Clouded out</span>}
-                {!s.weather_blocked && s.weather_limited && <span className="mw-moon-badge">Partly cloudy</span>}
-              </div>
-              <div className="mw-sub-scores">
-                <span className={`mw-score-band-${scoreBand(s.alt_score)}`}>Altitude {s.alt_score.toFixed(1)}/10</span>
-                <span className={`mw-score-band-${scoreBand(s.cov_score)}`}>Coverage {s.cov_score.toFixed(1)}/10</span>
-                <span className={`mw-score-band-${scoreBand(s.win_score)}`}>Window {s.win_score.toFixed(1)}/10</span>
-                {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} />}
-                {s.arch_moon_washout && <span className="mw-moon-badge">Moon washout</span>}
-                {domeSections.length > 0 && (() => {
-                  const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
-                  const severity = glowLabel(maxGlow)
-                  const dirs     = domeSections.map(ds => ds.dir).join(' + ')
-                  const label    = `${dirs} ${domeSections.length > 1 ? 'sections' : 'section'}`
-                  return (
-                    <span className="mw-moon-badge cond-glow" style={glowStyle(maxGlow)}>
-                      {`Dome glow: ${label} · ${severity}`}
-                    </span>
-                  )
-                })()}
-              </div>
-            </div>
-          </div>
-
-          <div className="mw-row">
-            <span className="mw-label">Arch window</span>
-            <span>
-              {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
-              {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-              {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} />}
-              {s.weather_limited && !s.weather_blocked && (
-                <span className="mw-moon-badge">
-                  {`${s.clear_arch_hours.toFixed(1)}h clear`}
-                </span>
-              )}
-            </span>
-          </div>
-
-          <div className="mw-row">
-            <span className="mw-label">Galactic core</span>
-            <span>
-              {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)} (max {s.core_max_alt_deg}° alt)
-              {archQuality && s.arch_angle_deg != null && `  ·  arch ${s.arch_angle_deg.toFixed(0)}° (${archQuality})`}
-            </span>
-          </div>
-
-          <div className="mw-row">
-            <span className="mw-label">{bestLabel}</span>
-            <span>
-              {formatTime(bestTime, tz)} — core @ {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)}
-              {s.farthest_name && s.farthest_peak_alt_deg != null && (
-                <>,&nbsp;arch to {s.farthest_name} @ {fmtPos(s.farthest_peak_alt_deg, s.farthest_peak_az_deg ?? 0)}</>
-              )}
-            </span>
-          </div>
-
+      <div className="mw-meta-block">
+        {/* Unified Score Row */}
+        <div className="meta-row">
+          <span className="meta-k">Score</span>
+            {/* Using the standard meta-v class for uniformity */}
+          <span className={`meta-v mw-score mw-score-band-${scoreBand(s.local_score)}`}>
+            {s.local_score.toFixed(1)}
+          <span className="mw-score-denom">{scoreLabel(s.local_score)}</span>
+            {s.weather_blocked && <span className="mw-moon-badge badge-poor" style={{marginLeft: 8}}>Clouded out</span>}
+            {!s.weather_blocked && s.weather_limited && <span className="mw-moon-badge" style={{marginLeft: 8}}>Partly cloudy</span>}
+  </span>
+</div>
+        {/* Unified Metadata List */}
+        <div className="meta-row">
+          <span className="meta-k">Arch window</span>
+          <span className="meta-v">
+            {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
+            {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
+            {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} />}
+            {s.weather_limited && !s.weather_blocked && <span className="mw-moon-badge">{`${s.clear_arch_hours.toFixed(1)}h clear`}</span>}
+          </span>
         </div>
+        <div className="meta-row">
+          <span className="meta-k">Galactic core</span>
+          <span className="meta-v">
+            {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)} (max {s.core_max_alt_deg}° alt)
+            {archQuality && s.arch_angle_deg != null && `  ·  arch ${s.arch_angle_deg.toFixed(0)}° (${archQuality})`}
+          </span>
+        </div>
+        <div className="meta-row">
+          <span className="meta-k">{bestLabel}</span>
+          <span className="meta-v">
+            {formatTime(bestTime, tz)} — core @ {fmtPos(s.core_peak_alt_deg, s.core_peak_az_deg)}
+          </span>
+        </div>
+      </div>
 
-        {/* Right Column Container */}
-        <div>
+      {/* New Title Centered Above Both */}
+      <div className="mw-group-title">360° Sky View</div>
+
+      {/* 3 & 4: Skydome (Left) and Notes (Right) */}
+      <div className="mw-mid-section">
+
+        <div className="mw-dome-container">
           <MilkyWayDome summary={s} waypoints={waypoints} report={report} />
         </div>
 
+        <div className="mw-notes-container">
+          {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} />}
+          {s.arch_moon_washout && <span className="mw-moon-badge">Moon washout</span>}
+          {domeSections.length > 0 && (() => {
+            const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))
+            return (
+              <span className="mw-moon-badge cond-glow" style={glowStyle(maxGlow)}>
+                {`Dome glow: ${glowLabel(maxGlow)}`}
+              </span>
+            )
+          })()}
+        </div>
+      </div>
+
+      <div className="mw-bars-section telemetry-mini-bars">
+        <ScoreBar label="Altitude" value={s.alt_score} />
+        <ScoreBar label="Coverage" value={s.cov_score} />
+        <ScoreBar label="Window" value={s.win_score} />
       </div>
 
       {waypoints.length > 0 && (
         <WaypointsAccordion waypoints={waypoints} summary={s} report={report} />
       )}
-
     </div>
   )
 }
@@ -2287,6 +2304,7 @@ export default function ReportCard({
   showSatellites = false,
   imperial = false,
   onToggleUnits,
+  onDateDetail,
 }: {
   report: NightReport
   showWeather?: boolean
@@ -2294,6 +2312,7 @@ export default function ReportCard({
   showSatellites?: boolean
   imperial?: boolean
   onToggleUnits?: (imp: boolean) => void
+  onDateDetail?: (next: NightReport, date: string) => void
 }) {
   const [nearbyState, setNearbyState] = useState<
     | { phase: 'idle' }
@@ -2318,10 +2337,6 @@ export default function ReportCard({
     }
   }
 
-  // Restores a previously-run nearby search across the remount that same-location
-  // day navigation causes (see the calendar auto-load effect below). No-ops if the
-  // user hasn't searched nearby for this location yet — nearbyState stays idle,
-  // same as today.
   useEffect(() => {
     const radius = _nearbyLastRadius.get(nearbyLocKey(report.lat, report.lon))
     if (radius == null) return
@@ -2337,13 +2352,9 @@ export default function ReportCard({
       }
     })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report.lat, report.lon])
 
   const [calendarState, setCalendarState] = useState<CalendarPickerState>({ phase: 'idle' })
-  // Sidesteps a race: if the user opens the picker and applies a range before the
-  // auto-load below resolves, the auto-load's eventual result must not clobber
-  // their explicit choice.
   const manualCalendarRef = useRef(false)
 
   async function handleFindCalendar(start: string, days: number) {
@@ -2360,12 +2371,6 @@ export default function ReportCard({
     }
   }
 
-  // Auto-load the outlook as soon as a location's report is up, instead of waiting
-  // for the user to open the range picker — the calendar's own backend cost is
-  // already cheap (dark-cycle window is cached/deduped per location). [lat, lon]
-  // rather than [report] limits this to firing once per distinct location; the
-  // module-level cache in autoFetchCalendar handles dedup across the remounts
-  // that same-location day navigation still causes.
   useEffect(() => {
     manualCalendarRef.current = false
     let cancelled = false
@@ -2383,20 +2388,76 @@ export default function ReportCard({
       }
     })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report.lat, report.lon])
+
+  const [dateFetch, setDateFetch] = useState<
+    | { phase: 'idle' }
+    | { phase: 'fetching'; date: string }
+    | { phase: 'error'; date: string; message: string }
+  >({ phase: 'idle' })
+
+  const detailTokenRef = useRef(0)
+  useEffect(() => {
+    return () => { detailTokenRef.current++ }
+  }, [report.lat, report.lon])
+
+  async function handleViewDetails(date: string) {
+    const token = ++detailTokenRef.current
+    setDateFetch({ phase: 'fetching', date })
+    const { wxUnavail, satUnavail } = availabilityFor(date)
+    try {
+      const partial = await fetchNightDateOnly({
+        lat: report.lat, lon: report.lon, date,
+        weather: !wxUnavail, targets: true, satellites: !satUnavail,
+      })
+      if (detailTokenRef.current !== token) return
+      const merged: NightReport = {
+        ...report,
+        ...partial,
+        // Safely fallback to empty/undefined if the new date lacks this data
+        weather_points: partial.weather_points ?? [],
+        mw_summary: partial.mw_summary ?? null, // Swapped to null to satisfy the type
+        visible_targets: partial.visible_targets ?? []
+      }
+      onDateDetail?.(merged, date)
+      setDateFetch({ phase: 'idle' })
+    } catch (err) {
+      if (detailTokenRef.current !== token) return
+      setDateFetch({
+        phase: 'error',
+        date,
+        message: err instanceof ApiRequestError ? err.message : 'Could not load that date.',
+      })
+    }
+  }
+
+  const isFetchingDetails = dateFetch.phase === 'fetching'
+  const prevReportRef = useRef(report)
+  const [cathodeSnap, setCathodeSnap] = useState(false)
+  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (prevReportRef.current !== report) {
+      prevReportRef.current = report
+      if (snapTimeoutRef.current) clearTimeout(snapTimeoutRef.current)
+      setCathodeSnap(true)
+      snapTimeoutRef.current = setTimeout(() => {
+        setCathodeSnap(false)
+        snapTimeoutRef.current = null
+      }, 50)
+    }
+    return () => { if (snapTimeoutRef.current) clearTimeout(snapTimeoutRef.current) }
+  }, [report])
 
   const r   = report
   const tz  = r.tz_name
   const lp  = r.light_pollution
   const lps = lpString(lp)
-  // Short form for the dense score card — removes zone, source citation, keeps class + description
   const shortLps = lp?.bortle_class != null
     ? [`Bortle ${lp.bortle_class}`, lp.bortle_desc ?? null].filter(Boolean).join('  ·  ')
     : lps
   const tzZ = r.sunset ? tzAbbr(tz) : tz
 
-  // Moon line
   const specialTags = []
   if (r.moon_special) specialTags.push(`*** ${r.moon_special.charAt(0).toUpperCase() + r.moon_special.slice(1)} ***`)
   for (const e of r.moon_eclipses ?? []) {
@@ -2406,11 +2467,9 @@ export default function ReportCard({
       : `penumbral ${e.penumbral_magnitude?.toFixed(3)}`
     specialTags.push(`${kind} lunar eclipse at ${formatTime(e.time, tz)}  (mag ${mag})`)
   }
-  // Compact version for the score card: phase + illumination only
   const moonStrCard = `${r.phase_name}  ·  ${r.illumination_pct.toFixed(1)}% illuminated`
     + (specialTags.length ? `  ·  ${specialTags.join('  ·  ')}` : '')
 
-  // Dark sky hours line
   let darkStr: string
   if (r.dark_intervals.length > 0) {
     const spans = r.dark_intervals
@@ -2425,9 +2484,7 @@ export default function ReportCard({
   if (r.dark_cycle) {
     darkStr += `  ·  avg ${r.dark_cycle.mean_hours}h  ±${r.dark_cycle.stdev_hours}h over lunar cycle`
   }
-  // Intersect dark intervals with clear weather windows (cloud cover ≤ 50%).
-  // Each weather point covers the 1-hour window starting at its timestamp.
-  // Falls back to purely astronomical intervals when no weather data is present.
+
   const CLOUD_CLEAR_THRESHOLD = 50
   const clearDarkIntervals: [string, string][] | null = (() => {
     const pts = (r.weather_points || []).filter(p => p.cloud_cover_pct != null && p.cloud_cover_pct <= CLOUD_CLEAR_THRESHOLD)
@@ -2456,14 +2513,13 @@ export default function ReportCard({
     }
     return merged.map(([s, e]) => [new Date(s).toISOString(), new Date(e).toISOString()])
   })()
+
   const clearDarkHours = clearDarkIntervals
     ? clearDarkIntervals.reduce((sum, [s, e]) => sum + (new Date(e).getTime() - new Date(s).getTime()) / 3_600_000, 0)
     : null
 
-  // Compact version for the score card — tonight's window only, no cycle average
   const darkStrCard = (() => {
     if (clearDarkIntervals === null) {
-      // No weather data — show purely astronomical dark window
       return r.dark_intervals.length > 0
         ? `${formatHm(r.dark_hours)}  (${r.dark_intervals.map(([s, e]) => `${formatTime(s, tz)} – ${formatTime(e, tz)}`).join(',  ')} ${tzZ})`
         : darkStr
@@ -2475,7 +2531,6 @@ export default function ReportCard({
     return `${formatHm(clearDarkHours!)}  (${spans} ${tzZ})`
   })()
 
-  // Human-readable date
   const formattedDate = new Intl.DateTimeFormat('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
   }).format(new Date(r.date + 'T00:00:00'))
@@ -2503,9 +2558,12 @@ export default function ReportCard({
               </svg>
             </a>
           </h2>
-          {placeSecondary && <p className="place-sub">{placeSecondary}</p>}
+          <p className="place-sub">
+            {placeSecondary && <>{placeSecondary}  ·  </>}
+            <span className="report-head-coords">({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)</span>
+          </p>
           <p className="when">
-            {formattedDate}  ·  {tzTitle(tz)}<span className="report-head-coords">  ·  ({r.lat.toFixed(4)}°, {r.lon.toFixed(4)}°)</span>
+            {formattedDate}  ·  {tzTitle(tz)}
           </p>
         </div>
         {onToggleUnits && (
@@ -2566,8 +2624,8 @@ export default function ReportCard({
             <div className="nearby-body">
               {nearbyState.phase === 'idle' && (
                 <div className="nearby-radius-toggle">
-                  <button className="nearby-trigger" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
-                  <button className="nearby-trigger" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
+                  <button className="submit" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
+                  <button className="submit" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
                 </div>
               )}
               {nearbyState.phase === 'loading' && (
@@ -2590,7 +2648,13 @@ export default function ReportCard({
                 <p className="sat-notice">{calendarState.message}</p>
               )}
               {calendarState.phase === 'done' && (
-                <OutlookTelemetryRibbon data={calendarState.data} days={calendarState.days} lat={report.lat} lon={report.lon} />
+                <OutlookTelemetryRibbon
+                  data={calendarState.data}
+                  days={calendarState.days}
+                  onViewDetails={handleViewDetails}
+                  isFetchingDetails={isFetchingDetails}
+                  viewDetailsError={dateFetch.phase === 'error' ? dateFetch.message : null}
+                />
               )}
             </div>
           </div>
@@ -2606,6 +2670,8 @@ export default function ReportCard({
           darkIntervals={r.dark_intervals}
           moonrise={r.moonrise}
           moonset={r.moonset}
+          isFetching={isFetchingDetails}
+          cathodeSnap={cathodeSnap}
         />
       )}
 
@@ -2629,12 +2695,13 @@ export default function ReportCard({
                   <div className="mw-section-label">Milky Way</div>
                   {r.mw_summary && r.mw_summary.n_visible > 1
                     ? <MilkyWayCard
-                        summary={r.mw_summary}
-                        waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
-                        report={r}
-                      />
-                    : <MilkyWayAbsent report={r} />
-                  }
+                    key={r.date} // Forces refresh when r.date changes
+                    summary={r.mw_summary}
+                    waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
+                  report={r}
+              />
+            : <MilkyWayAbsent report={r} />
+          }
                 </div>
                 {showerTargets.length > 0 && (
                   <div className="ms-section">
@@ -2677,7 +2744,7 @@ export default function ReportCard({
         <details className="sat-section" open>
           <summary>Satellite Ephemeris</summary>
           <div className="sat-body">
-            <SatellitePasses report={r} />
+            <SatellitePasses report={r} isFetching={isFetchingDetails} cathodeSnap={cathodeSnap} />
           </div>
         </details>
       )}
