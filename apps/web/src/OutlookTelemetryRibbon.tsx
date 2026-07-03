@@ -22,7 +22,12 @@ function dateParts(iso: string): { dow: string; mmdd: string; long: string } {
  * returned — moon + dark hours + weather + bortle only, satellites never
  * factor in.
  */
-export default function OutlookTelemetryRibbon({ data, days }: { data: CalendarResult; days: number }) {
+export default function OutlookTelemetryRibbon({ data, days, lat, lon }: {
+  data: CalendarResult
+  days: number
+  lat: number
+  lon: number
+}) {
   const nights = useMemo(() => [...data.nights].sort((a, b) => a.date.localeCompare(b.date)), [data.nights])
   const best = data.ranked[0] as CalendarNight | undefined
   const [selectedDate, setSelectedDate] = useState<string | null>(best?.date ?? nights[0]?.date ?? null)
@@ -41,11 +46,12 @@ export default function OutlookTelemetryRibbon({ data, days }: { data: CalendarR
     <div className="telemetry-ribbon">
       {best?.score != null && (
         <div className="telemetry-hero">
-          <div className={`telemetry-hero-num${bestBand ? ` band-${bestBand}` : ''}`}>{best.score.toFixed(1)}</div>
-          <div className="telemetry-hero-meta">
-            <div className="telemetry-hero-label">{scoreLabel(best.score)}</div>
-            <div className="telemetry-hero-sub">Best night, {days}-day outlook · {dateParts(best.date).long}</div>
-          </div>
+          <span className="telemetry-hero-label">
+            Best night, {days}-day outlook · {dateParts(best.date).long} -{' '}
+          </span>
+          <span className={bestBand ? `telemetry-score-${bestBand}` : undefined}>
+            {best.score.toFixed(1)}/10
+          </span>
         </div>
       )}
 
@@ -62,9 +68,11 @@ export default function OutlookTelemetryRibbon({ data, days }: { data: CalendarR
             const isSelected = n.date === selectedDate
             const { dow, mmdd } = dateParts(n.date)
             return (
-              <button
+              <a
                 key={n.date}
-                type="button"
+                href={`?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&date=${n.date}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className={[
                   'heatmap-cell',
                   band ? `hm-${band}` : '',
@@ -73,9 +81,8 @@ export default function OutlookTelemetryRibbon({ data, days }: { data: CalendarR
                 ].filter(Boolean).join(' ')}
                 onMouseEnter={() => setSelectedDate(n.date)}
                 onClick={() => setSelectedDate(n.date)}
-                aria-pressed={isSelected}
-                title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}`}
-                aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}`}
+                title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'} — opens in a new tab`}
+                aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}, opens in a new tab`}
               />
             )
           })}
