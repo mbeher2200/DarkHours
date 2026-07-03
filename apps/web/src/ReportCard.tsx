@@ -114,7 +114,7 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 19, aod, pm25, visib
     if (visHazy) parts.push(`Visibility ${(visibilityM! / 1000).toFixed(1)} km`)
     const detail = `Haze — ${parts.join(', ')}`
     return (
-      <span title={detail} style={{ display: 'inline-flex' }}>
+      <span className="wx-haze-tip" data-tip={detail} tabIndex={0} style={{ display: 'inline-flex' }}>
         <Haze size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
       </span>
     )

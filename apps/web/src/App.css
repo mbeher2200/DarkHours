@@ -2083,6 +2083,39 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 }
 .wx-cloud-tier { font-size: 10.5px; }
 
+/* Fast custom hover tooltip for the Haze icon — a native title="" attribute waits for
+   the OS's ~1s hover delay, too slow for a dense instrument table meant for quick scans.
+   Reuses the same popover surface as .place-dropdown (var(--pop-bg)/--card-border) for
+   visual consistency, with a much shorter reveal delay. */
+.wx-haze-tip { position: relative; }
+.wx-haze-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 5px;
+  padding: 4px 7px;
+  background: var(--pop-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.05s linear;
+}
+.wx-haze-tip:hover::after,
+.wx-haze-tip:focus-visible::after {
+  opacity: 1;
+  transition-delay: 60ms;
+}
+
 /* ── Hard-gated hourly rows ("System No-Go") ─────────────────────────────
    Distinct from the soft .wx-gate-warn (font-weight only) — this marks a
    point rate_conditions() hard-gates to 1. Color demotion (not opacity, which
