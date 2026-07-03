@@ -231,3 +231,24 @@ def test_night_by_coords_matches_baseline():
     assert d["light_pollution"]["source"] == "VIIRS 2025"
     assert d["light_pollution"]["bortle_class"] == 7
     assert d["bortle_score"] is not None
+
+
+@pytest.mark.eph
+@requires_rasters
+def test_night_date_only_omits_location_fields():
+    # date_only=true is used by the frontend's "View Details" drill-in, which
+    # already has light_pollution/bortle_score/light_dome from the location's
+    # initial full fetch — the server must omit them, not just leave them null.
+    r = client.get("/night", params={
+        "lat": 35.1983, "lon": -111.6513, "date": "2026-06-15",
+        "weather": "false", "targets": "false", "satellites": "false",
+        "date_only": "true",
+    })
+    assert r.status_code == 200
+    d = r.json()
+    assert "light_pollution" not in d
+    assert "bortle_score" not in d
+    assert "light_dome" not in d
+    # Date-dependent fields are still present.
+    assert isinstance(d["sunset"], str)
+    assert d["phase_name"] and d["score"] is not None

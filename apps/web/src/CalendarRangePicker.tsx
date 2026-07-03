@@ -84,7 +84,7 @@ export default function CalendarRangePicker({
     <div className="crp-wrap" ref={wrapRef}>
       <button
         type="button"
-        className="crp-trigger nearby-trigger"
+        className="crp-trigger submit"
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen(o => !o)}
