@@ -522,8 +522,13 @@ def rate_conditions(p: 'WeatherPoint') -> int:
     #   0.1 < AOD ≤ 0.3   → linear taper 1.0 → 0.6
     #   0.3 < AOD ≤ 0.8   → power-curve drop 0.6 → 0.0
     #   AOD > 0.8         → 0.0  (e.g. wildfire smoke plume)
-    # pm2_5 (µg/m³) fallback when AOD is missing — thresholds from US EPA AQI breakpoints
-    # (12/35/150 = Good/Moderate/Unhealthy ceilings) mapped to the same anchor points.
+    # pm2_5 (µg/m³, US EPA AQI breakpoints 12/35/150 = Good/Moderate/Unhealthy ceilings
+    # mapped to the same anchor points) is evaluated independently, not just as an
+    # AOD-missing fallback: AOD is a satellite column measurement (integrates the whole
+    # atmosphere) and can look moderate while a shallow, trapped surface smoke layer
+    # reads hazardous on ground-level PM2.5 sensors — take the worse of the two whenever
+    # both are available so neither metric can mask a real hazard the other one catches.
+    aod_score = None
     if p.aerosol_optical_depth is not None:
         aod = p.aerosol_optical_depth
         if aod <= 0.1:
@@ -534,8 +539,9 @@ def rate_conditions(p: 'WeatherPoint') -> int:
             aod_score = 0.6 * max(0.0, 1.0 - ((aod - 0.3) / 0.5) ** 1.5)
         else:
             aod_score = 0.0
-        limiters.append(aod_score)
-    elif p.pm2_5 is not None:
+
+    pm_score = None
+    if p.pm2_5 is not None:
         pm = p.pm2_5
         if pm <= 12:
             pm_score = 1.0
@@ -545,7 +551,9 @@ def rate_conditions(p: 'WeatherPoint') -> int:
             pm_score = 0.6 * max(0.0, 1.0 - ((pm - 35) / 115) ** 1.5)
         else:
             pm_score = 0.0
-        limiters.append(pm_score)
+
+    if aod_score is not None or pm_score is not None:
+        limiters.append(min(s for s in (aod_score, pm_score) if s is not None))
 
     # Horizontal visibility: dew/ground haze amplifies light pollution.
     #   visibility_m ≥ 20000        → 1.0
