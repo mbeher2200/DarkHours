@@ -2074,6 +2074,34 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 .wx-table td.wx-rating.wx-rating-fair      { color: var(--fair); }
 .wx-table td.wx-rating.wx-rating-poor      { color: var(--poor); }
 .wx-table td.wx-gate-warn { font-weight: 700; }
+
+/* Compact stacked Low/Mid/High cloud-tier readout in the Cloud cell */
+.wx-cloud-tiers {
+  display: inline-flex;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.wx-cloud-tier { font-size: 10.5px; }
+
+/* ── Hard-gated hourly rows ("System No-Go") ─────────────────────────────
+   Distinct from the soft .wx-gate-warn (font-weight only) — this marks a
+   point rate_conditions() hard-gates to 1. Color demotion (not opacity, which
+   breaks contrast on dark field — see .tg-row-blocked precedent) plus a
+   top/bottom rule and strikethrough on the numeric readouts to make the
+   "this hour is a stop-shooting condition" signal unambiguous at a glance. */
+.wx-table tr.wx-row-nogo td {
+  color: var(--text-dim);
+  border-top: 1px solid var(--poor);
+  border-bottom: 1px solid var(--poor);
+}
+.wx-table tr.wx-row-nogo td.wx-num:not(.wx-rating) {
+  text-decoration: line-through;
+  text-decoration-color: var(--poor);
+  text-decoration-thickness: 1px;
+}
+.wx-table tr.wx-row-nogo td.wx-rating {
+  color: var(--poor);
+}
 .tg-moon-note        { color: var(--text-dim); font-size: 12px; }
 /* Fixed-width blocks so every piece aligns across rows in Best Viewing / Astro Window */
 .tg-t {
@@ -2229,6 +2257,21 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   letter-spacing: 0.07em;
   cursor: pointer;
 }
+/* Forecast provenance badge — dense instrument-readout footer under the table */
+.wx-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(var(--hairline-rgb), 0.4);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.wx-prov-sep { opacity: 0.5; }
 /* Timeline event rows interleaved in the weather table */
 /* NOW marker — current time in the location's TZ, shown only while inside the night window */
 .wx-now-row td {
