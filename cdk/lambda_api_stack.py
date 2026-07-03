@@ -535,6 +535,28 @@ class LambdaApiStack(Stack):
             validation=acm.CertificateValidation.from_dns(hosted_zone),
         )
 
+        # --- Blog S3 origin ---
+        # The darkhours-blog repo deploys to this bucket via its own CI (s3 sync).
+        # We import it here so CDK keeps the /blog* behavior alive on every redeploy.
+        # The bucket policy already grants this distribution OAC read access.
+        blog_bucket = s3.Bucket.from_bucket_name(
+            self, "BlogBucket",
+            "darkhours-blog-prod-058264240168-us-east-1-an",
+        )
+        blog_origin = origins.S3BucketOrigin.with_origin_access_control(blog_bucket)
+
+        # Existing CloudFront Function (created outside CDK) that rewrites directory
+        # requests to index.html so Astro's static output is served correctly from S3.
+        blog_rewrite_fn = cloudfront.Function.from_function_attributes(
+            self, "BlogIndexRewriteFn",
+            function_arn=f"arn:aws:cloudfront::{self.account}:function/AstroBlogIndexRewrite",
+            function_name="AstroBlogIndexRewrite",
+        )
+        blog_fn_assoc = [cloudfront.FunctionAssociation(
+            event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function=blog_rewrite_fn,
+        )]
+
         dist = cloudfront.Distribution(
             self, "Cdn",
             comment="PyNightSky SPA + API (S3 default, Lambda for API paths)",
@@ -555,6 +577,13 @@ class LambdaApiStack(Stack):
                 "/nearby":   no_cache,
                 "/calendar": no_cache,
                 "/jobs/*":   no_cache,
+                "/blog*":    cloudfront.BehaviorOptions(
+                    origin=blog_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                    cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                    function_associations=blog_fn_assoc,
+                ),
             },
         )
 
