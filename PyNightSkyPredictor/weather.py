@@ -21,6 +21,7 @@ Fields a provider cannot supply should be left as None.
 import concurrent.futures as _futures
 import json
 import logging
+import math
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -48,13 +49,19 @@ class WeatherPoint:
     humidity_pct:    Optional[int]      # 0–100
     wind_speed_ms:   Optional[float]    # m/s
     lifted_index:    Optional[int]      # positive = stable, negative = unstable
-    precip_type:          Optional[str]  # "none" | "rain" | "snow" | "frzr" | "icep"
+    precip_type:          Optional[str]  # "none" | "rain" | "snow" | "frzr" | "icep" | "fog" | "tstorm"
     temperature_c:        Optional[float]  # °C
     feels_like_c:         Optional[float]  # °C apparent temperature
     dew_point_c:             Optional[float] = None  # °C (spread = temperature_c − dew_point_c)
     wind_direction_deg:      Optional[float] = None  # degrees from north (meteorological)
     precip_probability_pct:  Optional[int]  = None  # 0–100 % chance of precipitation
     weather_code:            Optional[int]  = None  # WMO weather interpretation code
+    aerosol_optical_depth:   Optional[float] = None  # dimensionless, Open-Meteo air-quality API
+    pm2_5:                   Optional[float] = None  # µg/m³, Open-Meteo air-quality API
+    cloud_cover_low_pct:     Optional[int]   = None  # 0–100, sfc–2km
+    cloud_cover_mid_pct:     Optional[int]   = None  # 0–100, 2–6km
+    cloud_cover_high_pct:    Optional[int]   = None  # 0–100, >6km (cirrus)
+    visibility_m:            Optional[float] = None  # meters, ground-level visibility
 
 
 # ---------------------------------------------------------------------------
@@ -77,22 +84,34 @@ class WeatherProvider(ABC):
 # Shared Open-Meteo hourly parser (forecast + historical use the same format)
 # ---------------------------------------------------------------------------
 
+_PRECIP_TYPE_BY_CODE = {
+    45: "fog",    48: "fog",
+    56: "frzr",   57: "frzr",   66: "frzr",   67: "frzr",
+    77: "icep",   87: "icep",   88: "icep",   # 87/88 aren't standard WMO codes; included
+                                                # per spec — Open-Meteo has never been
+                                                # observed to emit them
+    71: "snow",   73: "snow",   75: "snow",   85: "snow",   86: "snow",
+    51: "rain",   53: "rain",   55: "rain",
+    61: "rain",   63: "rain",   65: "rain",
+    80: "rain",   81: "rain",   82: "rain",
+    95: "tstorm", 96: "tstorm", 99: "tstorm",
+}
+
+
+def _precip_type_from_code(code) -> str:
+    return _PRECIP_TYPE_BY_CODE.get(code, "none")
+
+
 def _parse_open_meteo_hourly(h: dict) -> list:
     """Parse an Open-Meteo ``hourly`` JSON dict → list[WeatherPoint]."""
     points = []
+    n = len(h["time"])
     for i, t_str in enumerate(h["time"]):
         t = datetime.fromisoformat(t_str).replace(tzinfo=timezone.utc)
 
-        rain     = h["rain"][i] or 0
-        snowfall = h["snowfall"][i] or 0
-        if snowfall > 0:
-            precip_type = "snow"
-        elif rain > 0:
-            precip_type = "rain"
-        else:
-            precip_type = "none"
+        code        = h.get("weather_code", [None] * n)[i]
+        precip_type = _precip_type_from_code(code)
 
-        n = len(h["time"])
         points.append(WeatherPoint(
             time=t,
             cloud_cover_pct=h["cloud_cover"][i],
@@ -107,7 +126,11 @@ def _parse_open_meteo_hourly(h: dict) -> list:
             dew_point_c=h.get("dewpoint_2m",           [None] * n)[i],
             wind_direction_deg=h.get("wind_direction_10m",       [None] * n)[i],
             precip_probability_pct=h.get("precipitation_probability", [None] * n)[i],
-            weather_code=h.get("weather_code", [None] * n)[i],
+            weather_code=code,
+            cloud_cover_low_pct=h.get("cloud_cover_low",   [None] * n)[i],
+            cloud_cover_mid_pct=h.get("cloud_cover_mid",   [None] * n)[i],
+            cloud_cover_high_pct=h.get("cloud_cover_high", [None] * n)[i],
+            visibility_m=h.get("visibility",               [None] * n)[i],
         ))
     return points
 
@@ -131,6 +154,7 @@ class OpenMeteoProvider(WeatherProvider):
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         ",precipitation_probability,weather_code"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
@@ -182,6 +206,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         ",precipitation_probability,weather_code"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -229,6 +254,8 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         "&start_date={start}&end_date={end}"
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
+        ",precipitation_probability,weather_code"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -372,6 +399,72 @@ def _merge_7timer(points: list, seven: list) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Air quality blend (aerosol optical depth + PM2.5)
+# ---------------------------------------------------------------------------
+
+_AQ_URL = (
+    "https://air-quality-api.open-meteo.com/v1/air-quality"
+    "?latitude={lat}&longitude={lon}"
+    "&hourly=pm2_5,aerosol_optical_depth"
+    "&timezone=GMT"
+)
+
+
+def _fetch_air_quality(lat: float, lon: float) -> list:
+    """Fetch (time, pm2_5, aerosol_optical_depth) tuples from Open-Meteo's air-quality
+    API. Returns [] on any failure — air quality is optional enrichment, never a hard
+    dependency for the rest of the forecast pipeline."""
+    url = _AQ_URL.format(lat=lat, lon=lon)
+    try:
+        with _http.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        h = data["hourly"]
+        _ph.record("open_meteo_air_quality", "ok")
+    except Exception as e:
+        _ph.record("open_meteo_air_quality", "error", str(e)[:120])
+        log.warning("Air quality fetch failed — proceeding without AOD/PM2.5: %s", e,
+                    extra={"service": "open_meteo_air_quality"})
+        return []
+    n = len(h["time"])
+    return [
+        (datetime.fromisoformat(t).replace(tzinfo=timezone.utc),
+         h.get("pm2_5", [None] * n)[i], h.get("aerosol_optical_depth", [None] * n)[i])
+        for i, t in enumerate(h["time"])
+    ]
+
+
+def _merge_air_quality(points: list, aq: list) -> list:
+    """Merge pre-fetched (time, pm2_5, aod) tuples into WeatherPoints by nearest
+    timestamp, same 90-minute tolerance as _merge_7timer."""
+    if not aq:
+        return points
+
+    aq_epochs = [t.timestamp() for t, _, _ in aq]
+
+    result = []
+    for p in points:
+        p_epoch = p.time.timestamp()
+        idx = bisect.bisect_left(aq_epochs, p_epoch)
+
+        if idx == 0:
+            nearest = aq[0]
+        elif idx >= len(aq):
+            nearest = aq[-1]
+        else:
+            before, after = aq[idx - 1], aq[idx]
+            if (p_epoch - aq_epochs[idx - 1]) <= (aq_epochs[idx] - p_epoch):
+                nearest = before
+            else:
+                nearest = after
+
+        gap_secs = abs((nearest[0] - p.time).total_seconds())
+        if gap_secs <= 5400:   # within 90 minutes
+            p = _dc_replace(p, pm2_5=nearest[1], aerosol_optical_depth=nearest[2])
+        result.append(p)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Conditions rating
 # ---------------------------------------------------------------------------
 
@@ -379,19 +472,36 @@ def rate_conditions(p: 'WeatherPoint') -> int:
     """
     Rate sky conditions for astrophotography from 1 (unusable) to 10 (perfect).
 
-    Uses a multiplicative limiting-factor model for dealbreakers (clouds, wind, transparency)
-    and an additive quality model for atmospheric steadiness (seeing, humidity).
+    Uses a multiplicative limiting-factor model for dealbreakers (clouds, wind, transparency,
+    aerosols, visibility) and an additive quality model for atmospheric steadiness (seeing,
+    humidity).
     """
-    # Precipitation is an immediate hard gate
+    # Hard gate 1: any non-"none" precip_type. Covers rain/snow/frzr/icep/fog/tstorm
+    # uniformly, since fog/tstorm are just additional non-"none" string values.
     if p.precip_type and p.precip_type.lower() not in ("none", "", None):
+        return 1
+
+    # Hard gate 2: visibility < 1000 m — catches ground fog thick enough to matter even
+    # when weather_code hasn't flagged "fog" (e.g. radiational fog under a clear code).
+    if p.visibility_m is not None and p.visibility_m < 1000:
         return 1
 
     # --- 1. THE LIMITERS (Multiplicative Penalties) ---
     # These factors act as heavy gates. A score of 0.0 here ruins the whole night.
     limiters = []
 
-    if p.cloud_cover_pct is not None:
-        # Non-linear drop-off using a 1.5 power curve.
+    if p.cloud_cover_low_pct is not None or p.cloud_cover_mid_pct is not None or p.cloud_cover_high_pct is not None:
+        low  = (p.cloud_cover_low_pct  or 0) / 100.0
+        mid  = (p.cloud_cover_mid_pct  or 0) / 100.0
+        high = (p.cloud_cover_high_pct or 0) / 100.0
+        # Low/mid clouds are immediate imaging blockers — full weight into the 1.5 power
+        # curve. High/cirrus still scatters light and blurs stars (star bloat, transparency
+        # loss) but rarely fully blocks the sky — lighter 0.6 weight into the same curve.
+        effective_cloud = min(1.0, max(low, mid) + 0.6 * high)
+        limiters.append(max(0.0, 1.0 - effective_cloud ** 1.5))
+    elif p.cloud_cover_pct is not None:
+        # Fallback for sources without cloud-tier data (7Timer-only points, pre-upgrade
+        # cache). Non-linear drop-off using a 1.5 power curve.
         # e.g., 50% clouds = 0.65 multiplier. 70% clouds = 0.41. 100% = 0.0.
         cloud_score = max(0.0, 1.0 - (p.cloud_cover_pct / 100.0) ** 1.5)
         limiters.append(cloud_score)
@@ -406,6 +516,53 @@ def rate_conditions(p: 'WeatherPoint') -> int:
         # Poor transparency acts as a strong blocker for faint targets.
         transp_score = {"Excellent": 1.0, "Good": 0.8, "Fair": 0.4, "Poor": 0.1}.get(p.transparency, 0.5)
         limiters.append(transp_score)
+
+    # Aerosol optical depth (AOD): smoke/haze/dust scatter and absorb starlight.
+    #   AOD ≤ 0.1        → 1.0   (pristine)
+    #   0.1 < AOD ≤ 0.3   → linear taper 1.0 → 0.6
+    #   0.3 < AOD ≤ 0.8   → power-curve drop 0.6 → 0.0
+    #   AOD > 0.8         → 0.0  (e.g. wildfire smoke plume)
+    # pm2_5 (µg/m³) fallback when AOD is missing — thresholds from US EPA AQI breakpoints
+    # (12/35/150 = Good/Moderate/Unhealthy ceilings) mapped to the same anchor points.
+    if p.aerosol_optical_depth is not None:
+        aod = p.aerosol_optical_depth
+        if aod <= 0.1:
+            aod_score = 1.0
+        elif aod <= 0.3:
+            aod_score = 1.0 - 0.4 * (aod - 0.1) / 0.2
+        elif aod <= 0.8:
+            aod_score = 0.6 * max(0.0, 1.0 - ((aod - 0.3) / 0.5) ** 1.5)
+        else:
+            aod_score = 0.0
+        limiters.append(aod_score)
+    elif p.pm2_5 is not None:
+        pm = p.pm2_5
+        if pm <= 12:
+            pm_score = 1.0
+        elif pm <= 35:
+            pm_score = 1.0 - 0.4 * (pm - 12) / 23
+        elif pm <= 150:
+            pm_score = 0.6 * max(0.0, 1.0 - ((pm - 35) / 115) ** 1.5)
+        else:
+            pm_score = 0.0
+        limiters.append(pm_score)
+
+    # Horizontal visibility: dew/ground haze amplifies light pollution.
+    #   visibility_m ≥ 20000        → 1.0
+    #   10000 ≤ visibility_m < 20000 → linear taper 1.0 → 0.7
+    #   1000 ≤ visibility_m < 10000  → logarithmic drop-off 0.7 → 0.0 (perceptual/optical
+    #     impact of visibility is roughly log-scaled at short range — 8km vs 4km matters
+    #     far more than 18km vs 14km)
+    #   visibility_m < 1000          → already hard-gated above (Hard gate 2)
+    if p.visibility_m is not None:
+        v = p.visibility_m
+        if v >= 20000:
+            vis_score = 1.0
+        elif v >= 10000:
+            vis_score = 0.7 + 0.3 * (v - 10000) / 10000
+        else:
+            vis_score = 0.7 * (math.log10(v / 1000) / math.log10(10))
+        limiters.append(max(0.0, min(1.0, vis_score)))
 
     # --- 2. THE QUALITY FACTORS (Additive Base) ---
     # These determine the overall "goodness" of the night if the limiters allow it.
@@ -461,10 +618,11 @@ def get_provider() -> WeatherProvider | None:
     return _provider
 
 
-def forecast(lat: float, lon: float) -> tuple[list, str]:
+def forecast(lat: float, lon: float) -> tuple[list, str, str]:
     """
     Fetch a forecast for the given coordinates via Open-Meteo, then blend
-    seeing / transparency / lifted_index from 7Timer ASTRO.
+    seeing / transparency / lifted_index from 7Timer ASTRO and aerosol optical
+    depth / PM2.5 from Open-Meteo's air-quality API.
 
     Returns
     -------
@@ -472,26 +630,35 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
     source : str
         Human-readable description of data sources used, e.g.
         "Open-Meteo" or "Open-Meteo + 7Timer".
+    fetched_at : str
+        ISO 8601 UTC timestamp of the moment the primary HTTP call returned.
 
-    7Timer is fetched concurrently with Open-Meteo so its latency is
-    hidden rather than added on top.
+    7Timer and air quality are fetched concurrently with the primary provider
+    so their latency is hidden rather than added on top.
     """
-    with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+    with _futures.ThreadPoolExecutor(max_workers=2) as _pool:
         _seven_future = _pool.submit(SevenTimerProvider().forecast, lat, lon)
+        _aq_future    = _pool.submit(_fetch_air_quality, lat, lon)
 
         primary = _provider if _provider is not None else OpenMeteoProvider()
         primary_err: str | None = None
         try:
             points = primary.forecast(lat, lon)
             primary_name = primary.name
+            fetched_at   = datetime.now(timezone.utc).isoformat()
         except RuntimeError as e:
             primary_err = str(e)
             log.warning("Primary weather (%s) failed, falling back to 7Timer: %s",
                         primary.name, e, extra={"service": primary.name.lower()})
             # Fall back to 7Timer as full primary — it carries cloud/temp/wind/precip
             try:
-                points = _seven_future.result()
-                return points, "7Timer"
+                points     = _seven_future.result()
+                fetched_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    aq = _aq_future.result()
+                except Exception:
+                    aq = []
+                return _merge_air_quality(points, aq), "7Timer", fetched_at
             except Exception as e2:
                 log.error("7Timer also failed: %s", e2, extra={"service": "7timer"})
                 raise RuntimeError(f"{primary_err}; 7Timer also failed: {e2}") from e2
@@ -501,9 +668,15 @@ def forecast(lat: float, lon: float) -> tuple[list, str]:
         except Exception as e:
             log.warning("7Timer unavailable — proceeding without seeing data: %s", e,
                         extra={"service": "7timer"})
-            return points, primary_name
+            seven = []
+        try:
+            aq = _aq_future.result()
+        except Exception as e:
+            log.warning("Air quality unavailable — proceeding without AOD/PM2.5: %s", e,
+                        extra={"service": "open_meteo_air_quality"})
+            aq = []
 
-    blended    = _merge_7timer(points, seven)
+    blended    = _merge_air_quality(_merge_7timer(points, seven), aq)
     has_seeing = any(p.seeing_arcsec is not None for p in blended)
     source     = f"{primary_name} + 7Timer" if has_seeing else primary_name
-    return blended, source
+    return blended, source, fetched_at

@@ -36,10 +36,11 @@ log = logging.getLogger(__name__)
 _WX_CACHE_TTL = 1800  # 30 minutes
 
 
-def _wx_serialize(points: list, source: str) -> dict:
+def _wx_serialize(points: list, source: str, fetched_at: str) -> dict:
     """Serialize weather forecast results for DynamoDB caching."""
     return {
         "source": source,
+        "fetched_at": fetched_at,
         "points": [
             {**dataclasses.asdict(p), "time": p.time.isoformat()}
             for p in points
@@ -48,14 +49,16 @@ def _wx_serialize(points: list, source: str) -> dict:
 
 
 def _wx_deserialize(cached: dict) -> tuple:
-    """Deserialize cached weather data back to (list[WeatherPoint], source)."""
+    """Deserialize cached weather data back to (list[WeatherPoint], source, fetched_at)."""
     field_names = {f.name for f in dataclasses.fields(wx.WeatherPoint)}
     points = []
     for p in cached["points"]:
         kwargs = {k: v for k, v in p.items() if k in field_names}
         kwargs["time"] = datetime.fromisoformat(kwargs["time"])
         points.append(wx.WeatherPoint(**kwargs))
-    return points, cached["source"]
+    # .get() default for backward compat with cache entries written before this upgrade
+    # (TTL is 30 min, so stale-shape entries self-expire quickly regardless).
+    return points, cached["source"], cached.get("fetched_at")
 
 
 @dataclass
@@ -100,6 +103,7 @@ class NightReport:
     weather_points: list  # list[WeatherPoint]
     weather_score: float | None
     wx_source: str | None  # e.g. "Open-Meteo + 7Timer" or "Open-Meteo"
+    wx_fetched_at: str | None  # ISO 8601 UTC — moment the primary weather HTTP call returned
     wx_pending: bool
     wx_no_data: bool
     wx_archive_error: bool
@@ -703,6 +707,7 @@ def assemble_night(
     night_points     = []
     weather_score    = None
     wx_source        = None
+    wx_fetched_at    = None
     wx_error         = None
     wx_pending       = False
     wx_no_data       = False
@@ -732,7 +737,8 @@ def assemble_night(
                             weather_score = scoring.weighted_weather_score(
                                 night_points, night_start, night_end, wx.rate_conditions
                             )
-                            wx_source = provider.name
+                            wx_source     = provider.name
+                            wx_fetched_at = datetime.now(timezone.utc).isoformat()
                         else:
                             wx_no_data   = True
                             night_points = []
@@ -748,13 +754,13 @@ def assemble_night(
                 if _wx_exc is not None:
                     raise _wx_exc
                 if _wx_cached is not None:
-                    points, wx_source = _wx_deserialize(_wx_cached)
+                    points, wx_source, wx_fetched_at = _wx_deserialize(_wx_cached)
                 elif _wx_fetched is not None:
-                    points, wx_source = _wx_fetched
+                    points, wx_source, wx_fetched_at = _wx_fetched
                 else:
                     # Defensive: _future_date=True but thread wasn't started.
                     # Fetch synchronously (rare: only if heuristic gap widens).
-                    points, wx_source = wx.forecast(lat, lon)
+                    points, wx_source, wx_fetched_at = wx.forecast(lat, lon)
 
                 before  = [p for p in points if sunset - timedelta(hours=6) <= p.time <= sunset]
                 during  = [p for p in points if sunset < p.time < sunrise]
@@ -767,13 +773,15 @@ def assemble_night(
                             night_points, night_start, night_end, wx.rate_conditions
                         )
                     else:
-                        wx_no_data   = True
-                        wx_source    = None
-                        night_points = []
+                        wx_no_data    = True
+                        wx_source     = None
+                        wx_fetched_at = None
+                        night_points  = []
                 else:
-                    wx_pending   = True
-                    wx_source    = None
-                    night_points = []
+                    wx_pending    = True
+                    wx_source     = None
+                    wx_fetched_at = None
+                    night_points  = []
         except RuntimeError as e:
             wx_error = str(e)
 
@@ -865,6 +873,7 @@ def assemble_night(
         weather_points=night_points,
         weather_score=weather_score,
         wx_source=wx_source,
+        wx_fetched_at=wx_fetched_at,
         wx_pending=wx_pending,
         wx_no_data=wx_no_data,
         wx_archive_error=wx_archive_error,

@@ -4,6 +4,7 @@ import {
   formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTemp, fmtWind, fmtDist, lpString,
   scoreBand, scoreLabel, moonWashSeverity, moonUpAt, tonightIso, availabilityFor,
+  formatAge, formatIssuedUtc,
 } from './format'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
@@ -13,7 +14,7 @@ import {
   Sunrise, Sunset, Moon, Star, Stars,
   MoonStar, CloudMoon, Cloudy, CloudFog, CloudDrizzle, CloudHail,
   CloudRain, CloudRainWind, CloudSnow, Snowflake, CloudMoonRain, CloudLightning,
-  Droplet, Wind, TriangleAlert, Navigation,
+  Droplet, Wind, TriangleAlert, Navigation, Haze,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -91,8 +92,16 @@ function CloudStar({ size = 19 }: { size?: number }) {
   )
 }
 
-function WmoIcon({ code, cloudCover, moonUp = false, size = 19 }: { code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number }) {
+function WmoIcon({ code, cloudCover, moonUp = false, size = 19, aod, visibilityM, precipType }: {
+  code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number
+  aod?: number | null; visibilityM?: number | null; precipType?: string | null
+}) {
   if (code == null) return null
+  // Haze: AOD/visibility-driven, only when there's no active precip event (precip icons
+  // — fog/rain/snow/etc — take priority; haze is a "clear but hazy" state).
+  const isHazy = (precipType == null || precipType === 'none') &&
+    ((aod != null && aod > 0.3) || (visibilityM != null && visibilityM < 10000 && visibilityM >= 1000))
+  if (isHazy) return <Haze size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
   // For pure sky-state codes (0–3), cloud cover % is more precise than the API code
   if (code <= 3 && cloudCover != null) {
     if (cloudCover <= 25) return moonUp
@@ -124,7 +133,7 @@ function cell(isFetching: boolean, value: React.ReactNode): React.ReactNode {
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonrise, moonset, isFetching = false, cathodeSnap = false }: {
+function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonrise, moonset, isFetching = false, cathodeSnap = false, wxSource = null, wxFetchedAt = null }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
@@ -134,6 +143,8 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
   moonset?: string | null
   isFetching?: boolean
   cathodeSnap?: boolean
+  wxSource?: string | null
+  wxFetchedAt?: string | null
 }) {
   // Clip the table to the sunset→sunrise window. Events/points outside this
   // range are daytime and not useful once the astro-night band conveys darkness.
@@ -297,13 +308,26 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
               const windSevere = p.wind_speed_ms != null && p.wind_speed_ms >= 6.3
               const dewSpread = p.temperature_c != null && p.dew_point_c != null ? p.temperature_c - p.dew_point_c : null
               const dewGate  = dewSpread != null && dewSpread <= 5
+              const noGo = (p.precip_type != null && p.precip_type !== 'none') ||
+                (p.visibility_m != null && p.visibility_m < 1000)
               return (
-                <tr key={`wx-${i}`} className={isAstro ? 'wx-row-astro' : undefined}>
+                <tr key={`wx-${i}`} className={`${isAstro ? 'wx-row-astro' : ''}${noGo ? ' wx-row-nogo' : ''}`.trim() || undefined}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
                   <td className={`wx-num wx-rating wx-rating-${scoreBand(rateConditions(p))}`}>
-                    {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct} moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)} />)}
+                    {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
+                      moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
+                      aod={p.aerosol_optical_depth} visibilityM={p.visibility_m} precipType={p.precip_type} />)}
                   </td>
-                  <td className="wx-num">{cell(isFetching, p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—')}</td>
+                  <td className="wx-num wx-cloud-col">
+                    {cell(isFetching,
+                      p.cloud_cover_low_pct != null || p.cloud_cover_mid_pct != null || p.cloud_cover_high_pct != null
+                        ? <span className="wx-cloud-tiers">
+                            <span className="wx-cloud-tier">L{p.cloud_cover_low_pct ?? 0}</span>
+                            <span className="wx-cloud-tier">M{p.cloud_cover_mid_pct ?? 0}</span>
+                            <span className="wx-cloud-tier">H{p.cloud_cover_high_pct ?? 0}</span>
+                          </span>
+                        : (p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'))}
+                  </td>
                   {hasTransp && (
                     <td className="wx-num">
                       {cell(isFetching, p.transparency != null
@@ -339,8 +363,24 @@ function WeatherTable({ points, events = [], tz, imperial, darkIntervals, moonri
             })}
           </tbody>
         </table>
+        {hasWx && <WxProvenanceBadge source={wxSource} fetchedAt={wxFetchedAt} />}
       </div>
     </details>
+  )
+}
+
+// Dense, monospace "instrument readout" footer for the Night Timeline table — shows
+// which weather source served this forecast and how fresh the data is.
+function WxProvenanceBadge({ source, fetchedAt }: { source: string | null; fetchedAt: string | null }) {
+  if (!source) return null
+  return (
+    <div className="wx-provenance">
+      <span className="wx-prov-item">SOURCE: {source.toUpperCase()}</span>
+      <span className="wx-prov-sep">·</span>
+      <span className="wx-prov-item">ISSUED: {formatIssuedUtc(fetchedAt)}</span>
+      <span className="wx-prov-sep">·</span>
+      <span className="wx-prov-item">UPDATED: {formatAge(fetchedAt)}</span>
+    </div>
   )
 }
 
@@ -2672,6 +2712,8 @@ export default function ReportCard({
           moonset={r.moonset}
           isFetching={isFetchingDetails}
           cathodeSnap={cathodeSnap}
+          wxSource={showWeather ? r.wx_source : null}
+          wxFetchedAt={showWeather ? r.wx_fetched_at : null}
         />
       )}
 
