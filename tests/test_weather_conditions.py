@@ -210,9 +210,22 @@ class TestRateConditions:
     def test_pm25_fallback_used_when_aod_missing(self):
         assert rate_conditions(_wp(pm2_5=200, aerosol_optical_depth=None)) == 1
 
-    def test_pm25_ignored_when_aod_present(self):
-        """AOD 'clean' (0.05) with pm2_5 'dirty' (200) both set — only AOD branch runs."""
-        assert rate_conditions(_wp(aerosol_optical_depth=0.05, pm2_5=200)) == 10
+    def test_pm25_still_penalizes_when_aod_present_and_clean(self):
+        """Real wildfire-smoke case: satellite column AOD 'clean' (0.05) but a shallow,
+        trapped surface smoke layer reads hazardous on ground-level PM2.5 (200 ug/m3).
+        The worse (PM2.5) must still zero the score — AOD must not mask it."""
+        assert rate_conditions(_wp(aerosol_optical_depth=0.05, pm2_5=200)) == 1
+
+    def test_aod_still_penalizes_when_pm25_present_and_clean(self):
+        """Inverse case: AOD hazardous (0.9) but PM2.5 clean (5) — AOD must still win."""
+        assert rate_conditions(_wp(aerosol_optical_depth=0.9, pm2_5=5)) == 1
+
+    def test_worse_of_aod_and_pm25_is_used(self):
+        """Both present, both mildly elevated but at different severities — score should
+        match whichever curve is worse, not just AOD."""
+        aod_only = rate_conditions(_wp(aerosol_optical_depth=0.2))
+        both = rate_conditions(_wp(aerosol_optical_depth=0.2, pm2_5=200))
+        assert both < aod_only
 
     # --- Visibility (Limiter + hard gate) ---
 

@@ -156,22 +156,27 @@ export function rateConditions(p: WeatherPoint): number {
     limiters.push(tmap[p.transparency] ?? 0.5)
   }
 
+  // AOD (satellite column measurement) and PM2.5 (ground-level) are evaluated
+  // independently and the worse of the two is used — a shallow, trapped surface smoke
+  // layer can read hazardous on PM2.5 while column AOD still looks moderate.
+  let aodScore: number | null = null
   if (p.aerosol_optical_depth != null) {
     const aod = p.aerosol_optical_depth
-    let s: number
-    if (aod <= 0.1) s = 1.0
-    else if (aod <= 0.3) s = 1.0 - 0.4 * (aod - 0.1) / 0.2
-    else if (aod <= 0.8) s = 0.6 * Math.max(0, 1 - Math.pow((aod - 0.3) / 0.5, 1.5))
-    else s = 0.0
-    limiters.push(s)
-  } else if (p.pm2_5 != null) {
+    if (aod <= 0.1) aodScore = 1.0
+    else if (aod <= 0.3) aodScore = 1.0 - 0.4 * (aod - 0.1) / 0.2
+    else if (aod <= 0.8) aodScore = 0.6 * Math.max(0, 1 - Math.pow((aod - 0.3) / 0.5, 1.5))
+    else aodScore = 0.0
+  }
+  let pmScore: number | null = null
+  if (p.pm2_5 != null) {
     const pm = p.pm2_5
-    let s: number
-    if (pm <= 12) s = 1.0
-    else if (pm <= 35) s = 1.0 - 0.4 * (pm - 12) / 23
-    else if (pm <= 150) s = 0.6 * Math.max(0, 1 - Math.pow((pm - 35) / 115, 1.5))
-    else s = 0.0
-    limiters.push(s)
+    if (pm <= 12) pmScore = 1.0
+    else if (pm <= 35) pmScore = 1.0 - 0.4 * (pm - 12) / 23
+    else if (pm <= 150) pmScore = 0.6 * Math.max(0, 1 - Math.pow((pm - 35) / 115, 1.5))
+    else pmScore = 0.0
+  }
+  if (aodScore != null || pmScore != null) {
+    limiters.push(Math.min(...[aodScore, pmScore].filter((s): s is number => s != null)))
   }
 
   if (p.visibility_m != null) {

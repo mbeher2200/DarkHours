@@ -100,15 +100,19 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 19, aod, pm25, visib
   // Haze: AOD/PM2.5/visibility-driven, only when there's no active precip event (precip
   // icons — fog/rain/snow/etc — take priority; haze is a "clear but hazy" state).
   // Thresholds mirror rate_conditions()'s limiter curves: AOD 0.3 and PM2.5 35 µg/m³ are
-  // both where the gentle taper gives way to the steep power-curve penalty.
+  // both where the gentle taper gives way to the steep power-curve penalty. Checked
+  // independently (not aod-priority) — a shallow, trapped surface smoke layer can read
+  // hazardous on PM2.5 while satellite column AOD still looks moderate.
   const isNoPrecip = precipType == null || precipType === 'none'
   const aodHazy = isNoPrecip && aod != null && aod > 0.3
-  const pmHazy  = isNoPrecip && aod == null && pm25 != null && pm25 > 35
+  const pmHazy  = isNoPrecip && pm25 != null && pm25 > 35
   const visHazy = isNoPrecip && visibilityM != null && visibilityM < 10000 && visibilityM >= 1000
   if (aodHazy || pmHazy || visHazy) {
-    const detail = aodHazy ? `Haze — AOD ${aod!.toFixed(2)}`
-      : pmHazy ? `Haze — PM2.5 ${pm25!.toFixed(0)} µg/m³`
-      : `Haze — Visibility ${(visibilityM! / 1000).toFixed(1)} km`
+    const parts: string[] = []
+    if (aodHazy) parts.push(`AOD ${aod!.toFixed(2)}`)
+    if (pmHazy) parts.push(`PM2.5 ${pm25!.toFixed(0)} µg/m³`)
+    if (visHazy) parts.push(`Visibility ${(visibilityM! / 1000).toFixed(1)} km`)
+    const detail = `Haze — ${parts.join(', ')}`
     return (
       <span title={detail} style={{ display: 'inline-flex' }}>
         <Haze size={size} strokeWidth={1.5} style={{ flexShrink: 0 }} />
