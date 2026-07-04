@@ -36,6 +36,7 @@ def _wp(**kwargs) -> WeatherPoint:
         cloud_cover_mid_pct=None,
         cloud_cover_high_pct=None,
         visibility_m=None,
+        wind_gust_ms=None,
     )
     defaults.update(kwargs)
     return WeatherPoint(**defaults)
@@ -126,6 +127,18 @@ class TestRateConditions:
         s25 = rate_conditions(_wp(wind_speed_ms=25.0))
         assert s17 == s25
 
+    def test_gust_used_when_sustained_wind_missing(self):
+        assert rate_conditions(_wp(wind_gust_ms=25.0)) == 1
+
+    def test_worse_of_sustained_and_gust_is_used(self):
+        """Calm sustained wind (2 m/s) with a severe gust (20 m/s) must still gate —
+        a calm average can mask short gusts strong enough to shake a tripod."""
+        assert rate_conditions(_wp(wind_speed_ms=2.0, wind_gust_ms=20.0)) == 1
+
+    def test_gust_lower_than_sustained_does_not_help(self):
+        """Severe sustained wind isn't masked by a merely-mild gust value."""
+        assert rate_conditions(_wp(wind_speed_ms=20.0, wind_gust_ms=2.0)) == 1
+
     # --- Humidity (Base Quality): max(0.0, 1.0 - max(0.0, RH-50)/50) ---
 
     def test_humidity_below_50_has_no_penalty(self):
@@ -175,7 +188,16 @@ class TestRateConditions:
         )
         assert rate_conditions(p) == 1
 
-    # --- Cloud tiers (Limiter): max(low, mid) + 0.6*high, same 1.5 power curve ---
+    # --- Cloud tiers (Limiter): random overlap of low/mid + 0.6*high, 1.5 power curve ---
+
+    def test_cloud_tiers_random_overlap_worse_than_either_layer_alone(self):
+        """Two independent 50% layers should score worse than either alone (50%) — random
+        overlap (1-(1-low)(1-mid)) gives 75% effective opacity, not max(low,mid)=50%."""
+        both      = rate_conditions(_wp(cloud_cover_low_pct=50, cloud_cover_mid_pct=50, cloud_cover_high_pct=0))
+        low_only  = rate_conditions(_wp(cloud_cover_low_pct=50, cloud_cover_mid_pct=0,  cloud_cover_high_pct=0))
+        mid_only  = rate_conditions(_wp(cloud_cover_low_pct=0,  cloud_cover_mid_pct=50, cloud_cover_high_pct=0))
+        assert both < low_only
+        assert both < mid_only
 
     def test_cloud_tiers_high_cirrus_penalized_less_than_low_mid(self):
         """Same magnitude split between high-only vs low-only cloud cover — high/cirrus
@@ -307,6 +329,10 @@ class TestParseOpenMeteoHourly:
     def test_visibility_parsed(self):
         points = _parse_open_meteo_hourly(_make_hourly(visibility=[15000]))
         assert points[0].visibility_m == 15000
+
+    def test_wind_gust_parsed(self):
+        points = _parse_open_meteo_hourly(_make_hourly(wind_gusts_10m=[12.5]))
+        assert points[0].wind_gust_ms == 12.5
 
     def test_cloud_tiers_parsed(self):
         points = _parse_open_meteo_hourly(_make_hourly(

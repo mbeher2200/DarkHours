@@ -83,6 +83,7 @@ export interface WeatherPoint {
   cloud_cover_mid_pct: number | null
   cloud_cover_high_pct: number | null
   visibility_m: number | null
+  wind_gust_ms: number | null
 }
 
 export interface MoonEclipse {
