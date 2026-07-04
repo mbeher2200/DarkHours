@@ -172,10 +172,15 @@ html.red-mode {
 }
 html.red-mode .wx-table tr.wx-row-astro td,
 html.red-mode .wx-table tr.wx-row-astro td.wx-time {
-  background: color-mix(in oklab, oklch(0.45 0.15 25) 18%, var(--card));
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 24%, var(--card));
 }
 html.red-mode .wx-table tr.wx-row-astro td.wx-time {
   border-left-color: rgba(255, 0, 0, 0.40);
+}
+/* Moon-up within astro dark: same hue, half the mix — partial darkness. */
+html.red-mode .wx-table tr.wx-row-astro-lit td,
+html.red-mode .wx-table tr.wx-row-astro-lit td.wx-time {
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 12%, var(--card));
 }
 /* feColorMatrix already outputs pure red (G=B=0); no brightness boost so the
    moon disc stays dim. */
@@ -2069,72 +2074,134 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 .tg-table td.tg-sky.tg-sky-moon-wash-moderate { color: var(--fair); }
 .tg-table td.tg-sky.tg-sky-moon-wash-severe   { color: var(--poor); }
 .tg-table td.tg-sky.tg-sky-moon-wash          { color: var(--poor); }
-.wx-table td.wx-rating.wx-rating-excellent { color: var(--excellent); }
-.wx-table td.wx-rating.wx-rating-good      { color: var(--good); }
-.wx-table td.wx-rating.wx-rating-fair      { color: var(--fair); }
-.wx-table td.wx-rating.wx-rating-poor      { color: var(--poor); }
-.wx-table td.wx-gate-warn { font-weight: 700; }
-
-/* Compact stacked Low/Mid/High cloud-tier readout in the Cloud cell */
-.wx-cloud-tiers {
-  display: inline-flex;
-  gap: 4px;
+/* Not scoped to td — also applied directly to inline spans (e.g. .wx-atmos-transp)
+   for cases that highlight just one value within a cell, not the whole row. */
+.wx-table .wx-gate-warn { font-weight: 700; }
+/* Sustained/gust wind readout: fixed-width value slots so "/" and the unit stay
+   aligned across rows regardless of digit count (1 vs 2 digits, decimal or not). */
+.wx-wind-val {
+  display: inline-block;
+  width: 30px;
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.wx-cloud-tier { font-size: 10.5px; }
-
-/* Fast custom hover tooltip for the Haze icon — a native title="" attribute waits for
-   the OS's ~1s hover delay, too slow for a dense instrument table meant for quick scans.
-   Reuses the same popover surface as .place-dropdown (var(--pop-bg)/--card-border) for
-   visual consistency, with a much shorter reveal delay. */
-.wx-haze-tip { position: relative; }
-.wx-haze-tip::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 5px;
-  padding: 4px 7px;
-  background: var(--pop-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 3px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  color: var(--text);
+.wx-wind-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
+.wx-wind-unit { display: inline-block; width: 26px; text-align: left; padding-left: 2px; color: var(--text-dim); }
+/* Gust sits between two visible neighbors ("/" and the unit), so unlike sustained
+   it gets no fixed-width box — that would leave a blank gap against whichever
+   side padding falls on. Sized to content instead, so it stays flush against
+   both regardless of digit count. Dim by default; lights up past the same
+   severity gate used for sustained wind (6.3 m/s). */
+.wx-wind-gust { display: inline-block; width: auto; text-align: left; color: var(--text-dim); }
+.wx-wind-gust-severe { color: var(--poor); font-weight: 700; }
+/* Temp/dew-point combined readout — same fixed-width technique as the wind
+   readout above. Dew point sits between two visible neighbors ("/" and the
+   unit), so like the wind gust it gets no fixed box (would leave a gap on one
+   side), just sized to content. Normal color by default; highlighted only when
+   dewGate fires (dew point within 5° of air temp — condensation/fogging risk). */
+.wx-temp-val {
+  display: inline-block;
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wx-temp-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
+/* No fixed width — the unit is the last element in the cell (nothing trails it)
+   and is identical on every row (global imperial/metric toggle, not per-row),
+   so unlike the dew value there's no cross-row variability to guard against. A
+   fixed box here only left trailing blank space after the short "°F"/"°C" text,
+   which is why the right-aligned header didn't line up with the visible data. */
+.wx-temp-unit { display: inline-block; padding-left: 2px; color: var(--text-dim); }
+.wx-dew-val { display: inline-block; width: auto; text-align: left; }
+.wx-dew-warn { color: var(--poor); font-weight: 700; }
+/* Combined Seeing/Transparency readout — always wraps to two lines (Seeing above
+   Transparency) rather than sitting side by side, so it never needs width for
+   "Excellent / Excellent" on one line. Flex goes on the inner span, NOT the td
+   itself — a <td> normally stretches to match the row's tallest sibling cell,
+   but overriding its own display breaks that participation, leaving its border
+   rendered partway up the row with blank space below (the gap to the row's
+   real, taller height). The "/" separator is redundant once stacked. */
+.wx-table th.wx-atmos-hdr {
+  text-align: center;
+  line-height: 1.15;
+  vertical-align: bottom;
+}
+.wx-atmos-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wx-atmos-sep { display: none; }
+.wx-atmos-seeing,
+.wx-atmos-transp {
+  width: auto;
+  text-align: center;
   font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-  z-index: 20;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.05s linear;
+  line-height: 1;
 }
-.wx-haze-tip:hover::after,
-.wx-haze-tip:focus-visible::after {
-  opacity: 1;
-  transition-delay: 60ms;
+/* Conditions column has no header label (icon-only) — pin a comfortable fixed width
+   instead of letting it auto-size to the icon alone. */
+.wx-table th.wx-cond-col,
+.wx-table td.wx-rating {
+  width: 1px;
+  min-width: 42px;
+}
+/* Fog/Haze/Haze-Aloft/Haze-Surface — bold word instead of an icon (see WmoIcon).
+   Stays single-line by default; narrow viewports override to wrap "Aloft"/"Surface"
+   onto their own line below "Haze:" rather than widening the column (see the
+   max-width: 640px override further down). */
+.wx-cond-word {
+  font-weight: 500;
+}
+/* Stacked Cloud header — text-align/centering already comes from the shared
+   .wx-cloud-col rule below; this only adds the two-line-specific properties. */
+.wx-table th.wx-cloud-hdr {
+  line-height: 1.1;
+  vertical-align: bottom;
+}
+/* Stacked Temp/Dew Pt header — right-align stays inherited (it's a text header
+   like Transp/Seeing, not centered like the icon-headed columns). */
+.wx-table th.wx-temp-hdr {
+  line-height: 1.1;
+  vertical-align: bottom;
+}
+/* Compact 3-channel EQ-meter readout for Low/Mid/High cloud in the Cloud cell */
+.wx-cloud-readout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wx-cloud-val {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 26px;
+  text-align: right;
+}
+.wx-cloud-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.5);
+  padding-bottom: 1px;
+}
+.wx-eq-track {
+  width: 5.3px;
+  height: 10px;
+  background: rgba(var(--hairline-rgb), 0.15);
+  border-radius: 1px 1px 0 0;
+  position: relative;
+  overflow: hidden;
+}
+.wx-eq-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: var(--text-dim);
+  transition: height 0.2s ease-out;
 }
 
-/* ── Hard-gated hourly rows ("System No-Go") ─────────────────────────────
-   Distinct from the soft .wx-gate-warn (font-weight only) — this marks a
-   point rate_conditions() hard-gates to 1. Color demotion (not opacity, which
-   breaks contrast on dark field — see .tg-row-blocked precedent) plus a
-   top/bottom rule and strikethrough on the numeric readouts to make the
-   "this hour is a stop-shooting condition" signal unambiguous at a glance. */
-.wx-table tr.wx-row-nogo td {
-  color: var(--text-dim);
-  border-top: 1px solid var(--poor);
-  border-bottom: 1px solid var(--poor);
-}
-.wx-table tr.wx-row-nogo td.wx-num:not(.wx-rating) {
-  text-decoration: line-through;
-  text-decoration-color: var(--poor);
-  text-decoration-thickness: 1px;
-}
-.wx-table tr.wx-row-nogo td.wx-rating {
-  color: var(--poor);
-}
 .tg-moon-note        { color: var(--text-dim); font-size: 12px; }
 /* Fixed-width blocks so every piece aligns across rows in Best Viewing / Astro Window */
 .tg-t {
@@ -2376,45 +2443,59 @@ html.red-mode .wx-now-row td.wx-now-time {
   font-size: 11px;
   font-style: italic;
 }
-/* Moon-below-horizon aside appended inline to the Sunset row */
-.wx-ev-moon-aside {
-  display: inline-flex;
+/* Astronomical night begin/end: a strict monospace divider rather than an
+   icon+italic label, with a dashed hairline "fence" trailing off to bracket
+   the dark window instead of competing visually with the sun/moon icons. */
+.wx-ev-divider {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  color: var(--ev-moon);
-  font-size: 11px;
-  font-style: italic;
-  margin-left: 10px;
-  opacity: 0.85;
-}
-.wx-ev-moon-aside::before {
-  content: '·';
-  margin-right: 2px;
+  justify-content: center;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
-  opacity: 0.5;
-  font-style: normal;
 }
-
-/* Celestial event type coloring */
-.wx-ev-row.wx-ev-sun .wx-ev-icon  { color: var(--ev-sun);   opacity: 1; }
-.wx-ev-row.wx-ev-sun .wx-ev-label { color: var(--ev-sun); }
+/* Sun/moon rise/set text is left-aligned, not centered — only astro dark
+   begin/end (bracketed by lines) stays centered. */
+.wx-ev-row.wx-ev-sun .wx-ev-divider,
+.wx-ev-row.wx-ev-moon .wx-ev-divider {
+  justify-content: flex-start;
+}
+/* Astro dark begin/end keeps its leading/trailing divider lines (the other
+   event dividers — sunrise/sunset/moonrise/moonset — don't get them, just
+   centered text via justify-content above). Solid, matching the standard
+   row-separator hairline (.wx-table td), not a dashed rule. */
+.wx-ev-row.wx-ev-astro .wx-ev-divider::before,
+.wx-ev-row.wx-ev-astro .wx-ev-divider::after {
+  content: '';
+  flex: 1;
+  height: 0;
+  border-top: 1px solid rgba(var(--hairline-rgb), 0.6);
+}
+.wx-ev-row.wx-ev-astro .wx-ev-divider::before { margin-right: 12px; }
+.wx-ev-row.wx-ev-astro .wx-ev-divider::after  { margin-left: 12px; }
+/* Celestial event type coloring — sun/moon/astro rows all render as the plain
+   .wx-ev-divider now (no icon, no colored label), so only the time-cell
+   accent border remains to tie each row back to its event type. */
 .wx-ev-row.wx-ev-sun td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-sun) 45%, transparent); }
-
-.wx-ev-row.wx-ev-moon .wx-ev-icon  { color: var(--ev-moon);  opacity: 1; }
-.wx-ev-row.wx-ev-moon .wx-ev-label { color: var(--ev-moon); }
 .wx-ev-row.wx-ev-moon td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-moon) 45%, transparent); }
-
-.wx-ev-row.wx-ev-astro .wx-ev-icon  { color: var(--ev-astro); opacity: 1; }
-.wx-ev-row.wx-ev-astro .wx-ev-label { color: var(--ev-astro); }
 .wx-ev-row.wx-ev-astro td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-astro) 45%, transparent); }
 /* Astronomical night phase banding — tint source must be mid-lightness or the
    mix disappears into the dark card background. */
 .wx-table tr.wx-row-astro td,
 .wx-table tr.wx-row-astro td.wx-time {
-  background: color-mix(in oklab, oklch(0.50 0.12 262) 18%, var(--card));
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 24%, var(--card));
 }
 .wx-table tr.wx-row-astro td.wx-time {
   border-left: 2px solid color-mix(in oklab, var(--ev-astro) 60%, transparent);
+}
+/* Moon-up within astro dark: same hue, half the mix — the moon is above the
+   horizon so it's only partial darkness, not the full moon-down tone above. */
+.wx-table tr.wx-row-astro-lit td,
+.wx-table tr.wx-row-astro-lit td.wx-time {
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 12%, var(--card));
 }
 .wx-table-wrap {
   overflow-x: auto;
@@ -2446,6 +2527,14 @@ html.red-mode .wx-now-row td.wx-now-time {
   border-bottom: 1px solid rgba(var(--hairline-rgb), 0.6);
   color: var(--text);
   white-space: nowrap;
+}
+/* Conditions and Wind cells hold a 32px icon — the tallest content in the row,
+   so it alone sets the row height for every cell. Tighter vertical padding here
+   brings the row back down without shrinking the icon itself. */
+.wx-table td.wx-rating,
+.wx-table td.wx-wind-col {
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 .wx-table tr:last-child td {
   border-bottom: none;
@@ -2488,6 +2577,16 @@ html.red-mode .wx-now-row td.wx-now-time {
 }
 .tg-table th.tg-sky-col  { text-align: left; }
 .tg-table th.tg-cond-col { text-align: left; }
+/* Center every icon-headed column: the header icon and its data (which can be
+   wider than the icon itself, e.g. the L/M/H cloud tiers) share one center
+   point, so they align regardless of the data's rendered width — unlike
+   right-align, which only guarantees the shared edge lines up. */
+.wx-table th.wx-cond-col, .wx-table td.wx-rating,
+.wx-table th.wx-cloud-col, .wx-table td.wx-cloud-col,
+.wx-table th.wx-wind-col, .wx-table td.wx-wind-col,
+.wx-table th.wx-atmos-col, .wx-table td.wx-atmos-col {
+  text-align: center;
+}
 /* Grouped span headers (e.g. Rise / Peak / Set in sat table) look better centred */
 .wx-table th[colspan] {
   text-align: center;
@@ -3125,14 +3224,32 @@ html.red-mode .recalc-overlay {
   .wx-table {
     font-size: 10px;
   }
+  /* "Haze: Aloft" / "Haze: Surface" wrap onto a second line here rather than
+     widening the Conditions column — vertical space is cheaper than width on a
+     narrow viewport. Overrides the inherited nowrap from .wx-table td; max-width
+     forces the break instead of just permitting it (normal alone doesn't shrink
+     the box, it only allows wrapping once something else constrains the width). */
+  .wx-cond-word {
+    display: inline-block;
+    max-width: 46px;
+    white-space: normal;
+  }
   .wx-table th {
-    padding: 2px 3px 3px;
+    padding: 2px 2px 3px;
     font-size: 9px;
     letter-spacing: 0.03em;
     white-space: normal;
   }
   .wx-table td {
-    padding: 3px 4px;
+    padding: 3px 2px;
+  }
+  /* Cloud % stacks above the EQ meter here instead of sitting beside it —
+     narrower footprint than the desktop side-by-side layout. */
+  .wx-cloud-readout {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
   }
   .wx-table td.wx-time,
   .wx-table th:first-child {
@@ -3152,13 +3269,6 @@ html.red-mode .recalc-overlay {
   .tg-table td:first-child {
     white-space: normal;
     max-width: 160px;
-  }
-  /* Seeing arcsec: show as a tiny second line in the SEEING cell */
-  .wx-seeing-detail {
-    display: block;
-    font-size: 8px;
-    line-height: 1.1;
-    color: var(--text-dim);
   }
   /* POI elements: reduce font sizes so nearby table fits */
   .poi-maplink,

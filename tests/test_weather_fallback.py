@@ -126,3 +126,9 @@ def test_historical_provider_url_includes_weather_code_and_precip_probability():
     which meant precip_type could never be non-'none' on the historical path."""
     assert "weather_code" in wx.OpenMeteoHistoricalProvider._URL
     assert "precipitation_probability" in wx.OpenMeteoHistoricalProvider._URL
+
+
+def test_all_forecast_provider_urls_include_wind_gusts():
+    assert "wind_gusts_10m" in wx.OpenMeteoProvider._URL
+    assert "wind_gusts_10m" in wx.OpenMeteoPastProvider._URL
+    assert "wind_gusts_10m" in wx.OpenMeteoHistoricalProvider._URL

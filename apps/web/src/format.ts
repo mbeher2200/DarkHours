@@ -149,8 +149,10 @@ export function rateConditions(p: WeatherPoint): number {
     limiters.push(Math.max(0, 1 - Math.pow(p.cloud_cover_pct / 100, 1.5)))
   }
 
-  if (p.wind_speed_ms != null)
-    limiters.push(Math.max(0, 1 - Math.pow(p.wind_speed_ms / 17, 2)))
+  if (p.wind_speed_ms != null || p.wind_gust_ms != null) {
+    const effectiveWind = Math.max(...[p.wind_speed_ms, p.wind_gust_ms].filter((v): v is number => v != null))
+    limiters.push(Math.max(0, 1 - Math.pow(effectiveWind / 17, 2)))
+  }
   if (p.transparency != null) {
     const tmap: Record<string, number> = { Excellent: 1.0, Good: 0.8, Fair: 0.4, Poor: 0.1 }
     limiters.push(tmap[p.transparency] ?? 0.5)
@@ -202,18 +204,26 @@ export function rateConditions(p: WeatherPoint): number {
   return Math.max(1, Math.min(10, Math.round(final * 10)))
 }
 
-// Temperature formatting (mirrors FormatCtx.temp)
-export function fmtTemp(c: number | null, imp: boolean): string {
+// Temperature value only, no unit — for the temp/dew-point combined readout, which
+// appends a single trailing unit shared by both numbers.
+export function fmtTempValue(c: number | null, imp: boolean): string {
   if (c == null) return '—'
-  if (imp) return `${Math.round(c * 9 / 5 + 32)}°F`
-  return `${c.toFixed(1)}°C`
+  return imp ? `${Math.round(c * 9 / 5 + 32)}` : c.toFixed(1)
 }
 
-// Wind formatting with optional direction (mirrors FormatCtx.wind)
-export function fmtWind(ms: number | null, dir: number | null, imp: boolean): string {
+export function tempUnitLabel(imp: boolean): string {
+  return imp ? '°F' : '°C'
+}
+
+// Wind speed value only, no unit — for the sustained/gust combined readout, which
+// appends a single trailing unit shared by both numbers.
+export function fmtWindSpeed(ms: number | null, imp: boolean): string {
   if (ms == null) return '—'
-  const speed = imp ? `${Math.round(ms * 2.237)}mph` : `${ms.toFixed(1)}m/s`
-  return dir != null ? `${speed} ${cardinal(dir)}` : speed
+  return imp ? `${Math.round(ms * 2.237)}` : ms.toFixed(1)
+}
+
+export function windUnitLabel(imp: boolean): string {
+  return imp ? 'mph' : 'm/s'
 }
 
 // Distance formatting: km ↔ mi (mirrors FormatCtx.dist)
