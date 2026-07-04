@@ -62,6 +62,7 @@ class WeatherPoint:
     cloud_cover_mid_pct:     Optional[int]   = None  # 0–100, 2–6km
     cloud_cover_high_pct:    Optional[int]   = None  # 0–100, >6km (cirrus)
     visibility_m:            Optional[float] = None  # meters, ground-level visibility
+    wind_gust_ms:            Optional[float] = None  # m/s, max gust within the hour (Open-Meteo only)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ def _parse_open_meteo_hourly(h: dict) -> list:
             cloud_cover_mid_pct=h.get("cloud_cover_mid",   [None] * n)[i],
             cloud_cover_high_pct=h.get("cloud_cover_high", [None] * n)[i],
             visibility_m=h.get("visibility",               [None] * n)[i],
+            wind_gust_ms=h.get("wind_gusts_10m",           [None] * n)[i],
         ))
     return points
 
@@ -154,7 +156,7 @@ class OpenMeteoProvider(WeatherProvider):
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         ",precipitation_probability,weather_code"
-        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_gusts_10m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
         "&forecast_days=7"
@@ -206,7 +208,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         ",precipitation_probability,weather_code"
-        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_gusts_10m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -255,7 +257,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         "&hourly=cloud_cover,temperature_2m,apparent_temperature"
         ",relative_humidity_2m,wind_speed_10m,wind_direction_10m,rain,snowfall,dewpoint_2m"
         ",precipitation_probability,weather_code"
-        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
+        ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_gusts_10m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
     )
@@ -494,10 +496,16 @@ def rate_conditions(p: 'WeatherPoint') -> int:
         low  = (p.cloud_cover_low_pct  or 0) / 100.0
         mid  = (p.cloud_cover_mid_pct  or 0) / 100.0
         high = (p.cloud_cover_high_pct or 0) / 100.0
-        # Low/mid clouds are immediate imaging blockers — full weight into the 1.5 power
-        # curve. High/cirrus still scatters light and blurs stars (star bloat, transparency
-        # loss) but rarely fully blocks the sky — lighter 0.6 weight into the same curve.
-        effective_cloud = min(1.0, max(low, mid) + 0.6 * high)
+        # Low/mid clouds are immediate imaging blockers. max(low, mid) assumed the two
+        # layers were maximally correlated (one strictly subsumes the other), which only
+        # holds for vertically contiguous cloud within one system. Low and mid strata are
+        # usually independent systems, so random overlap — treating them as statistically
+        # independent probabilities of an opaque sky — is the more physically defensible
+        # assumption: opaque = 1 - P(clear from low) * P(clear from mid).
+        opaque_cloud = 1.0 - (1.0 - low) * (1.0 - mid)
+        # High/cirrus still scatters light and blurs stars (star bloat, transparency loss)
+        # but rarely fully blocks the sky — lighter 0.6 weight into the same curve.
+        effective_cloud = min(1.0, opaque_cloud + 0.6 * high)
         limiters.append(max(0.0, 1.0 - effective_cloud ** 1.5))
     elif p.cloud_cover_pct is not None:
         # Fallback for sources without cloud-tier data (7Timer-only points, pre-upgrade
@@ -506,10 +514,14 @@ def rate_conditions(p: 'WeatherPoint') -> int:
         cloud_score = max(0.0, 1.0 - (p.cloud_cover_pct / 100.0) ** 1.5)
         limiters.append(cloud_score)
 
-    if p.wind_speed_ms is not None:
+    if p.wind_speed_ms is not None or p.wind_gust_ms is not None:
         # Wind force scales with velocity squared (dynamic pressure).
         # We cap it at 17 m/s (~38 mph), which makes extreeme conditions.
-        wind_score = max(0.0, 1.0 - (p.wind_speed_ms / 17.0) ** 2)
+        # Use the worse of sustained speed and gust — a calm sustained reading can still
+        # mask short gusts strong enough to shake a tripod mid-exposure (same reasoning as
+        # taking the worse of AOD/PM2.5 for smoke: two related signals that can diverge).
+        effective_wind = max(v for v in (p.wind_speed_ms, p.wind_gust_ms) if v is not None)
+        wind_score = max(0.0, 1.0 - (effective_wind / 17.0) ** 2)
         limiters.append(wind_score)
 
     if p.transparency is not None:
