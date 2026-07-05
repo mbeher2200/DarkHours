@@ -56,6 +56,26 @@ export function formatHm(hours: number): string {
   return `${h}h ${m}m`
 }
 
+// "3m ago" / "2h ago" — age of a past ISO timestamp relative to now
+export function formatAge(iso: string | null): string {
+  if (!iso) return '—'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return '—'
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 60) return `${mins}m ago`
+  return `${Math.floor(mins / 60)}h ago`
+}
+
+// "14:32Z" — UTC HH:MM with Z suffix, for the provenance badge's ISSUED field
+export function formatIssuedUtc(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${hh}:${mm}Z`
+}
+
 // Short timezone abbreviation, e.g. "MST", "PDT"
 export function tzAbbr(tz: string): string {
   try {
@@ -110,19 +130,64 @@ export function fmtWeatherCode(code: number | null, prob: number | null): string
 
 // Port of weather.rate_conditions() — multiplicative limiter model — returns 1–10
 export function rateConditions(p: WeatherPoint): number {
-  // WMO codes ≥51 are precipitation events; fall back to precip_type for non-Open-Meteo sources
-  if ((p.weather_code != null && p.weather_code >= 51) ||
-      (p.precip_type && p.precip_type !== 'none')) return 1
+  // Hard gate 1: any non-"none" precip_type (covers rain/snow/frzr/icep/fog/tstorm
+  // uniformly, since weather.py now derives precip_type from weather_code server-side).
+  if (p.precip_type && p.precip_type !== 'none') return 1
 
-  // Limiters: multiplicative penalties (cloud, wind, transparency)
+  // Hard gate 2: visibility < 1000 m
+  if (p.visibility_m != null && p.visibility_m < 1000) return 1
+
   const limiters: number[] = []
-  if (p.cloud_cover_pct != null)
+
+  if (p.cloud_cover_low_pct != null || p.cloud_cover_mid_pct != null || p.cloud_cover_high_pct != null) {
+    const low  = (p.cloud_cover_low_pct  ?? 0) / 100
+    const mid  = (p.cloud_cover_mid_pct  ?? 0) / 100
+    const high = (p.cloud_cover_high_pct ?? 0) / 100
+    const effective = Math.min(1, Math.max(low, mid) + 0.6 * high)
+    limiters.push(Math.max(0, 1 - Math.pow(effective, 1.5)))
+  } else if (p.cloud_cover_pct != null) {
     limiters.push(Math.max(0, 1 - Math.pow(p.cloud_cover_pct / 100, 1.5)))
-  if (p.wind_speed_ms != null)
-    limiters.push(Math.max(0, 1 - Math.pow(p.wind_speed_ms / 17, 2)))
+  }
+
+  if (p.wind_speed_ms != null || p.wind_gust_ms != null) {
+    const effectiveWind = Math.max(...[p.wind_speed_ms, p.wind_gust_ms].filter((v): v is number => v != null))
+    limiters.push(Math.max(0, 1 - Math.pow(effectiveWind / 17, 2)))
+  }
   if (p.transparency != null) {
     const tmap: Record<string, number> = { Excellent: 1.0, Good: 0.8, Fair: 0.4, Poor: 0.1 }
     limiters.push(tmap[p.transparency] ?? 0.5)
+  }
+
+  // AOD (satellite column measurement) and PM2.5 (ground-level) are evaluated
+  // independently and the worse of the two is used — a shallow, trapped surface smoke
+  // layer can read hazardous on PM2.5 while column AOD still looks moderate.
+  let aodScore: number | null = null
+  if (p.aerosol_optical_depth != null) {
+    const aod = p.aerosol_optical_depth
+    if (aod <= 0.1) aodScore = 1.0
+    else if (aod <= 0.3) aodScore = 1.0 - 0.4 * (aod - 0.1) / 0.2
+    else if (aod <= 0.8) aodScore = 0.6 * Math.max(0, 1 - Math.pow((aod - 0.3) / 0.5, 1.5))
+    else aodScore = 0.0
+  }
+  let pmScore: number | null = null
+  if (p.pm2_5 != null) {
+    const pm = p.pm2_5
+    if (pm <= 12) pmScore = 1.0
+    else if (pm <= 35) pmScore = 1.0 - 0.4 * (pm - 12) / 23
+    else if (pm <= 150) pmScore = 0.6 * Math.max(0, 1 - Math.pow((pm - 35) / 115, 1.5))
+    else pmScore = 0.0
+  }
+  if (aodScore != null || pmScore != null) {
+    limiters.push(Math.min(...[aodScore, pmScore].filter((s): s is number => s != null)))
+  }
+
+  if (p.visibility_m != null) {
+    const v = p.visibility_m
+    let s: number
+    if (v >= 20000) s = 1.0
+    else if (v >= 10000) s = 0.7 + 0.3 * (v - 10000) / 10000
+    else s = 0.7 * (Math.log10(v / 1000) / Math.log10(10))
+    limiters.push(Math.max(0, Math.min(1, s)))
   }
 
   // Quality base: average of seeing and humidity (additive)
@@ -139,18 +204,26 @@ export function rateConditions(p: WeatherPoint): number {
   return Math.max(1, Math.min(10, Math.round(final * 10)))
 }
 
-// Temperature formatting (mirrors FormatCtx.temp)
-export function fmtTemp(c: number | null, imp: boolean): string {
+// Temperature value only, no unit — for the temp/dew-point combined readout, which
+// appends a single trailing unit shared by both numbers.
+export function fmtTempValue(c: number | null, imp: boolean): string {
   if (c == null) return '—'
-  if (imp) return `${Math.round(c * 9 / 5 + 32)}°F`
-  return `${c.toFixed(1)}°C`
+  return imp ? `${Math.round(c * 9 / 5 + 32)}` : c.toFixed(1)
 }
 
-// Wind formatting with optional direction (mirrors FormatCtx.wind)
-export function fmtWind(ms: number | null, dir: number | null, imp: boolean): string {
+export function tempUnitLabel(imp: boolean): string {
+  return imp ? '°F' : '°C'
+}
+
+// Wind speed value only, no unit — for the sustained/gust combined readout, which
+// appends a single trailing unit shared by both numbers.
+export function fmtWindSpeed(ms: number | null, imp: boolean): string {
   if (ms == null) return '—'
-  const speed = imp ? `${Math.round(ms * 2.237)}mph` : `${ms.toFixed(1)}m/s`
-  return dir != null ? `${speed} ${cardinal(dir)}` : speed
+  return imp ? `${Math.round(ms * 2.237)}` : ms.toFixed(1)
+}
+
+export function windUnitLabel(imp: boolean): string {
+  return imp ? 'mph' : 'm/s'
 }
 
 // Distance formatting: km ↔ mi (mirrors FormatCtx.dist)

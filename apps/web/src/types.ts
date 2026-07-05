@@ -77,6 +77,13 @@ export interface WeatherPoint {
   feels_like_c: number | null
   precip_probability_pct: number | null
   weather_code: number | null
+  aerosol_optical_depth: number | null
+  pm2_5: number | null
+  cloud_cover_low_pct: number | null
+  cloud_cover_mid_pct: number | null
+  cloud_cover_high_pct: number | null
+  visibility_m: number | null
+  wind_gust_ms: number | null
 }
 
 export interface MoonEclipse {
@@ -209,6 +216,7 @@ export interface NightReport {
   weather_points: WeatherPoint[]
   weather_score: number | null
   wx_source: string | null
+  wx_fetched_at: string | null
   wx_pending: boolean
   wx_no_data: boolean
   wx_error: string | null

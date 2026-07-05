@@ -1,6 +1,6 @@
 """
-Tests for weather.py — rate_conditions(), _parse_open_meteo_hourly(), _merge_7timer().
-All pure logic: no network, no ephemeris.
+Tests for weather.py — rate_conditions(), _parse_open_meteo_hourly(), _merge_7timer(),
+_merge_air_quality(). All pure logic: no network, no ephemeris.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +9,7 @@ import pytest
 from PyNightSkyPredictor.weather import (
     WeatherPoint,
     _merge_7timer,
+    _merge_air_quality,
     _parse_open_meteo_hourly,
     rate_conditions,
 )
@@ -29,6 +30,13 @@ def _wp(**kwargs) -> WeatherPoint:
         feels_like_c=None,
         dew_point_c=None,
         wind_direction_deg=None,
+        aerosol_optical_depth=None,
+        pm2_5=None,
+        cloud_cover_low_pct=None,
+        cloud_cover_mid_pct=None,
+        cloud_cover_high_pct=None,
+        visibility_m=None,
+        wind_gust_ms=None,
     )
     defaults.update(kwargs)
     return WeatherPoint(**defaults)
@@ -119,6 +127,18 @@ class TestRateConditions:
         s25 = rate_conditions(_wp(wind_speed_ms=25.0))
         assert s17 == s25
 
+    def test_gust_used_when_sustained_wind_missing(self):
+        assert rate_conditions(_wp(wind_gust_ms=25.0)) == 1
+
+    def test_worse_of_sustained_and_gust_is_used(self):
+        """Calm sustained wind (2 m/s) with a severe gust (20 m/s) must still gate —
+        a calm average can mask short gusts strong enough to shake a tripod."""
+        assert rate_conditions(_wp(wind_speed_ms=2.0, wind_gust_ms=20.0)) == 1
+
+    def test_gust_lower_than_sustained_does_not_help(self):
+        """Severe sustained wind isn't masked by a merely-mild gust value."""
+        assert rate_conditions(_wp(wind_speed_ms=20.0, wind_gust_ms=2.0)) == 1
+
     # --- Humidity (Base Quality): max(0.0, 1.0 - max(0.0, RH-50)/50) ---
 
     def test_humidity_below_50_has_no_penalty(self):
@@ -168,6 +188,85 @@ class TestRateConditions:
         )
         assert rate_conditions(p) == 1
 
+    # --- Cloud tiers (Limiter): random overlap of low/mid + 0.6*high, 1.5 power curve ---
+
+    def test_cloud_tiers_random_overlap_worse_than_either_layer_alone(self):
+        """Two independent 50% layers should score worse than either alone (50%) — random
+        overlap (1-(1-low)(1-mid)) gives 75% effective opacity, not max(low,mid)=50%."""
+        both      = rate_conditions(_wp(cloud_cover_low_pct=50, cloud_cover_mid_pct=50, cloud_cover_high_pct=0))
+        low_only  = rate_conditions(_wp(cloud_cover_low_pct=50, cloud_cover_mid_pct=0,  cloud_cover_high_pct=0))
+        mid_only  = rate_conditions(_wp(cloud_cover_low_pct=0,  cloud_cover_mid_pct=50, cloud_cover_high_pct=0))
+        assert both < low_only
+        assert both < mid_only
+
+    def test_cloud_tiers_high_cirrus_penalized_less_than_low_mid(self):
+        """Same magnitude split between high-only vs low-only cloud cover — high/cirrus
+        gets the lighter 0.6 weight, so it should score strictly higher."""
+        high_only = rate_conditions(_wp(cloud_cover_low_pct=0, cloud_cover_mid_pct=0, cloud_cover_high_pct=80))
+        low_only  = rate_conditions(_wp(cloud_cover_low_pct=80, cloud_cover_mid_pct=0, cloud_cover_high_pct=0))
+        assert high_only > low_only
+
+    def test_cloud_tiers_fall_back_to_total_when_tiers_absent(self):
+        """No tier fields set — reproduces the pre-upgrade cloud_cover_pct-only score."""
+        assert rate_conditions(_wp(cloud_cover_pct=50)) == rate_conditions(
+            _wp(cloud_cover_pct=50, cloud_cover_low_pct=None, cloud_cover_mid_pct=None, cloud_cover_high_pct=None)
+        )
+
+    def test_cloud_tiers_take_priority_over_total_when_both_present(self):
+        """Tier fields set alongside cloud_cover_pct — tiers drive the score, not the total."""
+        tiered = rate_conditions(_wp(cloud_cover_pct=100, cloud_cover_low_pct=0, cloud_cover_mid_pct=0, cloud_cover_high_pct=0))
+        assert tiered == 10
+
+    # --- AOD (Limiter): piecewise 1.0 / linear taper / power curve / 0.0 ---
+
+    def test_aod_below_0_1_no_penalty(self):
+        assert rate_conditions(_wp(aerosol_optical_depth=0.05)) == 10
+
+    def test_aod_above_0_8_zeroes_score(self):
+        assert rate_conditions(_wp(aerosol_optical_depth=0.9)) == 1
+
+    def test_aod_monotone_decreasing(self):
+        scores = [rate_conditions(_wp(aerosol_optical_depth=a)) for a in (0.0, 0.2, 0.5, 0.9)]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_pm25_fallback_used_when_aod_missing(self):
+        assert rate_conditions(_wp(pm2_5=200, aerosol_optical_depth=None)) == 1
+
+    def test_pm25_still_penalizes_when_aod_present_and_clean(self):
+        """Real wildfire-smoke case: satellite column AOD 'clean' (0.05) but a shallow,
+        trapped surface smoke layer reads hazardous on ground-level PM2.5 (200 ug/m3).
+        The worse (PM2.5) must still zero the score — AOD must not mask it."""
+        assert rate_conditions(_wp(aerosol_optical_depth=0.05, pm2_5=200)) == 1
+
+    def test_aod_still_penalizes_when_pm25_present_and_clean(self):
+        """Inverse case: AOD hazardous (0.9) but PM2.5 clean (5) — AOD must still win."""
+        assert rate_conditions(_wp(aerosol_optical_depth=0.9, pm2_5=5)) == 1
+
+    def test_worse_of_aod_and_pm25_is_used(self):
+        """Both present, both mildly elevated but at different severities — score should
+        match whichever curve is worse, not just AOD."""
+        aod_only = rate_conditions(_wp(aerosol_optical_depth=0.2))
+        both = rate_conditions(_wp(aerosol_optical_depth=0.2, pm2_5=200))
+        assert both < aod_only
+
+    # --- Visibility (Limiter + hard gate) ---
+
+    def test_visibility_above_20000_no_penalty(self):
+        assert rate_conditions(_wp(visibility_m=25000)) == 10
+
+    def test_visibility_below_10000_log_dropoff_monotonic(self):
+        scores = [rate_conditions(_wp(visibility_m=v)) for v in (9000, 5000, 2000)]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_visibility_below_1000_hard_gates(self):
+        assert rate_conditions(_wp(visibility_m=500, precip_type=None)) == 1
+
+    def test_fog_precip_type_hard_gates(self):
+        assert rate_conditions(_wp(precip_type="fog", cloud_cover_pct=0)) == 1
+
+    def test_tstorm_precip_type_hard_gates(self):
+        assert rate_conditions(_wp(precip_type="tstorm", cloud_cover_pct=0)) == 1
+
 
 # ---------------------------------------------------------------------------
 # _parse_open_meteo_hourly — JSON parsing and precip_type derivation
@@ -183,28 +282,65 @@ def _make_hourly(**overrides) -> dict:
         "relative_humidity_2m": [50],
         "wind_speed_10m":       [2.0],
         "temperature_2m":       [15.0],
+        "weather_code":         [0],
+        "visibility":           [24000],
     }
     h.update(overrides)
     return h
 
 
 class TestParseOpenMeteoHourly:
-    def test_no_precip_gives_none_string(self):
-        points = _parse_open_meteo_hourly(_make_hourly(rain=[0.0], snowfall=[0.0]))
+    def test_unmapped_code_gives_none(self):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[2]))
         assert points[0].precip_type == "none"
 
-    def test_rain_positive_gives_rain(self):
-        points = _parse_open_meteo_hourly(_make_hourly(rain=[0.5], snowfall=[0.0]))
+    @pytest.mark.parametrize("code", [45, 48])
+    def test_fog_codes_give_fog(self, code):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
+        assert points[0].precip_type == "fog"
+
+    @pytest.mark.parametrize("code", [56, 57, 66, 67])
+    def test_frzr_codes_give_frzr(self, code):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
+        assert points[0].precip_type == "frzr"
+
+    @pytest.mark.parametrize("code", [77, 87, 88])
+    def test_icep_codes_give_icep(self, code):
+        """87/88 are not standard WMO codes; included per spec even though Open-Meteo
+        has never been observed to emit them."""
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
+        assert points[0].precip_type == "icep"
+
+    @pytest.mark.parametrize("code", [71, 73, 75, 85, 86])
+    def test_snow_codes_give_snow(self, code):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
+        assert points[0].precip_type == "snow"
+
+    @pytest.mark.parametrize("code", [51, 53, 55, 61, 63, 65, 80, 81, 82])
+    def test_rain_codes_give_rain(self, code):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
         assert points[0].precip_type == "rain"
 
-    def test_snowfall_positive_gives_snow(self):
-        points = _parse_open_meteo_hourly(_make_hourly(rain=[0.0], snowfall=[0.3]))
-        assert points[0].precip_type == "snow"
+    @pytest.mark.parametrize("code", [95, 96, 99])
+    def test_tstorm_codes_give_tstorm(self, code):
+        points = _parse_open_meteo_hourly(_make_hourly(weather_code=[code]))
+        assert points[0].precip_type == "tstorm"
 
-    def test_snowfall_wins_over_rain(self):
-        """When both rain and snowfall are non-zero, snowfall takes priority."""
-        points = _parse_open_meteo_hourly(_make_hourly(rain=[0.1], snowfall=[0.1]))
-        assert points[0].precip_type == "snow"
+    def test_visibility_parsed(self):
+        points = _parse_open_meteo_hourly(_make_hourly(visibility=[15000]))
+        assert points[0].visibility_m == 15000
+
+    def test_wind_gust_parsed(self):
+        points = _parse_open_meteo_hourly(_make_hourly(wind_gusts_10m=[12.5]))
+        assert points[0].wind_gust_ms == 12.5
+
+    def test_cloud_tiers_parsed(self):
+        points = _parse_open_meteo_hourly(_make_hourly(
+            cloud_cover_low=[10], cloud_cover_mid=[20], cloud_cover_high=[30],
+        ))
+        assert points[0].cloud_cover_low_pct == 10
+        assert points[0].cloud_cover_mid_pct == 20
+        assert points[0].cloud_cover_high_pct == 30
 
     def test_time_is_utc_aware(self):
         points = _parse_open_meteo_hourly(_make_hourly())
@@ -228,6 +364,8 @@ class TestParseOpenMeteoHourly:
             relative_humidity_2m=[50, 60],
             wind_speed_10m=[2.0, 3.0],
             temperature_2m=[15.0, 14.0],
+            weather_code=[0, 0],
+            visibility=[24000, 24000],
         )
         points = _parse_open_meteo_hourly(h)
         assert len(points) == 2
@@ -294,3 +432,28 @@ class TestMerge7Timer:
         s = _wp(time=_t(2), lifted_index=3)
         merged = _merge_7timer([p], [s])
         assert merged[0].lifted_index == 3
+
+
+# ---------------------------------------------------------------------------
+# _merge_air_quality — pm2_5/aerosol_optical_depth blend, 90-minute tolerance
+# ---------------------------------------------------------------------------
+
+class TestMergeAirQuality:
+    def test_empty_aq_returns_original_points(self):
+        p = _wp(time=_t(2))
+        result = _merge_air_quality([p], [])
+        assert result[0] is p or result[0] == p
+
+    def test_within_tolerance_merges_pm25_and_aod(self):
+        p = _wp(time=_t(2), pm2_5=None, aerosol_optical_depth=None)
+        aq = [(_t(2.5), 12.0, 0.2)]  # 30 min away
+        merged = _merge_air_quality([p], aq)
+        assert merged[0].pm2_5 == pytest.approx(12.0)
+        assert merged[0].aerosol_optical_depth == pytest.approx(0.2)
+
+    def test_outside_tolerance_leaves_fields_none(self):
+        p = _wp(time=_t(2), pm2_5=None, aerosol_optical_depth=None)
+        aq = [(_t(3.51), 12.0, 0.2)]  # 90 min 36 s away
+        merged = _merge_air_quality([p], aq)
+        assert merged[0].pm2_5 is None
+        assert merged[0].aerosol_optical_depth is None
