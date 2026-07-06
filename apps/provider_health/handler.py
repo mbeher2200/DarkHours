@@ -92,11 +92,19 @@ def _emit_dynamo_write_failure(provider: str) -> None:
 
 def _probe(url: str) -> tuple[int, float]:
     """Returns (http_status_code, latency_ms). Raises on network failure."""
+    # 1. Scheme validation prevents 'file://' Arbitrary File Read vulnerabilities
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Security violation: Permitted schemes are HTTP/HTTPS. Got: {url}")
+
     req = urllib.request.Request(url, method="GET")
     t0 = time.monotonic()
+
+    # 2. Tell Semgrep to ignore the audit rule here since inputs are validated and hardcoded
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
         resp.read()  # drain body to free the connection
         status = resp.status
+
     return status, (time.monotonic() - t0) * 1000
 
 
