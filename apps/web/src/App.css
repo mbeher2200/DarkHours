@@ -689,6 +689,40 @@ input[type="number"]::-webkit-inner-spin-button {
 .scope-diag {
   font-size: 9px;
 }
+/* Query-form scope disclosure: unlike report-section summaries, this one is a
+   quiet inline control — strip the global details-summary chrome. */
+.scope-details summary.scope-summary {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.scope-details summary.scope-summary:hover {
+  color: var(--text);
+}
+.scope-details .scope-grid {
+  margin-top: 8px;
+}
+.scope-details .scope-summary .scope-diag {
+  color: var(--fair);
+}
+html.red-mode .scope-details summary.scope-summary {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+}
+html.red-mode .scope-details .scope-summary .scope-diag {
+  color: var(--accent);
+}
 html.red-mode .scope-brk {
   color: rgba(255, 0, 0, 0.55);
 }
@@ -933,6 +967,50 @@ html.red-mode .scope-brk {
   min-width: 112px;
 }
 
+/* ── Verdict line + next-good-night chip (score card) ─────────── */
+.overall-verdict {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 300px;
+  margin-top: 6px;
+}
+.next-good-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  align-self: flex-start;
+  margin-top: 10px;
+  padding: 7px 13px;
+  background: rgba(var(--tint-rgb), 0.06);
+  border: 1px solid rgba(var(--tint-rgb), 0.45);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-h);
+  cursor: pointer;
+}
+.next-good-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(var(--tint-rgb), 0.11);
+}
+.next-good-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ngc-k {
+  color: var(--accent);
+}
+html.red-mode .overall-verdict { color: var(--text); }
+html.red-mode .next-good-chip {
+  background: rgba(255, 0, 0, 0.07);
+  border-color: rgba(255, 0, 0, 0.45);
+  color: var(--text-h);
+}
+
 /* ── Light dome panel (all-sky fisheye) ─────────────────────── */
 .lightdome-panel {
   flex: 0 0 100%;
@@ -1162,6 +1240,19 @@ details summary {
   padding: 5px 8px;
   margin: 0 -18px;
   user-select: none;
+}
+
+/* Collapsed-section takeaway: shown in the summary line only while the section
+   is closed, so collapsing hides detail without hiding the conclusion. */
+.sum-brief {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+details[open] > summary .sum-brief {
+  display: none;
+}
+html.red-mode .sum-brief {
+  color: var(--text-dim);
 }
 
 /* ── night timeline ───────────────────────────────────────────────────────── */
@@ -2273,6 +2364,32 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
 }
 
 /* Section divider before the unviable group */
+/* Collapsed blocked-targets rollup: the header row itself is the toggle. */
+.tg-blocked-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.tg-blocked-toggle:hover {
+  color: var(--text);
+}
+.tg-blocked-caret {
+  font-size: 9px;
+}
+.tg-blocked-counts {
+  color: var(--text-dim);
+}
+html.red-mode .tg-blocked-toggle { color: var(--text-dim); }
+html.red-mode .tg-blocked-toggle:hover { color: var(--text); }
+
 .tg-unviable-hdr td {
   background: transparent;
   color: var(--text-dim);
@@ -2672,7 +2789,9 @@ html.red-mode .recalc-overlay {
 .es-copy {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
+  text-align: center;
 }
 .es-headline {
   margin: 0;
@@ -2742,15 +2861,20 @@ html.red-mode .recalc-overlay {
   flex-wrap: wrap;
 }
 .es-qs-btn {
-  padding: 8px 16px;
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 14px;
   border: 1px solid var(--card-border);
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.025);
   color: var(--text);
   font: inherit;
   font-size: 13px;
+  text-align: left;
   cursor: pointer;
-  white-space: nowrap;
   transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .es-qs-btn:hover {
@@ -2762,6 +2886,65 @@ html.red-mode .recalc-overlay {
 .es-qs-btn:active {
   transform: scale(0.98);
 }
+.es-qs-name {
+  font-weight: 600;
+  color: var(--text-h);
+}
+.es-qs-hook {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* ── capability strip (empty state) ─────────────────────────── */
+.es-caps-label {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  opacity: 0.65;
+  margin-bottom: -6px;
+}
+html.red-mode .es-caps-label { color: var(--text-dim); }
+.es-caps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 22px;
+}
+.es-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.es-cap-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+}
+.es-cap-v {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+/* Table-stakes sweep: one quiet line under the differentiator tiles. */
+.es-caps-more {
+  margin: -6px auto 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  opacity: 0.85;
+  max-width: 72ch;
+  text-align: center;
+}
+html.red-mode .es-cap-k { color: var(--accent); }
+html.red-mode .es-qs-hook, html.red-mode .es-cap-v, html.red-mode .es-caps-more { color: var(--text-dim); }
 
 /* ── custom date picker ───────────────────────────────────── */
 .dp-wrap {
@@ -3141,6 +3324,10 @@ html.red-mode .recalc-overlay {
 
 /* ── responsive: ≤480px (phone portrait) ────────────────────────────────── */
 @media (max-width: 480px) {
+  .es-caps {
+    grid-template-columns: 1fr;
+  }
+
   .masthead h1 {
     font-size: 1.25rem;
   }
