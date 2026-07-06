@@ -7,6 +7,7 @@ import aws_cdk as cdk
 from lambda_api_stack import LambdaApiStack
 from cicd_stack import CicdStack
 from warmer_stack import WarmerStack
+from provider_health_stack import ProviderHealthStack
 
 app = cdk.App()
 _env = cdk.Environment(
@@ -22,6 +23,9 @@ CicdStack(app, "PyNightSkyCicd", env=_env)
 
 # Scheduled TLE cache warmer (EventBridge → Lambda → DynamoDB).
 WarmerStack(app, "PyNightSkyWarmer", env=_env)
+
+# Weather provider health monitor (EventBridge → Lambda → DynamoDB + alarms).
+ProviderHealthStack(app, "PyNightSkyProviderHealth", env=_env)
 
 # NOTE: the App Runner deployment (PyNightSkyStack in pynightsky_stack.py) was retired
 # and destroyed once the Lambda+CloudFront path was verified (M4.7). The class is kept

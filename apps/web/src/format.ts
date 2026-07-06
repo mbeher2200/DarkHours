@@ -1,7 +1,7 @@
 // Presentation helpers. Times are formatted in the *report's* timezone (tz_name),
 // not the viewer's, so "Sunset 8:32 PM" reads correctly for the queried location.
 
-import type { WeatherPoint, LightPollution } from './types'
+import type { WeatherPoint, LightPollution, NightReport } from './types'
 
 // Mirror CLI detect_units(): imperial for en-US locale, SI otherwise.
 // Used only to seed the initial default; components receive `imperial` as a prop.
@@ -336,12 +336,86 @@ export function daySpan(startIso: string, endIso: string): number {
   return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1
 }
 
-// Weather forecast (7-day) and satellite TLE accuracy ([0,10]-day) horizons —
+// ── Verdict line ──────────────────────────────────────────────────────────────
+// One plain-language line arguing the composite score: names the limiting
+// factors (component < 5.5) with tonight's numbers, or the strengths when
+// nothing limits. Dot-separated fragments, first letter capitalized.
+
+const VERDICT_LIMIT = 5.5
+
+export function nightVerdict(r: NightReport): string | null {
+  const sc = r.score_components ?? {}
+
+  // Weather stats over the sunset→sunrise window (same clip as the timeline).
+  const sunsetTs  = r.sunset  ? new Date(r.sunset).getTime()  : -Infinity
+  const sunriseTs = r.sunrise ? new Date(r.sunrise).getTime() : Infinity
+  const nightPts = (r.weather_points ?? []).filter(p => {
+    const t = new Date(p.time).getTime()
+    return t >= sunsetTs && t <= sunriseTs
+  })
+  const clouds = nightPts.map(p => p.cloud_cover_pct).filter((v): v is number => v != null)
+  const minCloud = clouds.length ? Math.round(Math.min(...clouds)) : null
+  const maxCloud = clouds.length ? Math.round(Math.max(...clouds)) : null
+
+  function weatherPhrase(): string {
+    if (!nightPts.length) return 'poor weather'
+    if (nightPts.some(p => p.precip_type && p.precip_type !== 'none')) return 'precipitation expected'
+    if (minCloud != null && minCloud >= 85) return 'overcast all night'
+    if (maxCloud != null && maxCloud >= 60) return `clouds ${minCloud}–${maxCloud}%`
+    // Clouds aren't the story — name the actual limiter.
+    const hazy = nightPts.filter(p =>
+      (p.aerosol_optical_depth != null && p.aerosol_optical_depth > 0.3) ||
+      (p.pm2_5 != null && p.pm2_5 > 35)).length
+    if (hazy > nightPts.length / 2) return 'smoke / haze aloft'
+    const murky = nightPts.filter(p => p.transparency === 'Poor' || p.transparency === 'Fair').length
+    if (murky > nightPts.length / 2) return 'poor transparency'
+    const maxWind = Math.max(0, ...nightPts.map(p => Math.max(p.wind_speed_ms ?? 0, p.wind_gust_ms ?? 0)))
+    if (maxWind >= 10) return 'strong wind'
+    return `clouds ${minCloud ?? 0}–${maxCloud ?? 0}%`
+  }
+  function moonPhrase(): string {
+    const phase = r.phase_name.toLowerCase()
+    return `${Math.round(r.illumination_pct)}% ${phase}${phase.includes('moon') ? '' : ' moon'}`
+  }
+  function darkPhrase(): string {
+    return r.dark_hours > 0
+      ? `only ${formatHm(r.dark_hours)} of moon-free darkness`
+      : 'no moon-free darkness'
+  }
+  function bortlePhrase(): string {
+    return r.light_pollution?.bortle_class != null
+      ? `Bortle ${r.light_pollution.bortle_class} light pollution`
+      : 'heavy light pollution'
+  }
+
+  const phrases: Record<string, () => string> = {
+    weather: weatherPhrase, moon: moonPhrase, dark: darkPhrase, bortle: bortlePhrase,
+  }
+  const limiters = (Object.entries(sc) as [string, number | undefined][])
+    .filter(([k, v]) => v != null && v < VERDICT_LIMIT && k in phrases)
+    .sort((a, b) => a[1]! - b[1]!)
+    .slice(0, 2)
+
+  let text: string
+  if (limiters.length) {
+    text = limiters.map(([k]) => phrases[k]()).join(' · ')
+  } else {
+    const good: string[] = []
+    if (sc.weather != null && maxCloud != null) good.push(maxCloud <= 25 ? 'clear skies' : `clouds ≤${maxCloud}%`)
+    if (sc.moon != null) good.push(`${Math.round(r.illumination_pct)}% moon`)
+    if (r.dark_hours > 0) good.push(`${formatHm(r.dark_hours)} of dark sky`)
+    if (!good.length) return null
+    text = good.join(' · ')
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+// Weather forecast (14-day) and satellite TLE accuracy ([0,10]-day) horizons —
 // mirrors apps/api's fetch limits. Shared by App.tsx's form-level gating and
 // ReportCard's per-date "View Details" gating so the two never drift.
 export function availabilityFor(dateIso: string): { wxUnavail: boolean; satUnavail: boolean } {
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const d = new Date(dateIso + 'T00:00:00')
   const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
-  return { wxUnavail: days > 7, satUnavail: days < 0 || days > 10 }
+  return { wxUnavail: days > 14, satUnavail: days < 0 || days > 10 }
 }
