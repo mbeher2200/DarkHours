@@ -4,7 +4,7 @@ import {
   formatTime, formatDayTime, formatHm, tzAbbr, tzTitle,
   cardinal, rateConditions, fmtTempValue, tempUnitLabel, fmtWindSpeed, windUnitLabel, fmtDist, lpString,
   scoreBand, scoreLabel, moonWashSeverity, moonUpAt, tonightIso, availabilityFor,
-  formatAge, formatIssuedUtc,
+  formatAge, formatIssuedUtc, nightVerdict,
 } from './format'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
@@ -26,16 +26,20 @@ const AUTO_CALENDAR_DAYS = 30
 // the in-flight promise (not just the settled result) at module scope, keyed
 // by location, so remounts for a location already loading/loaded reuse it —
 // this also collapses React StrictMode's dev-mode double-invoke into one call.
-const _autoCalendarCache = new Map<string, Promise<CalendarResult>>()
+// TTL matches the server's own weather cache freshness window (_WX_CACHE_TTL,
+// 30 min in predictor.py) — this is an in-memory, tab-lifetime cache with no
+// other invalidation, so without a TTL a long-lived tab would keep serving a
+// result computed hours/days ago even after the underlying data changes.
+const _AUTO_CALENDAR_TTL_MS = 30 * 60 * 1000
+const _autoCalendarCache = new Map<string, { promise: Promise<CalendarResult>; at: number }>()
 
 function autoFetchCalendar(lat: number, lon: number): Promise<CalendarResult> {
   const key = `${lat},${lon}`
-  let p = _autoCalendarCache.get(key)
-  if (!p) {
-    p = fetchCalendar(lat, lon, tonightIso(), AUTO_CALENDAR_DAYS)
-    p.catch(() => _autoCalendarCache.delete(key)) // don't cache failures — allow retry on next mount
-    _autoCalendarCache.set(key, p)
-  }
+  const cached = _autoCalendarCache.get(key)
+  if (cached && Date.now() - cached.at < _AUTO_CALENDAR_TTL_MS) return cached.promise
+  const p = fetchCalendar(lat, lon, tonightIso(), AUTO_CALENDAR_DAYS)
+  p.catch(() => _autoCalendarCache.delete(key)) // don't cache failures — allow retry on next mount
+  _autoCalendarCache.set(key, { promise: p, at: Date.now() })
   return p
 }
 
@@ -161,10 +165,10 @@ function seeingTier(arcsec: number): 'Optimal' | 'Good' | 'Fair' | 'Poor' {
   return 'Poor'
 }
 
-function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visibilityM, precipType, windSpeedMs, windGustMs }: {
+function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visibilityM, precipType, windSpeedMs, windGustMs, transparency }: {
   code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number
   aod?: number | null; pm25?: number | null; visibilityM?: number | null; precipType?: string | null
-  windSpeedMs?: number | null; windGustMs?: number | null
+  windSpeedMs?: number | null; windGustMs?: number | null; transparency?: string | null
 }) {
   // Fog and haze render as bold text, not an icon — both are visibility hazards easy to
   // misjudge from a small glyph at a glance; the word is unambiguous.
@@ -183,14 +187,23 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visib
   // visibility are both near-surface measurements, so either one without AOD means the
   // haze is surface-coupled. Both together is the unqualified, worst-case "Haze".
   const surfaceHazy = pmHazy || visHazy
+  // Cross-check: an AOD-only ("Aloft") reading is discarded when the independently
+  // sourced (7Timer) transparency assessment already says Good or better — the two
+  // would otherwise contradict each other in the same cell (AOD says hazy, transparency
+  // says clear). Below that (Fair/Poor), the signals agree rather than conflict, so AOD
+  // still gets to show. If transparency is unavailable at all (date outside 7Timer's
+  // range, or the API is down), there's nothing to cross-check against — fall back to
+  // the AOD signal alone rather than silently discarding a real reading for no reason.
+  const transpContradicts = transparency === 'Excellent' || transparency === 'Good'
+  const aloftConfirmed = aodHazy && !transpContradicts
   // "Hazy" describes a visible-but-degraded sky — once cloud cover crosses into the same
   // "cloudy" tier skyIconFromCloudCover uses for overcast, the sky isn't visible at all,
   // so the claim is moot regardless of what AOD/PM2.5 say underneath or above the deck.
   // Unlike the wind check below (which combines with cloud state instead of gating on
   // it), there's no meaningful "hazy AND overcast" icon — it's just overcast.
   const skyObscured = cloudCover != null && cloudCover > 25
-  if (!skyObscured && (aodHazy || surfaceHazy)) {
-    const label = aodHazy && surfaceHazy ? 'Haze' : aodHazy ? 'Haze: Aloft' : 'Haze: Surface'
+  if (!skyObscured && (aloftConfirmed || surfaceHazy)) {
+    const label = aloftConfirmed && surfaceHazy ? 'Haze' : aloftConfirmed ? 'Haze: Aloft' : 'Haze: Surface'
     return <span className="wx-cond-word">{label}</span>
   }
 
@@ -234,6 +247,13 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visib
 
 // Horizontal coordinates in the conventional order: azimuth (with compass point)
 // first, then altitude — e.g. "Az 195° S · Alt 42°".
+// "Mon, Jul 13" — date-only strings are report-local, render without TZ shift
+function fmtNightDate(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  })
+}
+
 function fmtPos(altDeg: number, azDeg: number): string {
   return `Az ${Math.round(azDeg)}° ${cardinal(azDeg)} · Alt ${Math.round(altDeg)}°`
 }
@@ -374,12 +394,29 @@ function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, is
     return ''
   }
 
+  // Collapsed-summary takeaway: cloud range + worst wind across the night.
+  const wxBrief = (() => {
+    if (!visiblePoints.length) return null
+    const clouds = visiblePoints.map(p => p.cloud_cover_pct).filter((v): v is number => v != null)
+    const parts: string[] = []
+    if (clouds.length) {
+      const minC = Math.round(Math.min(...clouds))
+      const maxC = Math.round(Math.max(...clouds))
+      parts.push(maxC <= 15 ? 'Clear' : `Clouds ${minC}–${maxC}%`)
+    }
+    const winds = visiblePoints.map(p => Math.max(p.wind_speed_ms ?? 0, p.wind_gust_ms ?? 0))
+    const maxWind = winds.length ? Math.max(...winds) : 0
+    parts.push(maxWind < 3 ? 'wind calm' : `wind to ${fmtWindSpeed(maxWind, imperial)} ${windUnitLabel(imperial)}`)
+    return parts.join(' · ')
+  })()
+
   return (
     <details className="wx-details" open>
       <summary>
         Night Timeline
         {sunsetTs !== -Infinity && sunriseTs !== Infinity &&
           `: ${formatDayTime(new Date(sunsetTs).toISOString(), tz)} → ${formatDayTime(new Date(sunriseTs).toISOString(), tz)}`}
+        {wxBrief && <span className="sum-brief"> · {wxBrief}</span>}
       </summary>
       <div className={`wx-table-wrap${isFetching ? ' is-recalculating' : ''}${cathodeSnap ? ' cathode-snap' : ''}`}>
         {isFetching && (
@@ -393,7 +430,7 @@ function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, is
               <tr>
                 <th>Time</th>
                 <th className="wx-cond-col"></th>
-                <th className="wx-cloud-col wx-cloud-hdr">Cloud<br />Low/Med/High</th>
+                <th className="wx-cloud-col wx-cloud-hdr">Cloud %<br />Low/Med/High</th>
                 {hasAtmos  && <th className="wx-atmos-col wx-atmos-hdr">Seeing /<br />Transp.</th>}
                 {(hasTemp || hasDew) && <th className="wx-temp-col wx-temp-hdr">TEMP/<br />DEW PT</th>}
                 <th className="wx-wind-col">Wind</th>
@@ -471,7 +508,7 @@ function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, is
                     {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
                       moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
                       aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
-                      windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} />)}
+                      windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />)}
                   </td>
                   <td className="wx-num wx-cloud-col">
                     {cell(isFetching, (() => {
@@ -1867,15 +1904,15 @@ function MeteorShowerCard({ target, zhr, report }: {
 
 // ── Blocker badge (Phase 2) ───────────────────────────────────────────────────
 
+function blockerLabel(blockers: string[]): string {
+  if (blockers.includes('cloud') || blockers.includes('transparency')) return 'Clouded out'
+  if (blockers.includes('moon_washout')) return 'Moon washout'
+  if (blockers.includes('light_dome')) return 'Lost in light dome'
+  return 'Unavailable Tonight'
+}
+
 function BlockerBadge({ blockers }: { blockers: string[] }) {
-  let label = 'Unavailable Tonight'
-  if (blockers.includes('cloud') || blockers.includes('transparency'))
-    label = 'Clouded out'
-  else if (blockers.includes('moon_washout'))
-    label = 'Moon washout'
-  else if (blockers.includes('light_dome'))
-    label = 'Lost in light dome'
-  return <span className="tg-blocker-badge">{label}</span>
+  return <span className="tg-blocker-badge">{blockerLabel(blockers)}</span>
 }
 
 function clipTooltip(w: TargetWindow, tz: string): string {
@@ -1900,6 +1937,9 @@ function clipTooltip(w: TargetWindow, tz: string): string {
 
 function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: NightReport }) {
   const tz = report.tz_name
+  // Blocked targets collapse to one summary row by default — on a bad night a
+  // wall of identical "Clouded out" rows is noise, not signal.
+  const [showBlocked, setShowBlocked] = useState(false)
 
   // Milky Way + meteor showers rendered separately as cards; rest filtered to prime prominent
   const allPrime = targets
@@ -2124,9 +2164,33 @@ function TargetsTable({ targets, report }: { targets: VisibleTarget[]; report: N
           {unviable.length > 0 && (
             <>
               <tr className="tg-unviable-hdr">
-                <td colSpan={4}>Unavailable Tonight</td>
+                <td colSpan={4}>
+                  <button
+                    type="button"
+                    className="tg-blocked-toggle"
+                    aria-expanded={showBlocked}
+                    onClick={() => setShowBlocked(v => !v)}
+                  >
+                    <span className="tg-blocked-caret" aria-hidden="true">{showBlocked ? '▾' : '▸'}</span>
+                    {`Unavailable Tonight (${unviable.length})`}
+                    <span className="tg-blocked-counts">
+                      {' — '}
+                      {(() => {
+                        const counts = new Map<string, number>()
+                        for (const t of unviable) {
+                          const label = blockerLabel(t.windows[0]?.blockers ?? [])
+                          counts.set(label, (counts.get(label) ?? 0) + 1)
+                        }
+                        return [...counts.entries()]
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([label, n]) => (n > 1 ? `${label} ×${n}` : label))
+                          .join(' · ')
+                      })()}
+                    </span>
+                  </button>
+                </td>
               </tr>
-              {unviableRows.map(row => {
+              {showBlocked && unviableRows.map(row => {
                 if (row.kind === 'header') {
                   return (
                     <tr key={row.key} className="tg-group-hdr tg-row-blocked">
@@ -2635,6 +2699,20 @@ export default function ReportCard({
     return () => { cancelled = true }
   }, [report.lat, report.lon])
 
+  // Verdict-layer chip: the first upcoming night in the outlook that scores
+  // "good" (≥6); when none does, fall back to the best upcoming night that
+  // still beats tonight. Rendered only when tonight itself is below good.
+  const nextGoodNight = useMemo(() => {
+    if (calendarState.phase !== 'done') return null
+    const upcoming = [...calendarState.data.nights]
+      .filter(n => n.date > report.date && n.score != null)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const firstGood = upcoming.find(n => n.score! >= 6)
+    if (firstGood) return { night: firstGood, kind: 'next' as const }
+    const best = [...upcoming].sort((a, b) => b.score! - a.score!)[0]
+    return best && best.score! > report.score ? { night: best, kind: 'best' as const } : null
+  }, [calendarState, report.date, report.score])
+
   const [dateFetch, setDateFetch] = useState<
     | { phase: 'idle' }
     | { phase: 'fetching'; date: string }
@@ -2780,6 +2858,27 @@ export default function ReportCard({
     year: 'numeric', month: 'long', day: 'numeric',
   }).format(new Date(r.date + 'T00:00:00'))
 
+  const verdict = nightVerdict(r)
+
+  // Collapsed-summary one-liners (hidden while a section is open — see .sum-brief)
+  const planningBrief = calendarState.phase === 'done' && calendarState.data.ranked[0]?.score != null
+    ? `Best night ${fmtNightDate(calendarState.data.ranked[0].date)} · ${calendarState.data.ranked[0].score!.toFixed(1)}`
+    : null
+
+  const satBrief = (() => {
+    const passes = r.sat_passes ?? []
+    const trains = r.starlink_trains?.length ?? 0
+    if (!passes.length && !trains) return null
+    const parts: string[] = []
+    if (passes.length) {
+      parts.push(`${passes.length} pass${passes.length === 1 ? '' : 'es'}`)
+      const first = [...passes].sort((a, b) => a.rise_time.localeCompare(b.rise_time))[0]
+      parts.push(`${first.satellite_name} ${formatTime(first.rise_time, tz)}`)
+    }
+    if (trains) parts.push(`${trains} Starlink train${trains === 1 ? '' : 's'}`)
+    return parts.join(' · ')
+  })()
+
   const placePrimary = r.display_name.split(',')[0].trim()
   const placeSecondary = r.display_name.includes(',')
     ? r.display_name.split(',').slice(1).join(',').trim()
@@ -2826,6 +2925,24 @@ export default function ReportCard({
             <div className="overall-label">{scoreLabel(r.score)}</div>
           </div>
           <div className="overall-sub">0–10 composite score</div>
+          {verdict && <div className="overall-verdict">{verdict}</div>}
+          {r.score < 6 && nextGoodNight && (
+            <button
+              type="button"
+              className="next-good-chip"
+              disabled={isFetchingDetails}
+              onClick={() => handleViewDetails(nextGoodNight.night.date)}
+              title="Load the full report for this night"
+            >
+              <span className="ngc-k">
+                {nextGoodNight.kind === 'next' ? 'Next good night' : 'Best night ahead'}
+              </span>
+              <span className="ngc-date">{fmtNightDate(nextGoodNight.night.date)}</span>
+              <span className={`telemetry-score-${scoreBand(nextGoodNight.night.score!)}`}>
+                {nextGoodNight.night.score!.toFixed(1)}
+              </span>
+            </button>
+          )}
         </div>
           <div className="meta">
         {shortLps && <MetaRow k="Light Pollution" v={shortLps} />}
@@ -2843,7 +2960,7 @@ export default function ReportCard({
             v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  ·  ${r.wx_source}` : ''}`}
           />
         )}
-        {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~7-day forecast horizon)" />}
+        {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~16-day forecast horizon)" />}
         {showWeather && r.wx_no_data && <MetaRow k="Weather" v="No data  (not covered for this location/date)" />}
         {showWeather && r.wx_error && !(r.weather_points?.length) && <MetaRow k="Weather" v="Temporarily unavailable: weather providers are down" />}
         <MetaRow k="Lunar Conditions" v={moonStrCard}
@@ -2862,7 +2979,7 @@ export default function ReportCard({
 
 
         <details className="planning-tools-section" open>
-        <summary>Planning Tools</summary>
+        <summary>Planning Tools{planningBrief && <span className="sum-brief"> · {planningBrief}</span>}</summary>
         <div className="planning-tools-body">
           <div className="planning-tool">
             <h4 className="planning-tool-title">Find Sky Nearby</h4>
@@ -2929,10 +3046,20 @@ export default function ReportCard({
           .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
         const hasAnything    = r.visible_targets.length > 0
 
+        const targetsBrief = (() => {
+          const parts: string[] = []
+          if (r.mw_summary && r.mw_summary.n_visible > 1) parts.push(`Milky Way ${r.mw_summary.local_score.toFixed(1)}/10`)
+          const viableN  = primeDSOs.filter(t => t.viability !== 'blocked').length
+          const blockedN = primeDSOs.length - viableN
+          if (viableN)  parts.push(`${viableN} target${viableN === 1 ? '' : 's'} viable`)
+          if (blockedN) parts.push(`${blockedN} blocked`)
+          return parts.length ? parts.join(' · ') : null
+        })()
+
         return (
         <details className="targets" open>
           <summary>
-            Prominent Sky Features
+            Prominent Sky Features{targetsBrief && <span className="sum-brief"> · {targetsBrief}</span>}
           </summary>
           {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
@@ -2987,8 +3114,10 @@ export default function ReportCard({
       })()}
 
       {showSatellites && (
-        <details className="sat-section" open>
-          <summary>Satellite Ephemeris</summary>
+        // Deliberately collapsed by default — reference material, not verdict.
+        // The .sum-brief keeps the takeaway visible without expanding.
+        <details className="sat-section">
+          <summary>Satellite Ephemeris{satBrief && <span className="sum-brief"> · {satBrief}</span>}</summary>
           <div className="sat-body">
             <SatellitePasses report={r} isFetching={isFetchingDetails} cathodeSnap={cathodeSnap} />
           </div>

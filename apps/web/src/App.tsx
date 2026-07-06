@@ -510,23 +510,40 @@ export default function App() {
         </div>
 
         <div className="scope-row">
-          <div className="scope-grid">
-            <span className="scope-item"><span className="scope-brk">[■]</span>Lunar</span>
-            {wxForecastUnavailable
-              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Weather<span className="scope-diag"> · Out of range</span></span>
-              : <span className="scope-item"><span className="scope-brk">[■]</span>Weather</span>
-            }
-            <span className="scope-item"><span className="scope-brk">[■]</span>Sky Features</span>
-            {wxForecastUnavailable
-              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Clear Dark Hours<span className="scope-diag"> · Out of range</span></span>
-              : <span className="scope-item"><span className="scope-brk">[■]</span>Clear Dark Hours</span>
-            }
-            <span className="scope-item"><span className="scope-brk">[■]</span>Sky &amp; Horizon Glow</span>
-            {satUnavailable
-              ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Satellites<span className="scope-diag"> · {isPastDate ? 'Past date' : 'Out of range'}</span></span>
-              : <span className="scope-item"><span className="scope-brk">[■]</span>Satellites</span>
-            }
-          </div>
+          {/* Scope indicators read as config noise before first use — collapsed
+              by default, with any availability diagnostic kept visible in the
+              summary line so date-range limits still surface without expanding. */}
+          <details className="scope-details">
+            <summary className="scope-summary">
+              Report scope
+              {(wxForecastUnavailable || satUnavailable) && (
+                <span className="scope-diag">
+                  {' — '}
+                  {[
+                    wxForecastUnavailable ? 'weather out of range' : null,
+                    satUnavailable ? (isPastDate ? 'satellites past date' : 'satellites out of range') : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              )}
+            </summary>
+            <div className="scope-grid">
+              <span className="scope-item"><span className="scope-brk">[■]</span>Lunar</span>
+              {wxForecastUnavailable
+                ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Weather<span className="scope-diag"> · Out of range</span></span>
+                : <span className="scope-item"><span className="scope-brk">[■]</span>Weather</span>
+              }
+              <span className="scope-item"><span className="scope-brk">[■]</span>Sky Features</span>
+              {wxForecastUnavailable
+                ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Clear Dark Hours<span className="scope-diag"> · Out of range</span></span>
+                : <span className="scope-item"><span className="scope-brk">[■]</span>Clear Dark Hours</span>
+              }
+              <span className="scope-item"><span className="scope-brk">[■]</span>Sky &amp; Horizon Glow</span>
+              {satUnavailable
+                ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Satellites<span className="scope-diag"> · {isPastDate ? 'Past date' : 'Out of range'}</span></span>
+                : <span className="scope-item"><span className="scope-brk">[■]</span>Satellites</span>
+              }
+            </div>
+          </details>
         </div>
 
         <div className="submit-row">
@@ -551,9 +568,9 @@ export default function App() {
       {!report && !loading && !error && (
         <div className="card empty-state">
           <div className="es-copy">
-            <p className="es-headline">Precision Landscape Astrophotography Planning.</p>
+            <p className="es-headline">Built for landscape astrophotography. Not for subscriptions.</p>
             <p className="es-body">
-              Bortle class, ephemeris data, clear dark hours, weather conditions, and deep sky object viability in a single view. Plans fall through? Find a better location nearby, in seconds.
+              Most of us only get a handful of clear, dark hours each month to do what we love. I built DarkHours because I needed a highly precise predictive tool for my own landscape astrophotography. It's open-source, free, and designed to help make the most of every dark hour.
             </p>
           </div>
 
@@ -567,23 +584,49 @@ export default function App() {
             </div>
           </div>
 
+          <span className="es-caps-label">Features</span>
+
+          {/* Ordered by differentiation, not data category: the four features no
+              competitor has lead; commodity metrics are swept into the
+              "fundamentals" line below rather than given tiles. */}
+          <div className="es-caps">
+            {([
+              ['Target Windows',    'Every shootable target with its peak time and window, and why others are blocked: clouds, moonwash, or light domes.'],
+              ['Milky Way Planner', 'A 360° view of the galactic plane over your horizon—altitude, bearing, and the best minute to shoot.'],
+              ['Sky & Horizon Glow', 'A fisheye heat map of light domes around you. Know more than just the Bortle.'],
+              ['Nearby Dark Sky',   'Search for low bortle locations you can actually use: routing to facilities like parking, campgrounds, and viewpoints. Sorted by drive times.'],
+              ['30 Day Best Night', 'A 30 day outlook. Go straight to the best night.'],
+              ['Smoke & Haze Forecast',  'Wildfire smoke and upper-air aerosol data from ground sensors, and satellites.'],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} className="es-cap">
+                <span className="es-cap-k">{k}</span>
+                <span className="es-cap-v">{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="es-caps-more">
+            Plus the fundamentals: Bortle class & SQM analysis, clear weather dark hours calcuations, seeing & transparency forecasts, and cloud layers by altitude. Every metric sourced and time-stamped. Free, open-source, no account required.
+          </p>
+
           <div className="es-divider" />
 
           <div className="es-quickstart">
-            <span className="es-quickstart-label">Try an example location</span>
+            <span className="es-quickstart-label">View a sample report</span>
             <div className="es-quickstart-btns">
               {([
-                ['Sedona, AZ',         'Sedona, Arizona'],
-                ['Death Valley, CA',   'Death Valley, California'],
-                ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania'],
-              ] as [string, string][]).map(([label, query]) => (
+                ['Sedona, AZ',         'Sedona, Arizona',                          'Bortle 7 suburb — the dark-sky finder at work'],
+                ['Death Valley, CA',   'Death Valley, California',                 'Bortle 1 — pristine desert benchmark'],
+                ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania',  'Bortle 2 — the East Coast classic'],
+              ] as [string, string, string][]).map(([label, query, hook]) => (
                 <button
                   key={query}
                   type="button"
                   className="es-qs-btn"
                   onClick={() => quickSearch(query)}
                 >
-                  {label}
+                  <span className="es-qs-name">{label}</span>
+                  <span className="es-qs-hook">{hook}</span>
                 </button>
               ))}
             </div>
