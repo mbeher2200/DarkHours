@@ -1,0 +1,80 @@
+/* ── night timeline ───────────────────────────────────────────────────────── */
+.ev-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  font-size: 13px;
+}
+.ev-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.ev-time {
+  flex-shrink: 0;
+  min-width: 62px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ev-icon {
+  flex-shrink: 0;
+  font-size: 19px;
+  line-height: 1;
+}
+.ev-label {
+  color: var(--text);
+}
+
+/* ── satellite passes ────────────────────────────────────────────────────── */
+.sat-body {
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sat-notice {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.sat-note {
+  color: var(--fair);
+}
+.sat-trains {
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sat-trains-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.sat-train-row {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sat-table th:first-child,
+.sat-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 1;
+}
+.sat-table .sat-subhdr th {
+  font-size: 10px;
+  padding-top: 0;
+  padding-bottom: 4px;
+  border-bottom: none;
+}
+.sat-footnotes {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

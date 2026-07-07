@@ -1,0 +1,443 @@
+/* ── planning tools section ──────────────────────────────────────────────── */
+.planning-tools-body {
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.planning-tool-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* ── nearby dark-sky section ─────────────────────────────────────────────── */
+.nearby-body {
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nearby-radius-toggle {
+  display: flex;
+  gap: 6px;
+}
+.nearby-trigger {
+  background: var(--field-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 16px;
+  transition: color 0.15s;
+}
+.nearby-trigger:hover {
+  color: var(--accent);
+}
+.nearby-trigger:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
+}
+.nearby-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nearby-highlight-row {
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.nearby-highlight-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 52px;
+  padding-top: 1px;
+}
+.nearby-bortle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.nearby-bortle.nearby-bortle-excellent { color: var(--excellent); }
+.nearby-bortle.nearby-bortle-good      { color: var(--good); }
+.nearby-bortle.nearby-bortle-fair      { color: var(--fair); }
+.nearby-bortle.nearby-bortle-poor      { color: var(--poor); }
+.wx-table td.nearby-bortle-excellent { color: var(--excellent); }
+.wx-table td.nearby-bortle-good      { color: var(--good); }
+.wx-table td.nearby-bortle-fair      { color: var(--fair); }
+.wx-table td.nearby-bortle-poor      { color: var(--poor); }
+.nearby-domes {
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nearby-domes-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.nearby-dome-row {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  display: grid;
+  grid-template-columns: 1fr 72px 92px;
+  gap: 0 8px;
+  align-items: baseline;
+}
+.nearby-dome-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nearby-dome-bortle {
+  white-space: nowrap;
+}
+.nearby-dome-dist {
+  white-space: nowrap;
+  text-align: right;
+}
+/* ── calendar range picker (Grafana-style trigger + popover) ────────────── */
+.crp-wrap {
+  position: relative;
+  display: inline-block;
+}
+.crp-trigger {
+  /* Colors/border/hover/active/disabled/red-mode come from .submit (shared
+     with "Score the night"/"View Details"/60 MI/120 MI) — this class only
+     adds the icon + label + chevron flex layout .submit doesn't need. */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.crp-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  width: max-content;
+  max-width: min(560px, 92vw);
+  background: var(--pop-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 14px;
+  animation: dropdown-in 0.13s ease both;
+}
+.crp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+.crp-col-presets {
+  min-width: 160px;
+  border-left: 1px solid var(--card-border);
+  padding-left: 18px;
+}
+.crp-col-title {
+  /* Matches .planning-tool-title / .nearby-highlight-label — the app's
+     sub-section-label convention (sentence case, not uppercase). */
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.crp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.crp-field label {
+  /* Matches .field > span — the app's form-field-label convention
+     (uppercase mono), since From/To are literal form field labels. */
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.crp-field .dp-trigger {
+  /* DatePicker's trigger uses font: inherit, sized for the primary search
+     field; scale it down to match this dense popover instead of inheriting
+     the page's larger base font. */
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.crp-apply {
+  margin-top: 4px;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.crp-apply:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.crp-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.crp-preset-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.crp-preset-list button:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+}
+.crp-preset-list button.active {
+  border-left-color: var(--accent);
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+  color: var(--accent);
+  font-weight: 600;
+}
+/* ... [Unchanged Card and Block Elements] ... */
+
+/* ── outlook telemetry ribbon ─────────────────────────────────────────────── */
+.telemetry-ribbon {
+  border: 1px solid var(--card-border);
+}
+.telemetry-hero {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 13px;
+}
+.telemetry-hero-label {
+  color: var(--text-h);
+}
+.heatmap-body {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--card-border);
+}
+/* Cap the calendar's footprint: full-card-width cells read as the page's main
+   event; ~74px cells carry the same day number + score at a glanceable size. */
+.heatmap-dow-row,
+.heatmap-grid {
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.heatmap-dow-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  margin-bottom: 4px;
+}
+.heatmap-dow-row span {
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--text-h);
+  border: 1px solid var(--text-h);
+}
+.heatmap-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 4px;
+  border: none;
+  border-radius: 0;
+  background-color: var(--card);
+  background-image: linear-gradient(rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)), rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)));
+  color: var(--text-h);
+  font-family: var(--mono);
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.heatmap-cell-empty {
+  background: var(--field-bg);
+  cursor: default;
+}
+.heatmap-cell.muted { opacity: 0.4; }
+.hm-day {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-h);
+}
+html.red-mode .heatmap-cell.hm-good .hm-score {
+  color: var(--good);
+}
+
+html.red-mode .heatmap-cell.hm-excellent .hm-score {
+  color: var(--excellent);
+}
+.hm-score {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* Deepened Contrast Colors for Heatmap Scores */
+.heatmap-cell.hm-poor      .hm-score { color: #B91C1C; }
+.heatmap-cell.hm-fair      .hm-score { color: #92400E; }
+.heatmap-cell.hm-good      .hm-score { color: #115E59; }
+.heatmap-cell.hm-excellent .hm-score { color: #065F46; }
+
+html.red-mode .heatmap-cell.hm-fair .hm-score {
+  color: var(--fair);
+}
+html.red-mode .heatmap-cell.hm-good .hm-score {
+  color: var(--good);
+}
+html.red-mode .heatmap-cell.hm-excellent .hm-score {
+  color: var(--excellent);
+}
+.heatmap-cell.best {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.heatmap-cell.selected {
+  box-shadow: inset 0 0 0 1px var(--card), inset 0 0 0 3px var(--text-h);
+}
+.heatmap-cell.best.selected {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 0 3px var(--card),
+    inset 0 0 0 5px var(--text-h);
+}
+.telemetry-readout {
+  padding: 10px 12px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.telemetry-readout .meta-row { font-size: 13px; }
+.telemetry-readout .meta-v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.telemetry-mini-bars .bar-value { font-family: var(--mono); }
+/* Colors/border/hover/active/disabled/red-mode all come from .submit (shared
+   with "Score the night") — this class only positions it in the flex column. */
+.telemetry-view-details {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.telemetry-selected-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.telemetry-selected-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.telemetry-score-excellent,
+.telemetry-score-good,
+.telemetry-score-fair,
+.telemetry-score-poor {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.telemetry-score-excellent { color: var(--excellent); font-weight: 600; }
+.telemetry-score-good      { color: var(--good);      font-weight: 600; }
+.telemetry-score-fair      { color: var(--fair);       font-weight: 600; }
+.telemetry-score-poor      { color: var(--poor);       font-weight: 600; }
+.telemetry-mini-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+.telemetry-mini-bars .bar-row {
+  display: grid;
+  grid-template-columns: 112px 1fr 36px; /* Matches the main scorecard's label/value spacing */
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.telemetry-mini-bars .bar-track {
+  height: 6px; /* Restored to original telemetry height */
+}
+/* POI-first reachability affordances */
+.poi-namelink {
+  color: inherit;
+  text-decoration: none;
+}
+.poi-namelink:hover { text-decoration: underline; }
+.poi-area {
+  margin-left: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+.poi-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(127, 127, 127, 0.18));
+  vertical-align: middle;
+}
+.poi-remote {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fair);
+}
+.poi-type-link {
+  display: inline-block;
+  white-space: nowrap;
+}
+.poi-maplink {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--good);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.poi-maplink:hover { text-decoration: underline; }

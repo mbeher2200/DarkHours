@@ -1,0 +1,481 @@
+/* ── cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+  padding: 18px;
+}
+.card.error {
+  border-color: var(--poor);
+  color: var(--poor);
+  background: rgba(217, 83, 79, 0.07);
+}
+
+/* ── query form ───────────────────────────────────────────── */
+.query {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.location-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.location-header .mode-toggle {
+  flex: 1;
+}
+/* ── place autocomplete / history dropdown ──────────────────── */
+.place-field-wrap {
+  position: relative;
+}
+.field-label {
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  cursor: default;
+}
+.place-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.place-input-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
+  color: var(--text-h);
+  font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
+}
+.place-input-row input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+.place-input-row input.has-clear {
+  padding-right: 36px;
+}
+.place-clear-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.place-clear-btn:hover {
+  color: var(--text-h);
+}
+
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.place-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--pop-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 3px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  z-index: 50;
+  overflow: hidden;
+  animation: dropdown-in 0.12s ease both;
+}
+.place-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.55);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.place-dropdown-item:last-child {
+  border-bottom: 0;
+}
+.place-dropdown-item:hover,
+.place-dropdown-item:focus {
+  background: rgba(var(--tint-rgb), 0.09);
+  color: var(--text-h);
+  outline: none;
+}
+.place-dropdown-item[aria-selected="true"] {
+  background: rgba(var(--tint-rgb), 0.13);
+  color: var(--text-h);
+}
+.place-dropdown-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  opacity: 0.55;
+}
+.place-dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.geo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: color 0.15s;
+}
+.geo-btn:hover:not(:disabled) {
+  color: var(--text-h);
+}
+.geo-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--field-bg);
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  border-left: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
+}
+.mode-toggle button {
+  flex: 1;
+  padding: 8px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.mode-toggle button.active {
+  background: var(--card);
+  color: var(--text-h);
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(0, 0, 0, 0.20);
+  box-shadow: none;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field > span {
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.field input {
+  padding: 11px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
+  color: var(--text-h);
+  font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
+}
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+/* Theme the placeholder explicitly — otherwise the browser's default dark-scheme
+   placeholder is a light gray that reads white (and ignores red mode). */
+.field input::placeholder,
+.place-input-row input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;            /* Firefox lowers placeholder opacity by default */
+}
+/* Drop the native number spinners on the lat/lon inputs — they serve no purpose
+   here and their arrows don't follow the theme. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+.coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.scope-row {
+  display: flex;
+  justify-content: center;
+}
+.scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 20px;
+  row-gap: 4px;
+}
+.scope-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.scope-brk {
+  color: var(--accent);
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.scope-dim {
+  opacity: 0.38;
+}
+.scope-dim .scope-brk {
+  color: var(--text-dim);
+}
+.scope-diag {
+  font-size: 9px;
+}
+/* Query-form scope disclosure: unlike report-section summaries, this one is a
+   quiet inline control — strip the global details-summary chrome. */
+.scope-details summary.scope-summary {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.scope-details summary.scope-summary:hover {
+  color: var(--text);
+}
+.scope-details .scope-grid {
+  margin-top: 8px;
+}
+.scope-details .scope-summary .scope-diag {
+  color: var(--fair);
+}
+html.red-mode .scope-details summary.scope-summary {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+}
+html.red-mode .scope-details .scope-summary .scope-diag {
+  color: var(--accent);
+}
+html.red-mode .scope-brk {
+  color: rgba(255, 0, 0, 0.55);
+}
+/* ── Info popover (InfoTip in shared.tsx) ─────────────────────
+   Term explainers: dotted underline marks the term; the bubble renders
+   through a body portal (position: fixed) so overflow-x:auto table wrappers
+   can't clip it. The bubble resets typography — hosts are often mono/uppercase
+   micro-labels, and the explanation should read as body prose. */
+.info-tip {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(var(--hairline-rgb), 0.45);
+  text-underline-offset: 3px;
+  cursor: help;
+  outline: none;
+}
+.info-tip:hover,
+.info-tip:focus-visible {
+  text-decoration-color: var(--accent);
+}
+.info-tip-bubble {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 8px));
+  z-index: 1000;
+  width: max-content;
+  max-width: 260px;
+  background: var(--pop-bg);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: 2px;
+  padding: 7px 10px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.info-tip-bubble.below {
+  transform: translate(-50%, 8px);
+}
+html.red-mode .info-tip {
+  text-decoration-color: rgba(255, 0, 0, 0.45);
+}
+html.red-mode .info-tip-bubble {
+  background: var(--pop-bg);
+  color: var(--text-h);
+  border-color: rgba(255, 0, 0, 0.22);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
+.toggle-tip-wrap {
+  position: relative;
+}
+.tip-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--pop-bg);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: 2px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.units-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--field-bg);
+  border-radius: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  margin-left: auto;
+}
+.units-toggle button {
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.units-toggle button.active {
+  background: var(--card);
+  color: var(--text-h);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  border: none;
+}
+
+.submit-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.submit-row .submit {
+  flex: 1;
+}
+.submit {
+  padding: 13px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background 0.15s ease;
+}
+.submit:hover:not(:disabled) {
+  background: #5C73B8;
+  transform: none;
+  box-shadow: none;
+}
+.submit:active:not(:disabled) {
+  background: #3A4C88;
+}
+.submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
+  background: var(--field-bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.day-nav:hover:not(:disabled) {
+  color: var(--text-h);
+}
+.day-nav:active:not(:disabled) {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
+}
+.day-nav:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

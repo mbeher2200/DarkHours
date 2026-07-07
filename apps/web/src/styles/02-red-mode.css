@@ -1,0 +1,347 @@
+/* ── Red Light (night-vision) mode ────────────────────────── */
+/* Hidden filter carrier — must occupy no space. */
+.redmode-svg {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.night-vision-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 2px;
+  background: var(--card);
+  border: 1px solid rgba(160, 0, 0, 0.30);
+  color: #880000;
+  font: 500 12px var(--sans);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.night-vision-toggle:hover {
+  color: #aa0000;
+  border-color: rgba(160, 0, 0, 0.55);
+}
+.night-vision-toggle.active {
+  color: #cc0000;
+  border-color: rgba(170, 0, 0, 0.55);
+}
+
+/* Toggle track */
+.nv-switch {
+  display: inline-block;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  background: rgba(140, 0, 0, 0.12);
+  border: 1px solid rgba(160, 0, 0, 0.30);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.nv-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #880000;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.night-vision-toggle.active .nv-switch {
+  background: rgba(160, 0, 0, 0.22);
+  border-color: rgba(160, 0, 0, 0.55);
+}
+.night-vision-toggle.active .nv-thumb {
+  transform: translateX(13px);
+  background: #cc0000;
+}
+
+/* When active, the root carries .red-mode (set on <html>). We re-theme via the
+   CSS variables rather than a container `filter`: an ancestor filter doesn't
+   apply to GPU-composited descendants (dropdown/calendar animations, hover
+   transitions) for a frame, which flashed the un-themed blue. Plain colors
+   can't flash. Raster images — which variables can't reach — still get the
+   luminance→red matrix, but only on the leaf <img> (no animated descendants). */
+/* Night-vision palette. Rods (scotopic vision) lose sensitivity past ~620nm, so
+   the safe colour is PURE red channel (G=B=0 ≈ the sRGB red primary, ~611nm) —
+   any green/blue both reads "pink" and bleaches rhodopsin more. Brightness also
+   matters: small strokes (text/icons) can be a bit brighter for legibility, but
+   large fills (bars, buttons, score number) are kept dim. All values here are
+   #RR0000 / rgba(255,0,0,a) — strictly red. */
+html.red-mode {
+  --bg: #000000;          /* pure black emits nothing */
+  --card: #150000;
+  --card-border: rgba(255, 0, 0, 0.13);
+  --text-h: #e00000;      /* headings — brightest text, but thin strokes */
+  --text: #c20000;
+  --text-dim: #850000;
+  --accent: #d10000;
+  /* Bands are used as small score-number/label text → kept legible. The large
+     bar FILLS are capped dim separately below (a full "10" bar must not glare). */
+  --excellent: #d10000;
+  --good: #c40000;
+  --fair: #b40000;
+  --poor: #9a0000;
+  --field-bg: #120000;
+  --pop-bg: #190000;
+  --on-accent: #000000;   /* black ink on the (small) accent-filled controls */
+  /* Re-tint every low-alpha wash/separator red in one place (table separators,
+     row hovers, date-picker selection, etc.) — no more per-element blue leaks. */
+  --tint-rgb: 255, 0, 0;
+  --hairline-rgb: 255, 0, 0;
+  --surface-2: rgba(255, 0, 0, 0.14);
+  /* Stays pure red here (NOT gray) — a true neutral gray requires equal
+     green/blue channels, which is exactly what red-mode exists to avoid. */
+  --dh-wash-rgb: 255, 0, 0;
+  --ev-sun:   var(--text-dim);
+  --ev-moon:  var(--text-dim);
+  --ev-astro: var(--text-dim);
+}
+html.red-mode .wx-table tr.wx-row-astro td,
+html.red-mode .wx-table tr.wx-row-astro td.wx-time {
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 24%, var(--card));
+}
+html.red-mode .wx-table tr.wx-row-astro td.wx-time {
+  border-left-color: rgba(255, 0, 0, 0.40);
+}
+/* Moon-up within astro dark: same hue, half the mix — partial darkness. */
+html.red-mode .wx-table tr.wx-row-astro-lit td,
+html.red-mode .wx-table tr.wx-row-astro-lit td.wx-time {
+  background: color-mix(in oklab, oklch(0.45 0.15 25) 12%, var(--card));
+}
+/* feColorMatrix already outputs pure red (G=B=0); no brightness boost so the
+   moon disc stays dim. */
+html.red-mode img {
+  filter: url(#red-night);
+}
+/* Text selection: the browser default (blue fill / white text) leaks cool light
+   and can't be themed by variables — set it explicitly to dim-red on red. */
+html.red-mode ::selection {
+  background: #5a0000;
+  color: #ff5a5a;
+}
+/* Red-mode bar fills: visual hierarchy via fill saturation, not color variety.
+   Poor = hollow outlined bar; excellent = solid saturated red. */
+html.red-mode .bar-fill.band-poor {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.45);
+}
+html.red-mode .bar-fill.band-fair {
+  background: rgba(255, 0, 0, 0.30);
+  box-shadow: none;
+}
+html.red-mode .bar-fill.band-good {
+  background: rgba(255, 0, 0, 0.62);
+  box-shadow: none;
+}
+html.red-mode .bar-fill.band-excellent {
+  background: rgba(255, 0, 0, 0.88);
+  box-shadow: none;
+}
+/* Overall-score card tint (was green/blue/purple rgba) → faint red. */
+html.red-mode .band-excellent,
+html.red-mode .band-good,
+html.red-mode .band-fair,
+html.red-mode .band-poor {
+  background: rgba(255, 0, 0, 0.05);
+}
+/* Links (incl. visited): otherwise they fall back to the browser's blue/purple. */
+html.red-mode a:link,
+html.red-mode a:visited {
+  color: var(--accent);
+}
+/* Submit: dim pure-red fill, legible red ink. Flat to match normal mode. */
+html.red-mode .submit {
+  background: #5a0000;
+  color: #e00000;
+  box-shadow: none;
+}
+html.red-mode .submit:hover:not(:disabled) {
+  background: #6e0000;
+  box-shadow: none;
+}
+html.red-mode .tip-bubble {
+  background: var(--pop-bg);
+  color: var(--text-h);
+  border-color: rgba(255, 0, 0, 0.22);
+}
+html.red-mode .card.error {
+  color: #e00000;
+  background: rgba(255, 0, 0, 0.07);
+}
+html.red-mode .dp-popover {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.60);
+}
+html.red-mode .crp-popover {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.60);
+}
+html.red-mode .dp-header {
+  background: rgba(255, 0, 0, 0.06);
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+html.red-mode .dp-nav-btn {
+  background: var(--field-bg);
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .dp-nav-btn:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .dp-dow {
+  background: rgba(255, 0, 0, 0.05);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.15);
+}
+html.red-mode .dp-today-btn {
+  background: var(--field-bg);
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  color: var(--text-dim);
+}
+html.red-mode .dp-today-btn:hover {
+  color: var(--text-h);
+}
+html.red-mode .dp-today-btn:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .dp-footer {
+  background: rgba(255, 0, 0, 0.03);
+  border-top-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+html.red-mode .es-divider {
+  border-top-color: rgba(255, 0, 0, 0.25);
+  border-bottom-color: transparent;
+}
+html.red-mode .day-nav {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .day-nav:active:not(:disabled) {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode details summary {
+  background: rgba(255, 0, 0, 0.06);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .bar-track {
+  background: rgba(255, 0, 0, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.14);
+}
+html.red-mode .nearby-trigger {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .nearby-trigger:active {
+  border: 1px solid rgba(255, 0, 0, 0.20);
+}
+html.red-mode .mode-toggle,
+html.red-mode .units-toggle {
+  border: 1px solid rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+html.red-mode .mode-toggle button.active,
+html.red-mode .units-toggle button.active {
+  background: rgba(255, 0, 0, 0.12);
+  border: 1px solid rgba(255, 0, 0, 0.20);
+  box-shadow: none;
+}
+html.red-mode .masthead-logo-cell:nth-child(1) { background: transparent !important; box-shadow: inset 0 0 0 1.5px #FF0000; }
+html.red-mode .masthead-logo-cell:nth-child(2) { background: rgba(255,0,0,0.4) !important; }
+html.red-mode .masthead-logo-cell:nth-child(3) { background: rgba(255,0,0,0.7) !important; }
+html.red-mode .masthead-logo-cell:nth-child(4) { background: #FF0000 !important; }
+html.red-mode .night-vision-toggle {
+  border-color: rgba(255, 0, 0, 0.18);
+  color: #850000;
+}
+html.red-mode .night-vision-toggle:hover {
+  color: #aa0000;
+  border-color: rgba(255, 0, 0, 0.3);
+}
+html.red-mode .night-vision-toggle.active {
+  color: #ff0000;
+  border-color: rgba(255, 0, 0, 0.5);
+}
+html.red-mode .nv-switch {
+  background: rgba(255, 0, 0, 0.08);
+  border-color: rgba(255, 0, 0, 0.22);
+}
+html.red-mode .nv-thumb {
+  background: #850000;
+}
+html.red-mode .night-vision-toggle.active .nv-switch {
+  background: rgba(255, 0, 0, 0.18);
+  border-color: rgba(255, 0, 0, 0.5);
+}
+html.red-mode .night-vision-toggle.active .nv-thumb {
+  background: #ff0000;
+}
+html.red-mode .wx-table th,
+html.red-mode .tg-table th,
+html.red-mode .nearby-table th {
+  background: rgba(255, 0, 0, 0.05);
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .place-input-row input:focus,
+html.red-mode .field input:focus {
+  outline-color: var(--accent);
+}
+html.red-mode .colophon {
+  border-top-color: rgba(255, 0, 0, 0.18);
+  box-shadow: none;
+}
+/* "Date changed — press Score the night" notice: blue tint/border → red. */
+html.red-mode .stale-notice {
+  background: rgba(255, 0, 0, 0.07);
+  border-color: rgba(255, 0, 0, 0.2);
+}
+/* Flatten card bevel in night vision — white highlight edge emits non-red light */
+html.red-mode .card {
+  border: 1px solid var(--card-border);
+}
+/* Input fields: restore dark red field bg in night vision (overrides the white hardcode above) */
+html.red-mode .place-input-row input,
+html.red-mode .field input,
+html.red-mode .dp-trigger {
+  background: var(--field-bg);
+  border-color: rgba(255, 0, 0, 0.25);
+  box-shadow: none;
+}
+.masthead h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.75rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  text-transform: none;
+  text-wrap: balance;
+  margin-bottom: 0;
+  line-height: 1.1;
+}
+.masthead-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 24px;
+}
+.masthead-logo-cell {
+  height: 4px;
+  border-radius: 1px;
+}
+.masthead p {
+  display: none;
+}

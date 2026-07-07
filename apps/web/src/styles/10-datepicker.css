@@ -1,0 +1,193 @@
+/* ── custom date picker ───────────────────────────────────── */
+.dp-wrap {
+  position: relative;
+}
+.dp-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
+  color: var(--text-h);
+  font: inherit;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.10);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.dp-trigger:hover,
+.dp-trigger[aria-expanded="true"] {
+  outline: none;
+  border-color: var(--accent);
+}
+.dp-cal-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+.dp-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(100%, 340px);
+  /* width:100% resolves against .dp-wrap, which shrinks to its trigger's
+     content width in a flex row (e.g. the calendar custom-range pickers) —
+     without a floor here the 7-column day grid gets squeezed illegibly. */
+  min-width: 260px;
+  z-index: 60;
+  background: var(--pop-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 0;
+  overflow: hidden;
+  animation: dropdown-in 0.13s ease both;
+}
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+.dp-month-label {
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--text-h);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.dp-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
+  background: var(--field-bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.dp-nav-btn:hover {
+  color: var(--text-h);
+}
+.dp-nav-btn:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
+}
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 10px 14px 14px;
+}
+.dp-dow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.60);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+  margin: 0 -2px 4px;
+}
+/* Day cells: 42px ≈ 25% larger than the native ~34px cell */
+.dp-day,
+.dp-cell-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  border-radius: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.dp-cell-empty { background: transparent; }
+.dp-day {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.dp-day:hover:not(.dp-disabled) {
+  background: rgba(var(--tint-rgb), 0.1);
+  color: var(--text-h);
+}
+/* Today: accent ring */
+.dp-today-mark {
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* Selected: solid fill */
+.dp-selected {
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+  font-weight: 700;
+  box-shadow: none;
+}
+.dp-disabled {
+  opacity: 0.2;
+  cursor: default;
+  pointer-events: none;
+}
+.dp-footer {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.65);
+  background: rgba(0, 0, 0, 0.03);
+}
+.dp-today-btn {
+  width: 100%;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.20);
+  border-right: 1px solid rgba(0, 0, 0, 0.20);
+  border-radius: 2px;
+  background: var(--field-bg);
+  color: var(--text-dim);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.dp-today-btn:hover {
+  color: var(--text-h);
+}
+.dp-today-btn:active {
+  border-top: 1px solid rgba(0, 0, 0, 0.20);
+  border-left: 1px solid rgba(0, 0, 0, 0.20);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.80);
+  border-right: 1px solid rgba(255, 255, 255, 0.80);
+}
