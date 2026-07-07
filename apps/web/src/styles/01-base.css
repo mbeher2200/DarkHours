@@ -1,0 +1,67 @@
+/* ── Typography Unification Rules ──────────────────────────────────────────── */
+
+/* Rule 1: The Micro-Label Standard (Data & Keys) */
+.field-label,
+.field > span,
+.meta-k,
+.bar-label,
+.mw-label,
+.wx-table th,
+.tg-table th,
+.tg-unviable-hdr td,
+.dp-month-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+/* Rule 2: The Sub-Section Standard (Groupings) */
+.planning-tool-title,
+.nearby-highlight-label,
+.crp-col-title,
+.mw-section-label,
+.ld-title,
+.mw-dome-title,
+.sat-trains-label,
+.nearby-domes-label {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-h);
+}
+
+
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  /* clip, not hidden: hidden turns body into a scroll container, which breaks
+     position:sticky (.report-nav). clip guards horizontal overflow the same
+     way without creating a scroll container. */
+  overflow-x: clip;
+  width: 100%;
+}
+
+.app {
+  width: 100%;
+  max-width: clamp(300px, 95vw, 1200px);
+  margin: 0 auto;
+  padding: 32px 20px max(64px, calc(64px + env(safe-area-inset-bottom)));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── masthead ─────────────────────────────────────────────── */
+.masthead {
+  position: relative;
+  text-align: center;
+  margin-bottom: 12px;
+}
