@@ -145,7 +145,7 @@ export default function OutlookTelemetryRibbon({
                   ? 'forecast not yet available for this date'
                   : selected.wx_no_data
                   ? 'weather provider returned no data for this date'
-                  : 'beyond the 7-day forecast horizon'}
+                  : 'beyond the 16-day forecast horizon'}
               </p>
             )}
             {sc && (

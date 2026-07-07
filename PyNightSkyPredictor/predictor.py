@@ -458,7 +458,16 @@ def assemble_night(
                 _c = _ports.get_backend().cache.get(_key)
                 if _c is not None:
                     return ("hit", _c)
-                return ("fresh", wx.forecast(lat, lon))
+                with wx.lock_for(lat, lon):
+                    _c = _ports.get_backend().cache.get(_key)
+                    if _c is not None:
+                        return ("hit", _c)
+                    _fresh = wx.forecast(lat, lon)
+                    try:
+                        _ports.get_backend().cache.set(_key, _wx_serialize(*_fresh), ttl_seconds=_WX_CACHE_TTL)
+                    except Exception as _ce:
+                        log.debug("Weather cache write failed (non-fatal): %s", _ce)
+                    return ("fresh", _fresh)
             _wx_future = _pool.submit(_wx_io)
 
         # TLE fetches — start immediately, overlaps with ~600 ms of Skyfield work.
@@ -551,21 +560,10 @@ def assemble_night(
             # Moon score: weight moonlit fraction by K&S sky-brightening credit rather
             # than the naive (1 − illum/100) approximation.  K&S is evaluated at the
             # site-wide proxy geometry (90° sep, 30° alt) — the darkest accessible sky.
-            #
-            #   score = 10 × (moon_free_frac  +  moonlit_frac × ks_credit)
-            #
-            # Key improvements over the naive formula:
-            #   50% quarter moon → credit 0.31  (was 0.50) — correctly penalised
-            #   75% gibbous      → credit 0.00  (was 0.25) — correctly zeroed
-            #   ≤15% crescent    → credit ~0.96 (was ~0.85) — minor difference only
             moonlit_frac = 1.0 - (dark_hours_tonight / total_astro_hours) if total_astro_hours > 0 else 0.0
             moon_score   = round(10 * ((1 - moonlit_frac) + moonlit_frac * ks_moon_credit(illumination)), 1)
 
-            # Crescent exemption for the *displayed* Clear Dark Sky Hours:
-            # illumination ≤ 20% → K&S shows Δmag < 0.25 at 90° sep regardless of altitude
-            # (imperceptible-to-minor).  Report the full astronomical window as dark rather
-            # than subtracting the few hours the crescent is technically above the horizon.
-            # The underlying geometric intervals are preserved for weather score weighting.
+            # Crescent exemption for the *displayed* Clear Dark Sky Hours
             if illumination <= KS_CRESCENT_EXEMPTION_PCT and total_astro_hours > 0:
                 display_dark_hours     = total_astro_hours
                 display_dark_intervals = [(night_start, night_end)]
@@ -573,8 +571,7 @@ def assemble_night(
                 display_dark_hours     = dark_hours_tonight
                 display_dark_intervals = intervals
         else:
-            # No astronomical darkness (polar summer / always dark) — timing
-            # is undefined; fall back to K&S credit score only.
+            # No astronomical darkness (polar summer / always dark)
             intervals              = []
             dark_hours_tonight     = 0.0
             display_dark_hours     = 0.0
@@ -582,8 +579,6 @@ def assemble_night(
             moon_score             = round(10 * ks_moon_credit(illumination), 1)
 
         # --- Lunar cycle dark analysis ---
-        # (already computed above for the use_cycle_window path — cycle/dark_score
-        # were set together with sunset/sunrise/night_start/night_end in that case)
         if cycle is None:
             _tc = time.monotonic()
             cycle      = se.lunar_cycle_dark_analysis(lat, lon, target, tz)
@@ -594,8 +589,15 @@ def assemble_night(
         _tc = time.monotonic()
         _future_date = sunrise >= _now
 
-        # Collect darksky (S3 raster read — almost certainly done by now)
-        ds_info = _ds_future.result()
+        # 1. Guarantee ds_info is bound to an empty dictionary
+        ds_info = {}
+        try:
+            # 2. Collect darksky. Safely catch exceptions if the cache is wiped.
+            _ds_res = _ds_future.result()
+            if _ds_res:
+                ds_info = _ds_res
+        except Exception as e:
+            log.warning("Dark sky lookup failed (missing cache files): %s", e)
 
         # Light dome — precomputed H3 index lookup (O(log n), no raster read), so it's
         # safe on the initial page-load path. None when outside the index coverage.
@@ -611,24 +613,13 @@ def assemble_night(
                     if _wx_tag == "hit":
                         _wx_cached = _wx_data
                     else:
-                        _wx_fetched = _wx_data
-                        try:
-                            _ports.get_backend().cache.set(
-                                _wx_cache_key, _wx_serialize(*_wx_fetched), ttl_seconds=_WX_CACHE_TTL
-                            )
-                        except Exception as _ce:
-                            log.debug("Weather cache write failed (non-fatal): %s", _ce)
+                        _wx_fetched = _wx_data  # already cached inside _wx_io
                 except RuntimeError as _e:
                     _wx_exc = _e
-            # else: night already past; let thread drain naturally
 
         _t["io_wait_ms"] = round((time.monotonic() - _tc) * 1000)
 
         # --- Phase 2: satellite passes + visible_targets in parallel ---
-        # TLE futures started at function entry are almost certainly done by now
-        # (Skyfield took ~500–700 ms; Celestrak takes ~300–500 ms per TLE).
-        # sunset + sunrise are now available, so we can submit the Skyfield pass
-        # computation and visible_targets concurrently.
         _tc = time.monotonic()
 
         sat_pass_list             = []
@@ -669,7 +660,7 @@ def assemble_night(
 
         _vt_future: _futures.Future | None = None
         if fetch_targets:
-            _site_sqm = ds_info["sqm"] if ds_info and ds_info.get("sqm") is not None else None
+            _site_sqm = ds_info.get("sqm") if ds_info else None
             _vt_future = _pool.submit(
                 _tgt.visible_targets, lat, lon, sunset, sunrise, illumination,
                 night_start=night_start, night_end=night_end, sky_sqm=_site_sqm,
@@ -693,13 +684,13 @@ def assemble_night(
         target_list = _vt_future.result() if _vt_future is not None else []
         _t["sat_targets_ms"] = round((time.monotonic() - _tc) * 1000)
 
-    mw_summary = None   # populated after weather — see below
-
     # executor exits — all futures are resolved
 
+    mw_summary = None   # populated after weather — see below
+
     bortle_score = (
-        round(max(0.0, (10 - ds_info["bortle_class"]) / 9 * 10), 1)
-        if ds_info and ds_info["bortle_class"] is not None
+        round(max(0.0, (10 - ds_info.get("bortle_class", 10)) / 9 * 10), 1)
+        if ds_info and ds_info.get("bortle_class") is not None
         else None
     )
 
@@ -758,8 +749,7 @@ def assemble_night(
                 elif _wx_fetched is not None:
                     points, wx_source, wx_fetched_at = _wx_fetched
                 else:
-                    # Defensive: _future_date=True but thread wasn't started.
-                    # Fetch synchronously (rare: only if heuristic gap widens).
+                    # Pass target string parameters into the provider to bypass the 7-day programmatic limitation
                     points, wx_source, wx_fetched_at = wx.forecast(lat, lon)
 
                 before  = [p for p in points if sunset - timedelta(hours=6) <= p.time <= sunset]
