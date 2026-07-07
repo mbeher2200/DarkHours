@@ -1,0 +1,310 @@
+/* ── weather table ────────────────────────────────────────── */
+.wx-details summary {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+}
+/* Forecast provenance badge — dense instrument-readout footer under the table */
+.wx-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(var(--hairline-rgb), 0.4);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.wx-prov-sep { opacity: 0.5; }
+/* Timeline event rows interleaved in the weather table */
+/* NOW marker — current time in the location's TZ, shown only while inside the night window */
+.wx-now-row td {
+  padding: 0;
+  border-top: 2px solid color-mix(in oklab, var(--accent) 80%, transparent);
+  border-bottom: none;
+}
+.wx-now-row td.wx-now-time {
+  padding: 1px 6px 1px 0;
+  background: var(--card);
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+.wx-now-content {
+  position: sticky;
+  left: 68px;
+  background: var(--card);
+  z-index: 1;
+}
+.wx-now-inner {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html.red-mode .wx-now-row td {
+  border-top-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+html.red-mode .wx-now-row td.wx-now-time {
+  border-left-color: var(--accent);
+}
+
+.wx-ev-row td {
+  padding: 0;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.5);
+}
+/* Time cell: restore padding, solid bg for sticky cover, accent border to mark event rows */
+.wx-ev-row td.wx-ev-time {
+  padding: 3px 6px 3px 0;
+  background: var(--card);
+  border-left: 1.5px solid rgba(var(--tint-rgb), 0.35);
+}
+/* Label cell: sticky immediately after the time column */
+.wx-ev-content {
+  position: sticky;
+  left: 68px;
+  background: var(--card);
+  z-index: 1;
+}
+.wx-ev-inner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+}
+.wx-ev-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+.wx-ev-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+/* Astronomical night begin/end: a strict monospace divider rather than an
+   icon+italic label, with a dashed hairline "fence" trailing off to bracket
+   the dark window instead of competing visually with the sun/moon icons. */
+.wx-ev-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+/* Sun/moon rise/set text is left-aligned, not centered — only astro dark
+   begin/end (bracketed by lines) stays centered. */
+.wx-ev-row.wx-ev-sun .wx-ev-divider,
+.wx-ev-row.wx-ev-moon .wx-ev-divider {
+  justify-content: flex-start;
+}
+/* Astro dark begin/end keeps its leading/trailing divider lines (the other
+   event dividers — sunrise/sunset/moonrise/moonset — don't get them, just
+   centered text via justify-content above). Solid, matching the standard
+   row-separator hairline (.wx-table td), not a dashed rule. */
+.wx-ev-row.wx-ev-astro .wx-ev-divider::before,
+.wx-ev-row.wx-ev-astro .wx-ev-divider::after {
+  content: '';
+  flex: 1;
+  height: 0;
+  border-top: 1px solid rgba(var(--hairline-rgb), 0.6);
+}
+.wx-ev-row.wx-ev-astro .wx-ev-divider::before { margin-right: 12px; }
+.wx-ev-row.wx-ev-astro .wx-ev-divider::after  { margin-left: 12px; }
+/* Celestial event type coloring — sun/moon/astro rows all render as the plain
+   .wx-ev-divider now (no icon, no colored label), so only the time-cell
+   accent border remains to tie each row back to its event type. */
+.wx-ev-row.wx-ev-sun td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-sun) 45%, transparent); }
+.wx-ev-row.wx-ev-moon td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-moon) 45%, transparent); }
+.wx-ev-row.wx-ev-astro td.wx-ev-time { border-left-color: color-mix(in oklab, var(--ev-astro) 45%, transparent); }
+/* Astronomical night phase banding — tint source must be mid-lightness or the
+   mix disappears into the dark card background. */
+.wx-table tr.wx-row-astro td,
+.wx-table tr.wx-row-astro td.wx-time {
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 24%, var(--card));
+}
+.wx-table tr.wx-row-astro td.wx-time {
+  border-left: 2px solid color-mix(in oklab, var(--ev-astro) 60%, transparent);
+}
+/* Moon-up within astro dark: same hue, half the mix — the moon is above the
+   horizon so it's only partial darkness, not the full moon-down tone above. */
+.wx-table tr.wx-row-astro-lit td,
+.wx-table tr.wx-row-astro-lit td.wx-time {
+  background: color-mix(in oklab, oklch(0.50 0.12 262) 12%, var(--card));
+}
+.wx-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+  margin-right: -20px;
+  padding-right: 20px;
+}
+.wx-table {
+  width: 100%;
+  border-collapse: collapse;
+  /* B: tighter font */
+  font-size: 12px;
+}
+.wx-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 6px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.65);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+}
+.wx-table td {
+  /* B: tighter padding */
+  padding: 7px 6px;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.6);
+  color: var(--text);
+  white-space: nowrap;
+}
+/* Conditions and Wind cells hold a 32px icon — the tallest content in the row,
+   so it alone sets the row height for every cell. Tighter vertical padding here
+   brings the row back down without shrinking the icon itself. */
+.wx-table td.wx-rating,
+.wx-table td.wx-wind-col {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.wx-table tr:last-child td {
+  border-bottom: none;
+}
+.wx-table tbody tr:not(.wx-ev-row):hover td {
+  background: rgba(var(--tint-rgb), 0.06);
+}
+.wx-table td.wx-time {
+  /* A: sticky first column */
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 1;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-left: 0;
+  width: 1px;
+  min-width: 68px; /* fixed so event label cell can use left: 68px */
+}
+.wx-table th:first-child {
+  width: 1px;
+  min-width: 68px;
+  padding-left: 0;
+}
+/* A: sticky header cell for TIME column */
+.wx-table th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 2;
+}
+.wx-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.wx-table th:not(:first-child),
+.tg-table  th:not(:first-child) {
+  text-align: right;
+}
+.tg-table th.tg-sky-col  { text-align: left; }
+.tg-table th.tg-cond-col { text-align: left; }
+/* Center every icon-headed column: the header icon and its data (which can be
+   wider than the icon itself, e.g. the L/M/H cloud tiers) share one center
+   point, so they align regardless of the data's rendered width — unlike
+   right-align, which only guarantees the shared edge lines up. */
+.wx-table th.wx-cond-col, .wx-table td.wx-rating,
+.wx-table th.wx-cloud-col, .wx-table td.wx-cloud-col,
+.wx-table th.wx-wind-col, .wx-table td.wx-wind-col,
+.wx-table th.wx-atmos-col, .wx-table td.wx-atmos-col {
+  text-align: center;
+}
+/* Grouped span headers (e.g. Rise / Peak / Set in sat table) look better centred */
+.wx-table th[colspan] {
+  text-align: center;
+}
+
+/* ── terminal-recalculation ("View Details" date-only fetch) ─────────────────
+   Phase B/C for Night Timeline / Satellite Ephemeris only — see the
+   isFetching/cathodeSnap props on WeatherTable/SatellitePasses. */
+.wx-table-wrap {
+  position: relative;
+}
+.wx-table-wrap.is-recalculating .wx-table {
+  opacity: 0.3;
+  pointer-events: none;
+}
+.recalc-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--card);
+  opacity: 0.92;
+  pointer-events: none;
+  z-index: 3; /* above sticky .wx-time (1) and sticky header (2) */
+}
+.recalc-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  animation: recalc-blink 1s steps(1) infinite;
+}
+@keyframes recalc-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recalc-cursor { animation: none; }
+}
+html.red-mode .recalc-overlay {
+  /* var(--accent)/var(--card) already resolve correctly under red-mode;
+     explicit block kept per this file's "no implicit inheritance" convention. */
+  color: var(--accent);
+  background: var(--card);
+}
+
+/* Phase C — 50ms inverse-contrast flash on hydration (cathodeSnap prop).
+   Variable-driven, not filter: invert() — an ancestor filter doesn't apply
+   to GPU-composited descendants for a frame (see the red-mode note above the
+   :root block) and would fight red-mode's own SVG-filter usage elsewhere. */
+.wx-table-wrap.cathode-snap,
+.wx-table-wrap.cathode-snap .wx-table,
+.wx-table-wrap.cathode-snap .wx-table td,
+.wx-table-wrap.cathode-snap .wx-table th {
+  background: var(--text-h);
+  color: var(--card);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wx-table-wrap.cathode-snap,
+  .wx-table-wrap.cathode-snap .wx-table,
+  .wx-table-wrap.cathode-snap .wx-table td,
+  .wx-table-wrap.cathode-snap .wx-table th {
+    background: none;
+    color: inherit;
+  }
+}

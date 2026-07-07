@@ -1,0 +1,349 @@
+/* ── responsive: ≤640px (phone landscape / large phone portrait) ─────────── */
+@media (max-width: 640px) {
+  .app {
+    padding: 12px 4px max(48px, calc(48px + env(safe-area-inset-bottom)));
+  }
+  .masthead {
+    margin-bottom: 10px;
+  }
+  .night-vision-toggle {
+    position: static;
+    display: flex;
+    width: fit-content;
+    margin: 0 auto 12px;
+  }
+  .masthead h1 {
+    font-size: 1.375rem;
+  }
+  .card {
+    border-radius: 2px;
+    padding: 8px;
+  }
+  .mode-toggle button {
+    font-size: 0.6875rem;
+    padding: 7px 4px;
+    white-space: normal;
+    line-height: 1.2;
+    text-align: center;
+    min-width: 0;
+  }
+  .coords {
+    grid-template-columns: 1fr;
+  }
+  .scope-grid {
+    column-gap: 12px;
+  }
+  .units-toggle {
+    margin-left: auto;
+  }
+  .report-head {
+    flex-wrap: wrap;
+  }
+
+  /* Report head: properly scales down location name on mobile */
+  .report-head .place {
+    font-size: 14px;
+  }
+
+  .report-head-coords {
+    display: none;
+  }
+  /* Table bleed matches reduced card padding */
+  .wx-table-wrap,
+  .tg-table-wrap {
+    margin-right: -8px;
+    padding-right: 8px;
+  }
+  /* Satellite table: hide Set columns, Duration, and Peak Az to fit mobile */
+  .sat-set-col,
+  .sat-dur-col,
+  .sat-peak-az-col {
+    display: none;
+  }
+  /* MW card: collapse to single column so dome stacks below scores */
+  /* MW card: collapse to single column so dome stacks below scores */
+  .mw-layout {
+    grid-template-columns: 1fr;
+  }
+  /* Center the dome SVG when stacked in single-column layout */
+  .mw-dome-wrap {
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+    /* MW card: collapse to single column so dome stacks below scores */
+  .mw-top-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .mw-mid-section {
+    flex-direction: column;
+    align-items: center;  /* Centers the graphic and the notes block */
+    gap: 16px;            /* Adds breathing room between the dome and the notes */
+  }
+
+.mw-dome-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Keep notes left-aligned in their own block below the dome */
+.mw-notes-container {
+    align-items: center;  /* Centers the badges horizontally */
+    margin-top: 0;        /* Resets the desktop nudge */
+    max-width: 100%;      /* Allows it to use the full width */
+  }
+  /* Restore nearby table layout for mobile, matching the Excel mockup */
+  .nearby-table {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+  }
+
+  .nearby-table thead {
+    display: table-header-group; /* Restores the missing column labels */
+  }
+
+  .nearby-table th {
+    white-space: normal;
+    padding: 4px 2px;
+    font-size: 10px;
+    vertical-align: bottom;
+    background: rgba(0, 0, 0, 0.04);
+    border-top: 1px solid rgba(255, 255, 255, 0.65);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .nearby-table td {
+    white-space: normal;
+    padding: 6px 2px;
+    vertical-align: top;
+    border-bottom: 1px solid rgba(var(--hairline-rgb), 0.25);
+  }
+
+  .nearby-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Structure the Area column */
+  .nearby-area-td {
+    width: 100%;
+  }
+
+  /* Flex container groups badge+icon so they don't split across lines */
+  .nearby-area-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 4px;
+  }
+
+  .nearby-area-inner .poi-namelink {
+    flex: 0 0 100%;
+    margin-bottom: 3px;
+    font-size: 13px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .nearby-area-inner .poi-area {
+    margin-left: 0;
+  }
+
+  /* Data columns: higher specificity to override .nearby-table td white-space */
+  .nearby-table td.nearby-bortle-col,
+  .nearby-table td.nearby-sqm-col,
+  .nearby-table td.nearby-dist-col,
+  .nearby-table td.nearby-drive-col,
+  .nearby-table td.nearby-dir-col {
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  /* Blocked target rows: allow badge text to wrap instead of clipping */
+  .tg-row-blocked td {
+    white-space: normal;
+  }
+  .heatmap-body {
+    padding: 6px;
+  }
+  .heatmap-cell {
+    padding: 3px;
+  }
+  .hm-day { font-size: 9px; }
+  .hm-score { font-size: 13px; }
+  .telemetry-readout {
+    font-size: 11px;
+    padding: 8px;
+  }
+}
+
+/* ── responsive: ≤480px (phone portrait) ────────────────────────────────── */
+@media (max-width: 480px) {
+  .es-caps {
+    grid-template-columns: 1fr;
+  }
+
+  .masthead h1 {
+    font-size: 1.25rem;
+  }
+    /* ── Date Picker Mobile Compression ── */
+  .dp-popover {
+    padding: 12px;
+  }
+  .dp-header {
+    margin-bottom: 6px;
+  }
+  .dp-day,
+  .dp-cell-empty {
+    height: 34px; /* Reduced from 42px to save vertical space */
+  }
+  .dp-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+  .dp-today-btn {
+    padding: 7px 0;
+  }
+  /* Score card: tighter padding, flex-start so long sub-text doesn't mis-align number */
+  .overall {
+    padding: 14px 16px;
+    gap: 14px;
+    align-items: flex-start;
+    flex-direction: column;
+    /*width: 100%;*/
+  }
+  .overall .meta {
+    flex: 0 0 auto; /* column mode: flex-basis becomes height — reset to natural */
+  }
+  .overall-num {
+    font-size: 3rem;
+  }
+  .overall-label {
+    font-size: 1.5rem;
+    margin-top: 0;
+  }
+  /* Bar chart: tighter columns */
+  .bar-row {
+    grid-template-columns: 100px 1fr 32px;
+  }
+  /* Meta rows: keep horizontal, give key a fixed lane */
+  .meta-k {
+    min-width: 100px;
+    flex-shrink: 0;
+  }
+  .meta-row {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .meta-row + .meta-row {
+    border-top: 1px solid rgba(var(--hairline-rgb), 0.25);
+    padding-top: 6px;
+  }
+  .meta-v {
+    flex: 1;
+    padding-left: 0;
+  }
+  /* Light dome stacks below the score, centered and full-width; the caption
+     stacks under the disk again (too little width to sit beside it). */
+  .lightdome-panel {
+    width: 100%;
+    align-items: center;
+  }
+  .ld-body {
+    flex-direction: column;
+  }
+  .ld-caption {
+    align-items: center;
+    text-align: center;
+  }
+  input[type=range] {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  /* Night Timeline / Weather table: squeeze to fit all columns without horizontal scroll */
+  .wx-table {
+    font-size: 10px;
+  }
+  /* "Haze: Aloft" / "Haze: Surface" wrap onto a second line here rather than
+     widening the Conditions column — vertical space is cheaper than width on a
+     narrow viewport. Overrides the inherited nowrap from .wx-table td; max-width
+     forces the break instead of just permitting it (normal alone doesn't shrink
+     the box, it only allows wrapping once something else constrains the width). */
+  .wx-cond-word {
+    display: inline-block;
+    max-width: 46px;
+    white-space: normal;
+  }
+  .wx-table th {
+    padding: 2px 2px 3px;
+    font-size: 9px;
+    letter-spacing: 0.03em;
+    white-space: normal;
+  }
+  .wx-table td {
+    padding: 3px 2px;
+  }
+  /* Cloud % stacks above the EQ meter here instead of sitting beside it —
+     narrower footprint than the desktop side-by-side layout. */
+  .wx-cloud-readout {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .wx-table td.wx-time,
+  .wx-table th:first-child {
+    min-width: 52px;
+  }
+  /* Targets table: reduce font/padding and allow target name to wrap */
+  .tg-table {
+    font-size: 11px;
+  }
+  .tg-table th {
+    padding: 3px 6px 4px;
+    font-size: 9px;
+  }
+  .tg-table td {
+    padding: 4px 6px;
+  }
+  .tg-table td:first-child {
+    white-space: normal;
+    max-width: 160px;
+  }
+  /* POI elements: reduce font sizes so nearby table fits */
+  .poi-maplink,
+  .poi-area,
+  .poi-badge {
+    font-size: 9px;
+  }
+  .poi-maplink svg {
+    width: 11px;
+    height: 11px;
+  }
+  /* Arch waypoints: allow window time range to wrap */
+  .wp-window-td {
+    white-space: normal;
+  }
+  /* Deep sky targets: fill width and let content wrap naturally */
+  .tg-table {
+    width: 100%;
+    table-layout: auto;
+  }
+  .tg-table td,
+  .tg-table th {
+    white-space: normal;
+  }
+  /* Remove fixed-width spans so alignment columns share space naturally */
+  .tg-t,
+  .tg-alt,
+  .tg-az,
+  .tg-dir {
+    display: inline;
+    min-width: 0;
+  }
+}
