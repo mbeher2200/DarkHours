@@ -1,0 +1,692 @@
+/* ── targets table ────────────────────────────────────────────────────────── */
+.tg-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.tg-table th:first-child,
+.tg-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 1;
+}
+.tg-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tg-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.65);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+}
+.tg-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.6);
+  color: var(--text);
+  white-space: nowrap;
+}
+.tg-table tr:last-child td {
+  border-bottom: none;
+}
+.tg-table tbody tr:hover td {
+  background: rgba(var(--tint-rgb), 0.06);
+}
+/* ── Meteor shower cards ─────────────────────────────────────────────────── */
+.ms-section {
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+.ms-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ms-card {
+  padding: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.ms-card + .ms-card {
+  border-top: 1px solid var(--card-border);
+  padding-top: 12px;
+}
+.ms-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.ms-name {
+  font-weight: 600;
+  color: var(--text-h);
+  font-size: 14px;
+}
+.ms-zhr {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ms-note {
+  font-size: 12px;
+  color: var(--fair);
+}
+
+/* ── Milky Way card ──────────────────────────────────────────────────────── */
+.mw-section {
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.mw-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+}
+
+/* Replaces .mw-layout for the top metadata grouping */
+.mw-top-section {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.mw-meta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* Consistent with telemetry cards */
+  margin-bottom: 16px;
+}
+
+.mw-mid-section {
+  display: flex;
+  flex-direction: row;        /* Side-by-side */
+  align-items: center;        /* Vertically centered */
+  justify-content: center;    /* Keeps the whole group centered in the card */
+  gap: 24px;
+  margin-top: 8px;
+  margin-bottom: 20px;
+}
+
+.mw-notes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;    /* Keeps the notes left-aligned within their column */
+  width: 100%;
+  max-width: 160px;
+}
+
+.mw-score {
+  font-size: 13px; /* Reduced from 22px to match .meta-v size */
+  font-weight: 600; /* Medium-bold for readability */
+  line-height: 1.5; /* Matches the telemetry row line-height */
+}
+
+.mw-score-denom {
+  font-size: 13px; /* Reduced from 14px */
+  font-weight: 500; /* Slightly lighter than the score */
+  color: inherit;
+  margin-left: 4px;
+}
+.mw-sub-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.mw-moon-flag {
+  color: var(--fair);
+}
+.mw-moon-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fair);
+  margin-left: 4px;
+}
+.badge-poor {
+  color: var(--poor);
+}
+.mw-score.mw-score-band-excellent { color: var(--excellent); }
+.mw-score.mw-score-band-good      { color: var(--good); }
+.mw-score.mw-score-band-fair      { color: var(--fair); }
+.mw-score.mw-score-band-poor      { color: var(--poor); }
+.mw-sub-scores .mw-score-band-excellent { color: var(--excellent); }
+.mw-sub-scores .mw-score-band-good      { color: var(--good); }
+.mw-sub-scores .mw-score-band-fair      { color: var(--fair); }
+.mw-sub-scores .mw-score-band-poor      { color: var(--poor); }
+.mw-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.mw-label {
+  flex-shrink: 0;
+  min-width: 120px;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.mw-label::after {
+  content: ':';
+}
+/* Waypoints accordion */
+.mw-waypoints-detail {
+  margin-top: 6px;
+}
+.mw-waypoints-summary {
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-waypoints-summary::before {
+  content: '▶';
+  font-size: 8px;
+  display: inline-block;
+  transition: transform 150ms ease-out;
+}
+.mw-waypoints-detail[open] .mw-waypoints-summary::before {
+  transform: rotate(90deg);
+}
+.mw-waypoints-table-wrap {
+  animation: mwSlideDown 200ms ease-out;
+}
+@keyframes mwSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mw-waypoints-table-wrap { animation: none; }
+}
+
+/* Half-dome SVG visualization */
+.mw-dome-wrap {
+  flex-shrink: 0;
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0px;
+}
+.mw-group-title {
+  text-align: center;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+  text-transform: none; /* Enforces the removal of all-caps */
+  margin-bottom: 8px;   /* Adds breathing room before the graphic/notes */
+  width: 100%;
+}
+/* Hide the old internal label rendered by the MilkyWayDome component */
+.mw-dome-title {
+  display: none !important;
+}
+.mw-dome-subtitle {
+  font-size: 9px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  text-align: center;
+  opacity: 0.70;
+}
+.mw-dome-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #0A0F1E;
+  border-radius: 2px;
+}
+html.red-mode .mw-dome-wrap svg {
+  background: #0A0000;
+}
+.mw-dome-svg {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.mw-dome-svg:active {
+  cursor: grabbing;
+}
+.mw-dome-ground {
+  fill: rgba(8, 12, 8, 0.55);
+}
+.mw-dome-frame {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+.mw-dome-horizon {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.mw-dome-ring {
+  stroke: var(--text-dim);
+  stroke-width: 0.5;
+  opacity: 0.4;
+}
+.mw-dome-ring-label {
+  fill: var(--text-dim);
+  font-size: 7px;
+  font-family: inherit;
+  opacity: 0.55;
+}
+html.red-mode .mw-dome-ring-label {
+  fill: rgb(180, 60, 60);
+}
+.mw-dome-tick {
+  stroke: var(--text-dim);
+  stroke-width: 0.75;
+  opacity: 0.5;
+}
+.mw-dome-core {
+  fill: var(--excellent);
+}
+.mw-dome-waypoint {
+  fill: rgba(255, 255, 255, 0.6);
+}
+html.red-mode .mw-dome-waypoint {
+  fill: rgba(200, 0, 0, 0.6);
+}
+.mw-dome-label {
+  fill: var(--text-dim);
+  font-size: 13px;
+  font-family: inherit;
+  opacity: 0.8;
+}
+.mw-dome-absent {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+.mw-absent-reason {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 4px 0 8px;
+}
+.mw-dome-wrap svg:active {
+  cursor: grabbing;
+}
+/* ── MW arch segmented rendering ──────────────────────────────────────────── */
+/* stroke="currentColor" on each <line> inherits color from the parent <g>,
+   so one CSS rule controls all 71 lines per layer. */
+.mw-arch-glow,
+.mw-arch-core {
+  color: white;
+}
+
+/* Red night-vision mode: swap white → red so the arch doesn't bleach dark-
+   adapted rods. rgb(200,0,0) is slightly dimmer than --text-h (#e00000) to
+   keep the wide glow band from dominating in red mode. */
+html.red-mode .mw-arch-glow,
+html.red-mode .mw-arch-core {
+  color: rgb(200, 0, 0);
+}
+
+/* Dome sky-glow blobs: currentColor in the SVG gradient stops inherits from
+   this class, so one CSS switch handles both normal and red-mode. */
+.mw-dome-glow { color: rgb(255, 185, 80); }
+html.red-mode .mw-dome-glow { color: rgb(160, 0, 0); }
+
+/* Moon glow blob: cool silvery-blue in normal mode, dark red in night vision. */
+.mw-moon-glow { color: rgb(200, 215, 240); }
+html.red-mode .mw-moon-glow { color: rgb(160, 0, 0); }
+
+/* glowStyle() returns an inline color (lilac/rose/red by severity) — inline
+   styles beat class rules, so !important is required to override in red mode.
+   Applies to all .cond-glow spans (targets table, satellite table, MW badge). */
+html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
+
+/* Section divider between Milky Way and DSO blocks */
+.iconic-section-divider {
+  border-top: 1px solid var(--card-border);
+  margin: 14px 0 10px;
+}
+.iconic-targets-label {
+  margin-top: 2px;
+}
+
+.tg-group-hdr td {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px 4px;
+  border-bottom: 1px solid var(--card-border);
+}
+.tg-sky {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tg-table td.tg-sky.tg-sky-dark-sky     { color: var(--excellent); }
+.tg-table td.tg-sky.tg-sky-astro-night  { color: var(--good); }
+.tg-table td.tg-sky.tg-sky-twilight     { color: var(--fair); }
+.tg-table td.tg-sky.tg-sky-moon-wash-minor    { color: var(--good); }
+.tg-table td.tg-sky.tg-sky-moon-wash-moderate { color: var(--fair); }
+.tg-table td.tg-sky.tg-sky-moon-wash-severe   { color: var(--poor); }
+.tg-table td.tg-sky.tg-sky-moon-wash          { color: var(--poor); }
+/* Not scoped to td — also applied directly to inline spans (e.g. .wx-atmos-transp)
+   for cases that highlight just one value within a cell, not the whole row. */
+.wx-table .wx-gate-warn { font-weight: 700; }
+/* Sustained/gust wind readout: fixed-width value slots so "/" and the unit stay
+   aligned across rows regardless of digit count (1 vs 2 digits, decimal or not). */
+.wx-wind-val {
+  display: inline-block;
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wx-wind-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
+.wx-wind-unit { display: inline-block; width: 26px; text-align: left; padding-left: 2px; color: var(--text-dim); }
+/* Gust sits between two visible neighbors ("/" and the unit), so unlike sustained
+   it gets no fixed-width box — that would leave a blank gap against whichever
+   side padding falls on. Sized to content instead, so it stays flush against
+   both regardless of digit count. Dim by default; lights up past the same
+   severity gate used for sustained wind (6.3 m/s). */
+.wx-wind-gust { display: inline-block; width: auto; text-align: left; color: var(--text-dim); }
+.wx-wind-gust-severe { color: var(--poor); font-weight: 700; }
+/* Temp/dew-point combined readout — same fixed-width technique as the wind
+   readout above. Dew point sits between two visible neighbors ("/" and the
+   unit), so like the wind gust it gets no fixed box (would leave a gap on one
+   side), just sized to content. Normal color by default; highlighted only when
+   dewGate fires (dew point within 5° of air temp — condensation/fogging risk). */
+.wx-temp-val {
+  display: inline-block;
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wx-temp-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
+/* No fixed width — the unit is the last element in the cell (nothing trails it)
+   and is identical on every row (global imperial/metric toggle, not per-row),
+   so unlike the dew value there's no cross-row variability to guard against. A
+   fixed box here only left trailing blank space after the short "°F"/"°C" text,
+   which is why the right-aligned header didn't line up with the visible data. */
+.wx-temp-unit { display: inline-block; padding-left: 2px; color: var(--text-dim); }
+.wx-dew-val { display: inline-block; width: auto; text-align: left; }
+.wx-dew-warn { color: var(--poor); font-weight: 700; }
+/* Combined Seeing/Transparency readout — always wraps to two lines (Seeing above
+   Transparency) rather than sitting side by side, so it never needs width for
+   "Excellent / Excellent" on one line. Flex goes on the inner span, NOT the td
+   itself — a <td> normally stretches to match the row's tallest sibling cell,
+   but overriding its own display breaks that participation, leaving its border
+   rendered partway up the row with blank space below (the gap to the row's
+   real, taller height). The "/" separator is redundant once stacked. */
+.wx-table th.wx-atmos-hdr {
+  text-align: center;
+  line-height: 1.15;
+  vertical-align: bottom;
+}
+.wx-atmos-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wx-atmos-sep { display: none; }
+.wx-atmos-seeing,
+.wx-atmos-transp {
+  width: auto;
+  text-align: center;
+  font-family: var(--mono);
+  line-height: 1;
+}
+/* Conditions column has no header label (icon-only) — pin a comfortable fixed width
+   instead of letting it auto-size to the icon alone. */
+.wx-table th.wx-cond-col,
+.wx-table td.wx-rating {
+  width: 1px;
+  min-width: 42px;
+}
+/* Fog/Haze/Haze-Aloft/Haze-Surface — bold word instead of an icon (see WmoIcon).
+   Stays single-line by default; narrow viewports override to wrap "Aloft"/"Surface"
+   onto their own line below "Haze:" rather than widening the column (see the
+   max-width: 640px override further down). */
+.wx-cond-word {
+  font-weight: 500;
+}
+/* Stacked Cloud header — text-align/centering already comes from the shared
+   .wx-cloud-col rule below; this only adds the two-line-specific properties. */
+.wx-table th.wx-cloud-hdr {
+  line-height: 1.1;
+  vertical-align: bottom;
+}
+/* Stacked Temp/Dew Pt header — right-align stays inherited (it's a text header
+   like Transp/Seeing, not centered like the icon-headed columns). */
+.wx-table th.wx-temp-hdr {
+  line-height: 1.1;
+  vertical-align: bottom;
+}
+/* Compact 3-channel EQ-meter readout for Low/Mid/High cloud in the Cloud cell */
+.wx-cloud-readout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wx-cloud-val {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 26px;
+  text-align: right;
+}
+.wx-cloud-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.5);
+  padding-bottom: 1px;
+}
+.wx-eq-track {
+  width: 5.3px;
+  height: 10px;
+  background: rgba(var(--hairline-rgb), 0.15);
+  border-radius: 1px 1px 0 0;
+  position: relative;
+  overflow: hidden;
+}
+.wx-eq-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: var(--text-dim);
+  transition: height 0.2s ease-out;
+}
+
+.tg-moon-note        { color: var(--text-dim); font-size: 12px; }
+/* Fixed-width blocks so every piece aligns across rows in Best Viewing / Astro Window */
+.tg-t {
+  display: inline-block;
+  min-width: 62px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Altitude: 0–90° (1–2 digits) */
+.tg-alt {
+  display: inline-block;
+  min-width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+/* Azimuth: 0–360° (1–3 digits) */
+.tg-az {
+  display: inline-block;
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+/* Direction: N/NE/NNW etc. — min-width for the longest 3-char abbreviation */
+.tg-dir {
+  display: inline-block;
+  min-width: 26px;
+  color: var(--text-dim);
+}
+.tg-p { color: var(--text-dim); }
+.tg-note {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+/* Inline sky quality badge in the merged Peak column */
+.tg-sky-inline {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tg-sky-inline.tg-sky-dark-sky     { color: var(--excellent); }
+.tg-sky-inline.tg-sky-astro-night  { color: var(--good); }
+.tg-sky-inline.tg-sky-twilight     { color: var(--fair); }
+.tg-sky-inline.tg-sky-moon-wash-minor    { color: var(--good); }
+.tg-sky-inline.tg-sky-moon-wash-moderate { color: var(--fair); }
+.tg-sky-inline.tg-sky-moon-wash-severe   { color: var(--poor); }
+.tg-sky-inline.tg-sky-moon-wash          { color: var(--poor); }
+/* Inline weather icon in Target cell */
+.tg-wx-inline {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+.tg-wx-inline.wx-rating-excellent { color: var(--excellent); }
+.tg-wx-inline.wx-rating-good      { color: var(--good); }
+.tg-wx-inline.wx-rating-fair      { color: var(--fair); }
+.tg-wx-inline.wx-rating-poor      { color: var(--poor); }
+/* Inline glow badge in Target cell */
+.tg-glow-inline {
+  font-size: 11px;
+}
+
+/* ── Blocked/unviable target rows ─────────────────────────────── */
+/* Use color demotion instead of opacity — opacity breaks contrast on dark field */
+.tg-row-blocked td {
+  color: var(--text-dim);  /* 5:1 guaranteed contrast on --card */
+}
+
+/* Section divider before the unviable group */
+/* Collapsed blocked-targets rollup: the header row itself is the toggle. */
+.tg-blocked-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.tg-blocked-toggle:hover {
+  color: var(--text);
+}
+.tg-blocked-caret {
+  font-size: 9px;
+}
+.tg-blocked-counts {
+  color: var(--text-dim);
+}
+html.red-mode .tg-blocked-toggle { color: var(--text-dim); }
+html.red-mode .tg-blocked-toggle:hover { color: var(--text); }
+
+.tg-unviable-hdr td {
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 12px 10px 4px;
+  border-top: 1px dashed rgba(var(--hairline-rgb), 0.5);
+  border-bottom: none;
+}
+
+/* Blocker reason chip */
+.tg-blocker-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--poor);
+  white-space: nowrap;
+}
+
+/* Clipped-window asterisk — hover tooltip on desktop, inline on touch */
+.tg-clip-indicator {
+  color: var(--text-dim);
+  cursor: help;
+  margin-left: 2px;
+  font-size: 10px;
+  vertical-align: super;
+}
+@media (hover: none) {
+  .tg-clip-indicator[data-tip]::after {
+    content: ' (' attr(data-tip) ')';
+    font-size: 10px;
+    color: var(--text-dim);
+    font-style: italic;
+    vertical-align: baseline;
+  }
+}
+
+/* ── Targets table: Conditions column ────────────────────────── */
+.tg-table th.tg-cond-col,
+.tg-table td.tg-cond-col {
+  text-align: center;
+  white-space: nowrap;
+  padding-left: 4px;
+  padding-right: 4px;
+  width: 28px;
+}
+.cond-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.cond-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.cond-glow { font-size: 11px; }
+
+.colophon {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.70);
+}

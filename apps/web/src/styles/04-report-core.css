@@ -1,0 +1,501 @@
+/* ── report ───────────────────────────────────────────────── */
+@keyframes report-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: report-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report { animation: none; }
+}
+.report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.report-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.report-head-actions .units-toggle {
+  margin-left: 0;
+}
+.copy-link-btn {
+  border: 1px solid var(--card-border);
+  background: transparent;
+  border-radius: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.copy-link-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.copy-link-btn.copied {
+  color: var(--excellent);
+  border-color: var(--excellent);
+}
+html.red-mode .copy-link-btn {
+  border-color: rgba(255, 0, 0, 0.25);
+  color: var(--text-dim);
+}
+html.red-mode .copy-link-btn.copied,
+html.red-mode .copy-link-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Sticky report section nav ───────────────────────────────── */
+.report-nav {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -18px 10px;
+  padding: 4px 12px;
+  background: var(--card);
+  border-top: 1px solid rgba(var(--hairline-rgb), 0.08);
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.14);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.report-nav::-webkit-scrollbar {
+  display: none;
+}
+.report-nav-link {
+  background: none;
+  border: 0;
+  padding: 3px 7px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.report-nav-link:hover {
+  color: var(--accent);
+}
+/* Jump targets land just below the sticky bar, not underneath it. */
+#report-planning, #report-timeline, #report-targets, #report-satellites {
+  scroll-margin-top: 34px;
+}
+html.red-mode .report-nav {
+  background: var(--card);
+  border-top-color: rgba(255, 0, 0, 0.10);
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .report-nav-link {
+  color: var(--text-dim);
+}
+.report-head-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.report-head .place {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.place-mappin {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 7px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  vertical-align: middle;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.place-mappin:hover { opacity: 1; }
+.place-mappin svg {
+  width: 16px;
+  height: 16px;
+}
+.report-head .place-sub {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0;
+}
+.report-head .when {
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+.stale-notice {
+  background: rgba(var(--tint-rgb), 0.07);
+  border: 1px solid rgba(var(--tint-rgb), 0.18);
+  border-radius: 2px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--accent);
+  text-align: center;
+}
+.overall {
+  display: flex;
+  flex-wrap: wrap; /* FIXED: Allows the meta block to wrap under the score */
+  align-items: center;
+  gap: 20px;
+  padding: 22px 24px;
+  border-radius: 3px;
+  border: 1px solid var(--card-border);
+}
+.overall-num {
+  font-size: 64px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.overall-score-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.overall-label {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-h);
+  line-height: 1;
+}
+.overall-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.overall-score-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+/* Give meta block all remaining space so values don't wrap */
+.overall .meta {
+  flex: 1 1 260px; /* FIXED: Trigger wrapping if the available width drops below 260px */
+  min-width: 0;
+}
+/* Tighter label column inside the score card */
+.overall .meta-k {
+  min-width: 112px;
+}
+
+/* ── Verdict line + next-good-night chip (score card) ─────────── */
+.overall-verdict {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 300px;
+  margin-top: 6px;
+}
+.next-good-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  align-self: flex-start;
+  margin-top: 10px;
+  padding: 7px 13px;
+  background: rgba(var(--tint-rgb), 0.06);
+  border: 1px solid rgba(var(--tint-rgb), 0.45);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-h);
+  cursor: pointer;
+}
+.next-good-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(var(--tint-rgb), 0.11);
+}
+.next-good-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ngc-k {
+  color: var(--accent);
+}
+html.red-mode .overall-verdict { color: var(--text); }
+html.red-mode .next-good-chip {
+  background: rgba(255, 0, 0, 0.07);
+  border-color: rgba(255, 0, 0, 0.45);
+  color: var(--text-h);
+}
+
+/* ── Light dome panel (all-sky fisheye) ─────────────────────── */
+.lightdome-panel {
+  flex: 0 0 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: -8px;
+}
+.ld-title {
+  /* Removed local font-family, font-size, font-weight, text-transform, letter-spacing so it defers to the shared Rule 2 */
+  text-align: center;
+}
+.ld-body {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.ld-canvas {
+  display: block;
+}
+.ld-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+}
+.ld-state {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+}
+.ld-state-dark   { color: var(--excellent); border-color: rgba(74, 94, 168, 0.35); }
+.ld-state-domed  { color: var(--good);      border-color: rgba(92, 184, 92, 0.35); }
+.ld-state-bright { color: var(--fair);      border-color: rgba(240, 173, 78, 0.35); }
+.ld-state-urban  { color: var(--poor);      border-color: rgba(217, 83, 79, 0.40); }
+.ld-line {
+  font-size: 12px;
+  color: var(--text);
+}
+.ld-line.ld-dome-minor { color: var(--good); }
+.ld-line.ld-dome-major { color: var(--fair); }
+.ld-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ld-line b, .ld-sub b {
+  color: var(--text-h);
+  font-weight: 600;
+}
+.ld-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+.ld-legend-bar {
+  width: 64px;
+  height: 6px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, #000 0%, var(--excellent) 22%, var(--good) 45%, var(--fair) 65%, var(--poor) 100%);
+}
+/* Red/night-vision mode: the canvas bakes literal RGB (CSS vars can't reach
+   getImageData), so recolour it with the same luminance→red matrix used on <img>.
+   The legend bar and state pills use literal greens/ambers — re-tint to pure red. */
+html.red-mode .ld-canvas { filter: url(#red-night); }
+html.red-mode .ld-legend-bar { background: #6a0000; }
+html.red-mode .ld-state-dark,
+html.red-mode .ld-state-domed,
+html.red-mode .ld-state-bright,
+html.red-mode .ld-state-urban {
+  color: var(--accent);
+  border-color: rgba(255, 0, 0, 0.4);
+}
+
+.band-excellent {
+  border-color: var(--excellent);
+  background: rgba(90, 209, 154, 0.05);
+}
+/* Overall score card: neutral border regardless of score band — color lives in the
+   number and label only, not the card edge. */
+.overall.band-excellent,
+.overall.band-good,
+.overall.band-fair,
+.overall.band-poor {
+  border-color: var(--card-border);
+  background: transparent;
+}
+.band-excellent .overall-num,
+.band-excellent .overall-label {
+  color: var(--excellent);
+}
+.band-good {
+  border-color: var(--good);
+  background: rgba(var(--tint-rgb), 0.05);
+}
+.band-good .overall-num,
+.band-good .overall-label {
+  color: var(--good);
+}
+.band-fair {
+  border-color: var(--fair);
+  background: rgba(167, 139, 250, 0.05);
+}
+.band-fair .overall-num,
+.band-fair .overall-label {
+  color: var(--fair);
+}
+.band-poor {
+  border-color: var(--poor);
+  background: rgba(248, 113, 113, 0.05);
+}
+.band-poor .overall-num,
+.band-poor .overall-label {
+  color: var(--poor);
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 36px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.bar-label {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.bar-track {
+  height: 6px;
+  background: var(--field-bg);
+  border-radius: 1px;
+  overflow: hidden;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.14), inset -1px -1px 1px rgba(255, 255, 255, 0.60);
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+}
+.bar-fill.band-excellent {
+  background: var(--excellent);
+}
+.bar-fill.band-good {
+  background: var(--good);
+}
+.bar-fill.band-fair {
+  background: var(--fair);
+}
+.bar-fill.band-poor {
+  background: var(--poor);
+}
+.bar-value {
+  text-align: right;
+  color: var(--text-h);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── metadata rows (replaces stats grid) ─────────────────────────────────── */
+.meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-bottom: 8px;
+  font-size: 13px;
+  width: 100%;
+}
+.meta-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.meta-k {
+  flex-shrink: 0;
+  min-width: 148px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.meta-v {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+.meta-row img {
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+}
+html.red-mode .meta-row img {
+  border-color: rgba(255, 0, 0, 0.20);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: rgba(0, 0, 0, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.70);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+  padding: 5px 8px;
+  margin: 0 -18px;
+  user-select: none;
+}
+
+/* Collapsed-section takeaway: shown in the summary line only while the section
+   is closed, so collapsing hides detail without hiding the conclusion. */
+.sum-brief {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+details[open] > summary .sum-brief {
+  display: none;
+}
+html.red-mode .sum-brief {
+  color: var(--text-dim);
+}
