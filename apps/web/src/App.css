@@ -42,7 +42,10 @@
 }
 
 html, body {
-  overflow-x: hidden;
+  /* clip, not hidden: hidden turns body into a scroll container, which breaks
+     position:sticky (.report-nav). clip guards horizontal overflow the same
+     way without creating a scroll container. */
+  overflow-x: clip;
   width: 100%;
 }
 
@@ -726,6 +729,57 @@ html.red-mode .scope-details .scope-summary .scope-diag {
 html.red-mode .scope-brk {
   color: rgba(255, 0, 0, 0.55);
 }
+/* ── Info popover (InfoTip in shared.tsx) ─────────────────────
+   Term explainers: dotted underline marks the term; the bubble renders
+   through a body portal (position: fixed) so overflow-x:auto table wrappers
+   can't clip it. The bubble resets typography — hosts are often mono/uppercase
+   micro-labels, and the explanation should read as body prose. */
+.info-tip {
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(var(--hairline-rgb), 0.45);
+  text-underline-offset: 3px;
+  cursor: help;
+  outline: none;
+}
+.info-tip:hover,
+.info-tip:focus-visible {
+  text-decoration-color: var(--accent);
+}
+.info-tip-bubble {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 8px));
+  z-index: 1000;
+  width: max-content;
+  max-width: 260px;
+  background: var(--pop-bg);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: 2px;
+  padding: 7px 10px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.info-tip-bubble.below {
+  transform: translate(-50%, 8px);
+}
+html.red-mode .info-tip {
+  text-decoration-color: rgba(255, 0, 0, 0.45);
+}
+html.red-mode .info-tip-bubble {
+  background: var(--pop-bg);
+  color: var(--text-h);
+  border-color: rgba(255, 0, 0, 0.22);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
 .toggle-tip-wrap {
   position: relative;
 }
@@ -864,6 +918,95 @@ html.red-mode .scope-brk {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+}
+.report-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.report-head-actions .units-toggle {
+  margin-left: 0;
+}
+.copy-link-btn {
+  border: 1px solid var(--card-border);
+  background: transparent;
+  border-radius: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.copy-link-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.copy-link-btn.copied {
+  color: var(--excellent);
+  border-color: var(--excellent);
+}
+html.red-mode .copy-link-btn {
+  border-color: rgba(255, 0, 0, 0.25);
+  color: var(--text-dim);
+}
+html.red-mode .copy-link-btn.copied,
+html.red-mode .copy-link-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Sticky report section nav ───────────────────────────────── */
+.report-nav {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -18px 10px;
+  padding: 4px 12px;
+  background: var(--card);
+  border-top: 1px solid rgba(var(--hairline-rgb), 0.08);
+  border-bottom: 1px solid rgba(var(--hairline-rgb), 0.14);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.report-nav::-webkit-scrollbar {
+  display: none;
+}
+.report-nav-link {
+  background: none;
+  border: 0;
+  padding: 3px 7px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.report-nav-link:hover {
+  color: var(--accent);
+}
+/* Jump targets land just below the sticky bar, not underneath it. */
+#report-planning, #report-timeline, #report-targets, #report-satellites {
+  scroll-margin-top: 34px;
+}
+html.red-mode .report-nav {
+  background: var(--card);
+  border-top-color: rgba(255, 0, 0, 0.10);
+  border-bottom-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .report-nav-link {
+  color: var(--text-dim);
 }
 .report-head-meta {
   min-width: 0;
@@ -1578,6 +1721,14 @@ html.red-mode .sum-brief {
 .heatmap-body {
   padding: 8px 10px;
   border-bottom: 1px solid var(--card-border);
+}
+/* Cap the calendar's footprint: full-card-width cells read as the page's main
+   event; ~74px cells carry the same day number + score at a glanceable size. */
+.heatmap-dow-row,
+.heatmap-grid {
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .heatmap-dow-row {
   display: grid;
