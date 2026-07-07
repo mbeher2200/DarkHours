@@ -22,11 +22,34 @@ import concurrent.futures as _futures
 import json
 import logging
 import math
+import threading
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
 from . import _http
+
+# Per-location locks serialize the fetch-then-cache sequence in forecast().
+# Without this, a /calendar request dispatches ~20-30 nights at once to a shared
+# thread pool, and every one of them misses the still-empty wx2 cache and fires
+# its own concurrent primary+7Timer+air-quality fetch for the same lat/lon — a
+# thundering herd that can partially rate-limit against the primary provider,
+# falling some callers back to 7Timer (a shorter forecast range) while others
+# get the full primary result. Whichever result writes the shared cache key
+# last wins, so a range of nights can end up scored against a truncated
+# fallback fetch for no reason tied to the actual forecast horizon. Mirrors
+# sky_events.py's _dark_cycle_lock_for.
+_fetch_locks: dict[str, threading.Lock] = {}
+_fetch_locks_guard = threading.Lock()
+
+
+def lock_for(lat: float, lon: float) -> threading.Lock:
+    key = f"{lat:.2f},{lon:.2f}"
+    with _fetch_locks_guard:
+        lock = _fetch_locks.get(key)
+        if lock is None:
+            lock = _fetch_locks[key] = threading.Lock()
+        return lock
 from . import provider_health as _ph
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
@@ -138,7 +161,7 @@ def _parse_open_meteo_hourly(h: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Open-Meteo provider (primary — 7-day forecast)
+# Open-Meteo provider (primary — 16-day forecast)
 # ---------------------------------------------------------------------------
 
 class OpenMeteoProvider(WeatherProvider):
@@ -159,10 +182,11 @@ class OpenMeteoProvider(WeatherProvider):
         ",cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_gusts_10m"
         "&wind_speed_unit=ms"
         "&timezone=GMT"
-        "&forecast_days=7"
-        "&models=best_match"
+        "&forecast_days=16"       # Replace start_date and end_date
+        "&models=gfs_seamless"    # Use the 16-day capable model
     )
 
+    # Revert to accepting only lat and lon
     def forecast(self, lat: float, lon: float) -> list:
         url = self._URL.format(lat=lat, lon=lon)
         log.debug("Open-Meteo request: %s", url)
