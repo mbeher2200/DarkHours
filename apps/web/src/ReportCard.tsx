@@ -9,7 +9,7 @@ import {
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
 import CalendarRangePicker, { type CalendarPickerState } from './CalendarRangePicker'
-import { MoonPhaseSvg, ScoreBar } from './shared'
+import { MoonPhaseSvg, ScoreBar, InfoTip } from './shared'
 import {
   Star,
   Navigation,
@@ -204,7 +204,16 @@ function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visib
   const skyObscured = cloudCover != null && cloudCover > 25
   if (!skyObscured && (aloftConfirmed || surfaceHazy)) {
     const label = aloftConfirmed && surfaceHazy ? 'Haze' : aloftConfirmed ? 'Haze: Aloft' : 'Haze: Surface'
-    return <span className="wx-cond-word">{label}</span>
+    const readings = [
+      aod != null ? `AOD ${aod.toFixed(2)} (satellite column)` : null,
+      pm25 != null ? `PM2.5 ${Math.round(pm25)} µg/m³ (surface)` : null,
+      visibilityM != null ? `visibility ${Math.round(visibilityM / 1000)} km` : null,
+    ].filter(Boolean).join(' · ')
+    return (
+      <InfoTip tip={<>Smoke / aerosol haze — dims stars and flattens contrast even under a cloudless sky. {readings}. Penalized in the hourly rating past AOD 0.3 or PM2.5 35.</>}>
+        <span className="wx-cond-word">{label}</span>
+      </InfoTip>
+    )
   }
 
   // Wind/gust: only when there's no active precip (a rain/snow/fog icon already implies
@@ -411,7 +420,7 @@ function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, is
   })()
 
   return (
-    <details className="wx-details" open>
+    <details id="report-timeline" className="wx-details" open>
       <summary>
         Night Timeline
         {sunsetTs !== -Infinity && sunriseTs !== Infinity &&
@@ -431,7 +440,13 @@ function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, is
                 <th>Time</th>
                 <th className="wx-cond-col"></th>
                 <th className="wx-cloud-col wx-cloud-hdr">Cloud %<br />Low/Med/High</th>
-                {hasAtmos  && <th className="wx-atmos-col wx-atmos-hdr">Seeing /<br />Transp.</th>}
+                {hasAtmos  && (
+                  <th className="wx-atmos-col wx-atmos-hdr">
+                    <InfoTip tip={<>Seeing — turbulence blur in arcseconds: under 1.5″ is pin-sharp, over 2.5″ smears stars (matters most at long focal lengths). Transparency — how cleanly light passes the air column: Excellent → Poor. Both from 7Timer's astro forecast.</>}>
+                      Seeing /<br />Transp.
+                    </InfoTip>
+                  </th>
+                )}
                 {(hasTemp || hasDew) && <th className="wx-temp-col wx-temp-hdr">TEMP/<br />DEW PT</th>}
                 <th className="wx-wind-col">Wind</th>
               </tr>
@@ -628,10 +643,10 @@ function WxProvenanceBadge({ source, fetchedAt }: { source: string | null; fetch
 
 // ── Metadata row ─────────────────────────────────────────────────────────────
 
-function MetaRow({ k, v, icon }: { k: string; v: string; icon?: React.ReactNode }) {
+function MetaRow({ k, v, icon, tip }: { k: string; v: string; icon?: React.ReactNode; tip?: React.ReactNode }) {
   return (
     <div className="meta-row">
-      <span className="meta-k">{k}:</span>
+      <span className="meta-k">{tip ? <InfoTip tip={tip}>{k}</InfoTip> : k}:</span>
       <span className="meta-v" style={icon ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : undefined}>
         {icon}{v}
       </span>
@@ -953,7 +968,11 @@ function WaypointsAccordion({ waypoints, summary, report }: {
 function MoonBadge({ type, severity }: { type: 'penalty' | 'limited'; severity?: string | null }) {
   const base = type === 'penalty' ? 'Moon interference' : 'Moon limited'
   const text = severity ? `${base}: ${severity}` : base
-  return <span className="mw-moon-badge">{text}</span>
+  return (
+    <InfoTip tip={<>Moon wash — scattered moonlight brightening the sky along this line of sight (Krisciunas &amp; Schaefer 1991). Severity comes from phase, moon altitude, and angular separation, not illumination % alone.</>}>
+      <span className="mw-moon-badge">{text}</span>
+    </InfoTip>
+  )
 }
 
 
@@ -1874,7 +1893,11 @@ function MeteorShowerCard({ target, zhr, report }: {
     <div className="ms-card">
       <div className="ms-header-row">
         <span className="ms-name">{target.name} Meteor Shower</span>
-        <span className="ms-zhr">Peak ZHR {zhr}</span>
+        <span className="ms-zhr">
+          <InfoTip tip={<>ZHR — zenithal hourly rate: meteors per hour for a single observer under a perfectly dark sky with the radiant overhead. Field counts run well below it.</>}>
+            Peak ZHR {zhr}
+          </InfoTip>
+        </span>
       </div>
       {target.note && <div className="ms-note">{target.note}</div>}
       {w.peak_time && w.peak_alt_deg != null && (
@@ -2879,6 +2902,48 @@ export default function ReportCard({
     return parts.join(' · ')
   })()
 
+  // Shareable permalink: the URL already tracks location + date (runQuery and
+  // handleDateDetail both replaceState), so copying it is the whole feature.
+  const [copied, setCopied] = useState(false)
+  async function copyLink() {
+    const url = window.location.href
+    let ok = false
+    try {
+      await navigator.clipboard.writeText(url)
+      ok = true
+    } catch {
+      // Async Clipboard needs a secure context + user activation — fall back to
+      // the legacy selection path (old Safari, embedded webviews).
+      const ta = document.createElement('textarea')
+      ta.value = url
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { ok = document.execCommand('copy') } catch { ok = false }
+      ta.remove()
+    }
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    }
+  }
+
+  // Sticky section nav — only sections actually rendered this query get links.
+  const hasTimeline = r.events.length > 0 || (showWeather && (r.weather_points?.length ?? 0) > 0)
+  const navSections: [string, string][] = [
+    ['report-planning', 'Planning'],
+    ...(hasTimeline ? [['report-timeline', 'Timeline'] as [string, string]] : []),
+    ...(showTargets ? [['report-targets', 'Sky Features'] as [string, string]] : []),
+    ...(showSatellites ? [['report-satellites', 'Satellites'] as [string, string]] : []),
+  ]
+  function jumpTo(id: string) {
+    const el = document.getElementById(id)
+    if (!el) return
+    if (el instanceof HTMLDetailsElement) el.open = true // jumping to a collapsed section expands it
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const placePrimary = r.display_name.split(',')[0].trim()
   const placeSecondary = r.display_name.includes(',')
     ? r.display_name.split(',').slice(1).join(',').trim()
@@ -2910,13 +2975,33 @@ export default function ReportCard({
             {formattedDate}  ·  {tzTitle(tz)}
           </p>
         </div>
-        {onToggleUnits && (
-          <div className="units-toggle" role="group" aria-label="Unit system">
-            <button type="button" className={!imperial ? 'active' : ''} onClick={() => onToggleUnits(false)}>°C / m/s</button>
-            <button type="button" className={imperial ? 'active' : ''} onClick={() => onToggleUnits(true)}>°F / mph</button>
-          </div>
-        )}
+        <div className="report-head-actions">
+          <button
+            type="button"
+            className={`copy-link-btn${copied ? ' copied' : ''}`}
+            onClick={copyLink}
+            title="Copy a shareable link to this report"
+          >
+            {copied ? 'Copied ✓' : 'Copy Link'}
+          </button>
+          {onToggleUnits && (
+            <div className="units-toggle" role="group" aria-label="Unit system">
+              <button type="button" className={!imperial ? 'active' : ''} onClick={() => onToggleUnits(false)}>°C / m/s</button>
+              <button type="button" className={imperial ? 'active' : ''} onClick={() => onToggleUnits(true)}>°F / mph</button>
+            </div>
+          )}
+        </div>
       </header>
+
+      {navSections.length > 1 && (
+        <nav className="report-nav" aria-label="Report sections">
+          {navSections.map(([id, label]) => (
+            <button key={id} type="button" className="report-nav-link" onClick={() => jumpTo(id)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className={`overall band-${scoreBand(r.score)}`}>
         <div className="overall-score-block">
@@ -2924,7 +3009,11 @@ export default function ReportCard({
             <div className="overall-num">{r.score.toFixed(1)}</div>
             <div className="overall-label">{scoreLabel(r.score)}</div>
           </div>
-          <div className="overall-sub">0–10 composite score</div>
+          <div className="overall-sub">
+            <InfoTip tip={<>Weighted geometric mean of Weather 40% · Lunar 25% · Dark Hours 25% · Dark Sky 10% (weights redistribute when a factor is unavailable). Geometric means one hard zero — full overcast, full moon — zeroes the whole night, just like it does in the field.</>}>
+              0–10 composite score
+            </InfoTip>
+          </div>
           {verdict && <div className="overall-verdict">{verdict}</div>}
           {r.score < 6 && nextGoodNight && (
             <button
@@ -2945,15 +3034,26 @@ export default function ReportCard({
           )}
         </div>
           <div className="meta">
-        {shortLps && <MetaRow k="Light Pollution" v={shortLps} />}
+        {shortLps && (
+          <MetaRow
+            k="Light Pollution"
+            v={shortLps}
+            tip={<>Bortle class 1 (pristine) to 9 (inner city), derived from satellite radiance{lp?.source ? ` (${lp.source})` : ''}. SQM is zenith sky brightness in mag/arcsec² — each +1 is ~2.5× darker; 21.7+ is a genuinely dark site.</>}
+          />
+        )}
 
         {(r.active_showers?.length ?? 0) > 0 && (
           <MetaRow
             k="Meteor Showers"
             v={r.active_showers.map(s => `${s.name}  ·  ${s.note}  ·  ZHR ${s.zhr}`).join(',  ')}
+            tip={<>ZHR — zenithal hourly rate: meteors per hour for a single observer under a perfectly dark sky with the radiant overhead. Field counts run well below it; it's a comparison index, not a promise.</>}
           />
         )}
-        <MetaRow k="Clear Dark Sky" v={darkStrCard} />
+        <MetaRow
+          k="Clear Dark Sky"
+          v={darkStrCard}
+          tip={<>Hours you can actually shoot: astronomical darkness (sun ≥18° below the horizon), minus moon interference, minus hours clouded over (&gt;50% cover).</>}
+        />
         {showWeather && r.weather_score != null && (
           <MetaRow
             k="Weather"
@@ -2971,14 +3071,26 @@ export default function ReportCard({
       </div>
 
       <div className="bars">
-        {r.score_components.bortle  != null && <ScoreBar label="Dark Sky"      value={r.score_components.bortle} />}
-        {r.score_components.moon    != null && <ScoreBar label="Lunar"         value={r.score_components.moon} />}
-        {r.score_components.dark    != null && <ScoreBar label="Dark Hours"    value={r.score_components.dark} />}
-        {showWeather && r.score_components.weather != null && <ScoreBar label="Weather" value={r.score_components.weather} />}
+        {r.score_components.bortle != null && (
+          <ScoreBar label="Dark Sky" value={r.score_components.bortle}
+            tip={<>10% of the composite — the Bortle class at this location. Fixed for the spot; the only lever is going somewhere darker (see Find Sky Nearby).</>} />
+        )}
+        {r.score_components.moon != null && (
+          <ScoreBar label="Lunar" value={r.score_components.moon}
+            tip={<>25% of the composite — Krisciunas &amp; Schaefer scattered-moonlight model: phase, moon altitude, and hours above the horizon, distance-corrected. A bright moon that sets early can still score well.</>} />
+        )}
+        {r.score_components.dark != null && (
+          <ScoreBar label="Dark Hours" value={r.score_components.dark}
+            tip={<>25% of the composite — tonight's moon-free dark hours measured against this lunar cycle's average, so the score reflects what this month can actually offer.</>} />
+        )}
+        {showWeather && r.score_components.weather != null && (
+          <ScoreBar label="Weather" value={r.score_components.weather}
+            tip={<>40% of the composite — hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity.</>} />
+        )}
       </div>
 
 
-        <details className="planning-tools-section" open>
+        <details id="report-planning" className="planning-tools-section" open>
         <summary>Planning Tools{planningBrief && <span className="sum-brief"> · {planningBrief}</span>}</summary>
         <div className="planning-tools-body">
           <div className="planning-tool">
@@ -3057,7 +3169,7 @@ export default function ReportCard({
         })()
 
         return (
-        <details className="targets" open>
+        <details id="report-targets" className="targets" open>
           <summary>
             Prominent Sky Features{targetsBrief && <span className="sum-brief"> · {targetsBrief}</span>}
           </summary>
@@ -3116,7 +3228,7 @@ export default function ReportCard({
       {showSatellites && (
         // Deliberately collapsed by default — reference material, not verdict.
         // The .sum-brief keeps the takeaway visible without expanding.
-        <details className="sat-section">
+        <details id="report-satellites" className="sat-section">
           <summary>Satellite Ephemeris{satBrief && <span className="sum-brief"> · {satBrief}</span>}</summary>
           <div className="sat-body">
             <SatellitePasses report={r} isFetching={isFetchingDetails} cathodeSnap={cathodeSnap} />
