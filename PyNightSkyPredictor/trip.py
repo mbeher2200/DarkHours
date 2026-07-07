@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 _ASTRO_TTL      = 24 * 3600   # 24 hours — stable for astronomical data
 _WEATHER_TTL    =      3600   # 1 hour   — weather forecast changes
-_FORECAST_DAYS  = 16          # Open-Meteo forecast window (days from today)
+_FORECAST_DAYS  = 14          # Open-Meteo forecast window (days from today)
 
 
 @dataclass

@@ -27,6 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as _Request
 
 from PyNightSkyPredictor import location as _loc
+from PyNightSkyPredictor import trip as _trip
 from PyNightSkyPredictor.predictor import assemble_night
 
 from apps import jobs
@@ -133,7 +134,6 @@ _MAX_NAME_LEN = 200                 # geocode query length cap
 _NEARBY_RADIUS_DEFAULT = 60         # /nearby default search radius (miles)
 _NEARBY_RADIUS_MAX = 120            # 10 of 11 sample rings; good density up to ~2.5h drive
 _MAX_CALENDAR_DAYS = 30              # /calendar range-length cap (mirrors old _MAX_TRIP_DAYS)
-_CALENDAR_WEATHER_HORIZON_DAYS = 7   # per-night weather cutoff for the calendar tool specifically
 
 
 # ── health check helpers ──────────────────────────────────────────────────────
@@ -342,8 +342,9 @@ def calendar_view(
 ):
     """Submit a multi-night outlook job for one location → 202 + job_id (poll /jobs/{id}).
 
-    Weather is only included in a night's score within _CALENDAR_WEATHER_HORIZON_DAYS
-    of today; nights further out score on astronomical factors alone.
+    Weather is only included in a night's score within trip._FORECAST_DAYS (the same
+    Open-Meteo forecast window used everywhere else) of today; nights further out
+    score on astronomical factors alone.
     """
     la, lo, disp, tz = _resolve(location, lat, lon)
     s = _parse_date(start, "start")
@@ -354,7 +355,7 @@ def calendar_view(
     job_id = jobs.submit({
         "type": "calendar", "locs": [loc_dict],
         "start": s.isoformat(), "end": e.isoformat(),
-        "weather": True, "weather_horizon_days": _CALENDAR_WEATHER_HORIZON_DAYS,
+        "weather": True, "weather_horizon_days": _trip._FORECAST_DAYS,
     })
     return _accepted(job_id)
 
