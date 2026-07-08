@@ -206,3 +206,53 @@ def test_offline_tier_name_poi_discarded_on_blacklist():
     poi = {"lat": 38.5, "lon": -120.1, "name": "Base Lot", "is_poi": True}
     with patch.object(ds, "_padus_h3_lookup", return_value=("Fort Example", True)):
         assert ds._offline_tier_name(poi, object(), None) == ("discard", None)
+
+
+# ── _poi_h3_lookup / _poi_reverse_name ────────────────────────────────────────
+# These back PyNightSkyPredictor.location.reverse_geocode's POI-aware naming for an
+# arbitrary (lat, lon) — e.g. a coordinate a user navigates straight to via the URL.
+# The name always comes from this trusted, offline-built index, never from client
+# input, so a crafted URL can't put arbitrary text in another user's report header.
+
+def test_poi_h3_lookup_hit_and_miss(tmp_path, monkeypatch):
+    pois = [(38.5, -120.1, "Shriner Lake Campground", "camp_site")]
+    monkeypatch.setenv("PYNIGHTSKY_POI_H3_PATH", str(_write_index(tmp_path, pois)))
+    idx = ds._load_poi_h3_index()
+
+    assert ds._poi_h3_lookup(38.5, -120.1, idx) == ("Shriner Lake Campground", "camp_site")
+    assert ds._poi_h3_lookup(10.0, -50.0, idx) is None  # far away → different H3 cell
+
+
+def test_poi_reverse_name_poi_only_when_no_padus_hit(tmp_path, monkeypatch):
+    pois = [(38.5, -120.1, "Shriner Lake Campground", "camp_site")]
+    monkeypatch.setenv("PYNIGHTSKY_POI_H3_PATH", str(_write_index(tmp_path, pois)))
+    with patch.object(ds, "_load_padus_h3_index", return_value=None):
+        assert ds._poi_reverse_name(38.5, -120.1) == "Shriner Lake Campground"
+
+
+def test_poi_reverse_name_combines_padus_area(tmp_path, monkeypatch):
+    pois = [(38.5, -120.1, "Shriner Lake Campground", "camp_site")]
+    monkeypatch.setenv("PYNIGHTSKY_POI_H3_PATH", str(_write_index(tmp_path, pois)))
+    with patch.object(ds, "_load_padus_h3_index", return_value=object()), \
+         patch.object(ds, "_padus_h3_lookup", return_value=("Wenatchee National Forest", False)):
+        assert ds._poi_reverse_name(38.5, -120.1) == \
+            "Shriner Lake Campground, Wenatchee National Forest"
+
+
+def test_poi_reverse_name_discarded_on_padus_blacklist(tmp_path, monkeypatch):
+    pois = [(38.5, -120.1, "Base Lot", "parking")]
+    monkeypatch.setenv("PYNIGHTSKY_POI_H3_PATH", str(_write_index(tmp_path, pois)))
+    with patch.object(ds, "_load_padus_h3_index", return_value=object()), \
+         patch.object(ds, "_padus_h3_lookup", return_value=("Fort Example", True)):
+        assert ds._poi_reverse_name(38.5, -120.1) is None
+
+
+def test_poi_reverse_name_no_poi_hit_returns_none(tmp_path, monkeypatch):
+    pois = [(38.5, -120.1, "Shriner Lake Campground", "camp_site")]
+    monkeypatch.setenv("PYNIGHTSKY_POI_H3_PATH", str(_write_index(tmp_path, pois)))
+    assert ds._poi_reverse_name(40.0, -121.0) is None  # no POI at this point
+
+
+def test_poi_reverse_name_outside_us_returns_none():
+    # Paris, France — short-circuits on _is_in_us before touching any index.
+    assert ds._poi_reverse_name(48.8566, 2.3522) is None
