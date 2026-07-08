@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { NightReport } from '../types'
 import { formatTime, cardinal, rateConditions, scoreBand } from '../format'
 import { WmoIcon } from './icons'
@@ -9,6 +10,9 @@ import { wxAtTime } from './Targets'
 
 export function SatellitePasses({ report, isFetching = false, cathodeSnap = false }: { report: NightReport; isFetching?: boolean; cathodeSnap?: boolean }) {
   const tz = report.tz_name
+  // Clouded-out passes collapse to one summary row by default — on a bad
+  // night a wall of identical "Clouded out" rows is noise, not signal.
+  const [showBlocked, setShowBlocked] = useState(false)
 
   // Unavailability notices
   if (report.sat_network_error) {
@@ -47,6 +51,68 @@ export function SatellitePasses({ report, isFetching = false, cathodeSnap = fals
   }
 
   const az = (deg: number) => `${deg.toFixed(0)}° ${cardinal(deg)}`
+
+  // Split passes into clear vs. clouded-out so a bad night doesn't render as
+  // a wall of blank "Clouded out" rows — mirrors the Targets unviable rollup.
+  const passInfo = display.map(p => {
+    const wxAtPeak  = wxAtTime(report.weather_points || [], p.peak_time)
+    const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
+    return { p, wxAtPeak, satCloudy }
+  })
+  const clearPasses  = passInfo.filter(x => !x.satCloudy)
+  const cloudyPasses = passInfo.filter(x => x.satCloudy)
+  const colCount = 12 + (report.light_dome ? 1 : 0)
+
+  // Pass geometry (rise/peak/set) is astronomical fact, unaffected by weather —
+  // clouded rows still show it, just flagged, rather than blanked out.
+  function renderPassRow(p: typeof display[number], wxAtPeak: ReturnType<typeof wxAtTime>, i: number, cloudy: boolean) {
+    const label    = p.satellite_name + (!p.sky_dark ? ' †' : '')
+    const setAlt   = `${p.set_alt_deg.toFixed(0)}°${p.ends_in_shadow ? '*' : ''}`
+    const moonSepLow = !p.moon_transit && p.moon_sep_deg != null && p.moon_sep_deg < 5
+    const moonStr  = p.moon_transit
+      ? `TRANSIT ${p.moon_transit_sep_deg?.toFixed(3)}°`
+      : p.moon_sep_deg != null
+        ? `${p.moon_sep_deg.toFixed(1)}°`
+        : '—'
+    const satGlow = report.light_dome
+      ? glowToward(report.light_dome, p.peak_az_deg, p.peak_alt_deg)
+      : null
+    return (
+      <tr key={i} className={cloudy ? 'tg-row-blocked' : undefined}>
+        <td>
+          {cell(isFetching, <>
+            {label}
+            {cloudy && <span className="mw-moon-badge badge-poor sat-cloudy-badge"> Clouded out</span>}
+          </>)}
+        </td>
+        <td className="wx-num">{cell(isFetching, formatTime(p.rise_time, tz))}</td>
+        <td className="wx-num">{cell(isFetching, `${p.rise_alt_deg.toFixed(0)}°`)}</td>
+        <td className="wx-num">{cell(isFetching, az(p.rise_az_deg))}</td>
+        <td className="wx-num">
+          {cell(isFetching, <>
+            {formatTime(p.peak_time, tz)}
+            {wxAtPeak && (
+              <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxAtPeak))}`}>
+                <WmoIcon code={wxAtPeak.weather_code} size={12} />
+              </span>
+            )}
+          </>)}
+        </td>
+        <td className="wx-num">{cell(isFetching, `${p.peak_alt_deg.toFixed(0)}°`)}</td>
+        <td className="wx-num sat-peak-az-col">{cell(isFetching, az(p.peak_az_deg))}</td>
+        <td className="wx-num sat-set-col">{cell(isFetching, formatTime(p.set_time, tz))}</td>
+        <td className="wx-num sat-set-col">{cell(isFetching, setAlt)}</td>
+        <td className="wx-num sat-set-col">{cell(isFetching, az(p.set_az_deg))}</td>
+        <td className="wx-num sat-dur-col">{cell(isFetching, `${p.duration_min.toFixed(0)}m`)}</td>
+        <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{cell(isFetching, moonStr)}</td>
+        {report.light_dome && (
+          <td className="wx-num cond-glow" style={satGlow != null && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
+            {cell(isFetching, satGlow != null && satGlow >= 0.03 ? glowLabel(satGlow) : '—')}
+          </td>
+        )}
+      </tr>
+    )
+  }
 
   return (
     <>
@@ -98,59 +164,27 @@ export function SatellitePasses({ report, isFetching = false, cathodeSnap = fals
               </tr>
             </thead>
             <tbody>
-              {display.map((p, i) => {
-                const label    = p.satellite_name + (!p.sky_dark ? ' †' : '')
-                const setAlt   = `${p.set_alt_deg.toFixed(0)}°${p.ends_in_shadow ? '*' : ''}`
-                const moonSepLow = !p.moon_transit && p.moon_sep_deg != null && p.moon_sep_deg < 5
-                const moonStr  = p.moon_transit
-                  ? `TRANSIT ${p.moon_transit_sep_deg?.toFixed(3)}°`
-                  : p.moon_sep_deg != null
-                    ? `${p.moon_sep_deg.toFixed(1)}°`
-                    : '—'
-                const satGlow = report.light_dome
-                  ? glowToward(report.light_dome, p.peak_az_deg, p.peak_alt_deg)
-                  : null
-                const wxAtPeak = wxAtTime(report.weather_points || [], p.peak_time)
-                const satCloudy = wxAtPeak != null && wxAtPeak.cloud_cover_pct != null && wxAtPeak.cloud_cover_pct > 70
-                if (satCloudy) return (
-                  <tr key={i} className="tg-row-blocked">
-                    <td>{cell(isFetching, label)}</td>
-                    <td className="wx-num" colSpan={11 + (satGlow != null ? 1 : 0)}>
-                      {cell(isFetching, <span className="mw-moon-badge badge-poor">Clouded out</span>)}
+              {clearPasses.map(({ p, wxAtPeak }, i) => renderPassRow(p, wxAtPeak, i, false))}
+
+              {cloudyPasses.length > 0 && (
+                <>
+                  <tr className="tg-unviable-hdr">
+                    <td colSpan={colCount}>
+                      <button
+                        type="button"
+                        className="tg-blocked-toggle"
+                        aria-expanded={showBlocked}
+                        onClick={() => setShowBlocked(v => !v)}
+                      >
+                        <span className="tg-blocked-caret" aria-hidden="true">{showBlocked ? '▾' : '▸'}</span>
+                        {`Unavailable Tonight (${cloudyPasses.length})`}
+                        <span className="tg-blocked-counts">{' — '}Clouded out</span>
+                      </button>
                     </td>
                   </tr>
-                )
-                return (
-                  <tr key={i}>
-                    <td>{cell(isFetching, label)}</td>
-                    <td className="wx-num">{cell(isFetching, formatTime(p.rise_time, tz))}</td>
-                    <td className="wx-num">{cell(isFetching, `${p.rise_alt_deg.toFixed(0)}°`)}</td>
-                    <td className="wx-num">{cell(isFetching, az(p.rise_az_deg))}</td>
-                    <td className="wx-num">
-                      {cell(isFetching, <>
-                        {formatTime(p.peak_time, tz)}
-                        {wxAtPeak && (
-                          <span className={`tg-wx-inline wx-rating-${scoreBand(rateConditions(wxAtPeak))}`}>
-                            <WmoIcon code={wxAtPeak.weather_code} size={12} />
-                          </span>
-                        )}
-                      </>)}
-                    </td>
-                    <td className="wx-num">{cell(isFetching, `${p.peak_alt_deg.toFixed(0)}°`)}</td>
-                    <td className="wx-num sat-peak-az-col">{cell(isFetching, az(p.peak_az_deg))}</td>
-                    <td className="wx-num sat-set-col">{cell(isFetching, formatTime(p.set_time, tz))}</td>
-                    <td className="wx-num sat-set-col">{cell(isFetching, setAlt)}</td>
-                    <td className="wx-num sat-set-col">{cell(isFetching, az(p.set_az_deg))}</td>
-                    <td className="wx-num sat-dur-col">{cell(isFetching, `${p.duration_min.toFixed(0)}m`)}</td>
-                    <td className="wx-num" style={moonSepLow ? {color: 'var(--excellent)', fontWeight: 700, fontSize: '1rem'} : undefined}>{cell(isFetching, moonStr)}</td>
-                    {report.light_dome && (
-                      <td className="wx-num cond-glow" style={satGlow != null && satGlow >= 0.03 ? glowStyle(satGlow) : undefined}>
-                        {cell(isFetching, satGlow != null && satGlow >= 0.03 ? glowLabel(satGlow) : '—')}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
+                  {showBlocked && cloudyPasses.map(({ p, wxAtPeak }, i) => renderPassRow(p, wxAtPeak, i, true))}
+                </>
+              )}
             </tbody>
           </table>
         </div>
