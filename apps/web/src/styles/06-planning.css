@@ -237,6 +237,9 @@
 .telemetry-hero-label {
   color: var(--text-h);
 }
+.telemetry-collapse > summary {
+  margin: 0;
+}
 .heatmap-body {
   padding: 8px 10px;
   border-bottom: 1px solid var(--card-border);
