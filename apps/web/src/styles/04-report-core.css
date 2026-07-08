@@ -161,13 +161,22 @@ html.red-mode .report-nav-link {
   text-align: center;
 }
 .overall {
-  display: flex;
-  flex-wrap: wrap; /* FIXED: Allows the meta block to wrap under the score */
-  align-items: center;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 24px;
   padding: 22px 24px;
   border-radius: 3px;
   border: 1px solid var(--card-border);
+}
+/* Left column: score block stacked above the meta list, sharing the left
+   half of the card with the dome balanced opposite it. */
+.overall-left {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
 }
 .overall-num {
   font-size: 64px;
@@ -202,12 +211,8 @@ html.red-mode .report-nav-link {
   gap: 12px;
   flex-wrap: wrap;
 }
-/* Give meta block all remaining space so values don't wrap */
-.overall .meta {
-  flex: 1 1 260px; /* FIXED: Trigger wrapping if the available width drops below 260px */
-  min-width: 0;
-}
-/* Tighter label column inside the score card */
+/* Tighter label column inside the score card, sized to leave the value
+   column room so it doesn't wrap. */
 .overall .meta-k {
   min-width: 112px;
 }
@@ -217,7 +222,7 @@ html.red-mode .report-nav-link {
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text);
-  max-width: 300px;
+  max-width: 100%;
   margin-top: 6px;
 }
 .next-good-chip {
@@ -258,23 +263,24 @@ html.red-mode .next-good-chip {
 
 /* ── Light dome panel (all-sky fisheye) ─────────────────────── */
 .lightdome-panel {
-  flex: 0 0 100%;
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  margin-top: -8px;
 }
 .ld-title {
   /* Removed local font-family, font-size, font-weight, text-transform, letter-spacing so it defers to the shared Rule 2 */
   text-align: center;
 }
+/* Dome disk on top, title, then caption text + legend below — sized to use
+   the column's spare horizontal/vertical room rather than sit small in it. */
 .ld-body {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 8px;
 }
 .ld-canvas {
   display: block;
@@ -282,32 +288,20 @@ html.red-mode .next-good-chip {
 .ld-caption {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  text-align: left;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
 }
-.ld-state {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 2px 8px;
-  border-radius: 2px;
-  border: 1px solid transparent;
-}
-.ld-state-dark   { color: var(--excellent); border-color: rgba(74, 94, 168, 0.35); }
-.ld-state-domed  { color: var(--good);      border-color: rgba(92, 184, 92, 0.35); }
-.ld-state-bright { color: var(--fair);      border-color: rgba(240, 173, 78, 0.35); }
-.ld-state-urban  { color: var(--poor);      border-color: rgba(217, 83, 79, 0.40); }
 .ld-line {
-  font-size: 12px;
-  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
 }
 .ld-line.ld-dome-minor { color: var(--good); }
 .ld-line.ld-dome-major { color: var(--fair); }
 .ld-sub {
-  font-size: 11.5px;
-  color: var(--text-dim);
+  font-size: 12.5px;
+  color: var(--text);
 }
 .ld-line b, .ld-sub b {
   color: var(--text-h);
@@ -316,29 +310,21 @@ html.red-mode .next-good-chip {
 .ld-legend {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 3px;
-  font-size: 9.5px;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10.5px;
   color: var(--text-dim);
 }
 .ld-legend-bar {
-  width: 64px;
-  height: 6px;
+  width: 80px;
+  height: 7px;
   border-radius: 1px;
   background: linear-gradient(90deg, #000 0%, var(--excellent) 22%, var(--good) 45%, var(--fair) 65%, var(--poor) 100%);
 }
 /* Red/night-vision mode: the canvas bakes literal RGB (CSS vars can't reach
-   getImageData), so recolour it with the same luminance→red matrix used on <img>.
-   The legend bar and state pills use literal greens/ambers — re-tint to pure red. */
+   getImageData), so recolour it with the same luminance→red matrix used on <img>. */
 html.red-mode .ld-canvas { filter: url(#red-night); }
 html.red-mode .ld-legend-bar { background: #6a0000; }
-html.red-mode .ld-state-dark,
-html.red-mode .ld-state-domed,
-html.red-mode .ld-state-bright,
-html.red-mode .ld-state-urban {
-  color: var(--accent);
-  border-color: rgba(255, 0, 0, 0.4);
-}
 
 .band-excellent {
   border-color: var(--excellent);
@@ -382,11 +368,6 @@ html.red-mode .ld-state-urban {
   color: var(--poor);
 }
 
-.bars {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .bar-row {
   display: grid;
   grid-template-columns: 120px 1fr 36px;
@@ -437,16 +418,16 @@ html.red-mode .ld-state-urban {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 7px;
   padding-bottom: 8px;
   font-size: 13px;
   width: 100%;
 }
 .meta-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  line-height: 1.5;
+  line-height: 1.4;
   font-size: 13px;
 }
 .meta-k {
@@ -457,9 +438,11 @@ html.red-mode .ld-state-urban {
   font-weight: 500;
   font-family: var(--mono);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
 }
 .meta-v {
+  flex: 1;
+  min-width: 0;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   word-break: break-word;
@@ -469,6 +452,51 @@ html.red-mode .ld-state-urban {
 }
 html.red-mode .meta-row img {
   border-color: rgba(255, 0, 0, 0.20);
+}
+/* Score bar tucked under its meta row, indented to align with the value
+   column — ties each factor's number directly to the fact it explains. */
+.meta-row-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+.meta-bar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: 156px;
+}
+.overall .meta-bar {
+  margin-left: 120px;
+}
+.bar-value-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The "?" badge replaces the score-weighting tooltip that used to live on
+   the standalone bar's label — same InfoTip mechanism, just an icon target
+   instead of underlined text. */
+.score-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+}
+.score-help:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 details summary {
