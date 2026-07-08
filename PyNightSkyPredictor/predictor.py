@@ -61,6 +61,20 @@ def _wx_deserialize(cached: dict) -> tuple:
     return points, cached["source"], cached.get("fetched_at")
 
 
+def _scope_wx_source(source: str | None, night_points: list) -> str | None:
+    """Re-scope a fetch-wide source label to the night being reported.
+
+    wx.forecast() labels the source over the whole ~16-day fetch, so it says
+    "+ 7Timer" whenever any day in the series got seeing data — but 7Timer
+    only covers ~3 days. Keep the suffix only if this night's points actually
+    carry seeing; otherwise the provenance badge would credit 7Timer on nights
+    it never reached.
+    """
+    if source and "+ 7Timer" in source and not any(p.seeing_arcsec is not None for p in night_points):
+        return source.replace(" + 7Timer", "")
+    return source
+
+
 @dataclass
 class NightReport:
     # Location & date
@@ -762,6 +776,7 @@ def assemble_night(
                         weather_score = scoring.weighted_weather_score(
                             night_points, night_start, night_end, wx.rate_conditions
                         )
+                        wx_source = _scope_wx_source(wx_source, night_points)
                     else:
                         wx_no_data    = True
                         wx_source     = None

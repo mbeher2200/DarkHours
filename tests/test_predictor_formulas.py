@@ -112,3 +112,51 @@ class TestBortleScoreConversion:
         for b in range(1, 10):
             s = _bortle_score(b)
             assert 0.0 <= s <= 10.0
+
+
+# ---------------------------------------------------------------------------
+# Provenance re-scoping — _scope_wx_source()
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone
+
+from PyNightSkyPredictor.predictor import _scope_wx_source
+from PyNightSkyPredictor.weather import WeatherPoint
+
+
+def _pt(seeing):
+    return WeatherPoint(
+        time=datetime(2026, 7, 20, 3, 0, tzinfo=timezone.utc),
+        cloud_cover_pct=10, seeing_arcsec=seeing, transparency=None,
+        humidity_pct=None, wind_speed_ms=None, wind_direction_deg=None,
+        lifted_index=None, precip_type=None, temperature_c=None,
+        dew_point_c=None, feels_like_c=None, precip_probability_pct=None,
+        weather_code=None, aerosol_optical_depth=None, pm2_5=None,
+        cloud_cover_low_pct=None, cloud_cover_mid_pct=None,
+        cloud_cover_high_pct=None, visibility_m=None, wind_gust_ms=None,
+    )
+
+
+class TestScopeWxSource:
+    """The fetch-wide label says "+ 7Timer" if ANY day of the ~16-day series got
+    seeing, but 7Timer covers ~3 days — nights beyond its range must not credit it."""
+
+    def test_strips_7timer_when_night_has_no_seeing(self):
+        assert _scope_wx_source("Open-Meteo + 7Timer", [_pt(None), _pt(None)]) == "Open-Meteo"
+
+    def test_keeps_7timer_when_night_has_seeing(self):
+        assert _scope_wx_source("Open-Meteo + 7Timer", [_pt(None), _pt(1.2)]) == "Open-Meteo + 7Timer"
+
+    def test_plain_primary_untouched(self):
+        assert _scope_wx_source("Open-Meteo", [_pt(None)]) == "Open-Meteo"
+
+    def test_7timer_full_primary_untouched(self):
+        # Fallback mode: 7Timer IS the primary — its points are 7Timer data
+        # regardless of seeing, so the bare label must survive.
+        assert _scope_wx_source("7Timer", [_pt(None)]) == "7Timer"
+
+    def test_none_source_passthrough(self):
+        assert _scope_wx_source(None, [_pt(None)]) is None
+
+    def test_empty_points_strips_suffix(self):
+        assert _scope_wx_source("Open-Meteo + 7Timer", []) == "Open-Meteo"
