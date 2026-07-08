@@ -1771,6 +1771,68 @@ def _extract_poi_candidates(
     return candidates
 
 
+def _poi_h3_lookup(
+    lat: float,
+    lon: float,
+    index: "_PoiIndex",
+) -> "tuple[str, str] | None":
+    """Return (name, poi_type) for the H3 res-7 cell at (lat, lon), or None.
+
+    Point-lookup mirror of _padus_h3_lookup, binary-searching the same sorted uint64
+    cell array _extract_poi_candidates scans by bbox. Used to verify/derive a display
+    name for an arbitrary (lat, lon) — e.g. a coordinate a user navigated straight to —
+    against the trusted, offline-built POI index rather than trusting client input.
+    """
+    import numpy as np
+    cell  = _h3_lib.str_to_int(_h3_lib.latlng_to_cell(lat, lon, 7))
+    cells = index.cells
+    i = int(np.searchsorted(cells, np.uint64(cell)))
+    if i < cells.size and cells[i] == cell:
+        return (index.names[int(index.name_codes[i])], _POI_TYPE_LABELS[int(index.poi_types[i])])
+    return None
+
+
+def _poi_reverse_name(lat: float, lon: float) -> "str | None":
+    """Resolve (lat, lon) to a verified "POI, Area" display name, or None if no POI
+    covers this point.
+
+    Both the POI and the area name come from local, offline-built indexes (the same
+    ones find_nearby uses) — never from client input — so the result can't be spoofed
+    by a crafted URL. A POI on PAD-US-blacklisted (military/tribal/restricted) land is
+    discarded, matching _offline_tier_name's rule for surfaced results.
+    """
+    if not _is_in_us(lat, lon):
+        return None
+    poi_index = _load_poi_h3_index()
+    if poi_index is None:
+        return None
+    try:
+        hit = _poi_h3_lookup(lat, lon, poi_index)
+    except Exception as exc:
+        log.debug("POI H3 lookup failed for (%.4f, %.4f): %s", lat, lon, exc)
+        return None
+    if hit is None:
+        return None
+    name, _poi_type = hit
+
+    area_name = None
+    padus_index = _load_padus_h3_index()
+    if padus_index is not None:
+        try:
+            padus_hit = _padus_h3_lookup(lat, lon, padus_index)
+        except Exception as exc:
+            log.debug("PAD-US H3 lookup failed for (%.4f, %.4f): %s", lat, lon, exc)
+            padus_hit = None
+        if padus_hit is not None:
+            unit_nm, is_blacklisted = padus_hit
+            if is_blacklisted:
+                return None  # never surface a name for restricted land
+            if _is_good_padus_name(unit_nm):
+                area_name = unit_nm
+
+    return f"{name}, {area_name}" if area_name else name
+
+
 def _is_good_padus_name(unit_nm: "str | None") -> bool:
     """Return True if unit_nm is a meaningful display name for a PAD-US unit.
 

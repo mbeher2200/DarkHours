@@ -50,6 +50,9 @@ export function NearbyResults(
   // Render a place name with a category badge (routable POIs) or a "Remote" tag (off-road
   // fallbacks), plus a Google Maps driving-directions link on every result.
   const placeNode = (p: NearbyPlace) => {
+    // No name/area passed here — the destination report re-derives the same POI name
+    // itself from lat/lon against the trusted local index (PyNightSkyPredictor.location
+    // .reverse_geocode → darksky._poi_reverse_name), not from anything in the URL.
     const appLink = `?lat=${p.lat.toFixed(5)}&lon=${p.lon.toFixed(5)}`
     return (
       <>
