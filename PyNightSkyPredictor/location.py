@@ -301,12 +301,20 @@ def timezone_for(lat: float, lon: float) -> ZoneInfo:
 
 
 def reverse_geocode(lat: float, lon: float) -> str | None:
-    """Reverse-geocode (lat, lon) to a human-readable city/town name.
+    """Reverse-geocode (lat, lon) to a human-readable name.
 
-    Returns "City, ST" for US locations, "City" elsewhere, or None if
-    the point is over water or the geocoder is unavailable.
+    Prefers a verified named POI from the local OSM/PAD-US index (see
+    darksky._poi_reverse_name) over the network settlement lookup — it's more specific
+    ("Nineteenmile Campground, Wenatchee National Forest" beats "Chelan, WA"), needs no
+    network call, and — unlike a client-supplied name — can't be spoofed by a crafted
+    URL since it's derived only from the coordinate against a trusted, offline index.
+    Falls back to "City, ST" for US locations, "City" elsewhere, or None if the point
+    is over water or the geocoder is unavailable.
     """
     from . import darksky
+    poi_name = darksky._poi_reverse_name(lat, lon)
+    if poi_name:
+        return poi_name
     return darksky._settlement(lat, lon)
 
 
