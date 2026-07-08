@@ -29,11 +29,11 @@ const AUTO_CALENDAR_DAYS = 30
 const _AUTO_CALENDAR_TTL_MS = 30 * 60 * 1000
 const _autoCalendarCache = new Map<string, { promise: Promise<CalendarResult>; at: number }>()
 
-function autoFetchCalendar(lat: number, lon: number): Promise<CalendarResult> {
-  const key = `${lat},${lon}`
+function autoFetchCalendar(lat: number, lon: number, start: string): Promise<CalendarResult> {
+  const key = `${lat},${lon},${start}`
   const cached = _autoCalendarCache.get(key)
   if (cached && Date.now() - cached.at < _AUTO_CALENDAR_TTL_MS) return cached.promise
-  const p = fetchCalendar(lat, lon, tonightIso(), AUTO_CALENDAR_DAYS)
+  const p = fetchCalendar(lat, lon, start, AUTO_CALENDAR_DAYS)
   p.catch(() => _autoCalendarCache.delete(key)) // don't cache failures — allow retry on next mount
   _autoCalendarCache.set(key, { promise: p, at: Date.now() })
   return p
@@ -139,11 +139,17 @@ export default function ReportCard({
     }
   }
 
+  // Anchor the default outlook on the date picker's selection, not always
+  // tonight — someone planning 3 months out wants the 30-day window to start
+  // around that date, not reset to today. Clamped to today because the
+  // outlook is forecast-only and can't look backward.
+  const calendarAnchor = report.date > tonightIso() ? report.date : tonightIso()
+
   useEffect(() => {
     manualCalendarRef.current = false
     let cancelled = false
-    setCalendarState({ phase: 'loading', start: tonightIso(), days: AUTO_CALENDAR_DAYS })
-    autoFetchCalendar(report.lat, report.lon).then(data => {
+    setCalendarState({ phase: 'loading', start: calendarAnchor, days: AUTO_CALENDAR_DAYS })
+    autoFetchCalendar(report.lat, report.lon, calendarAnchor).then(data => {
       if (!cancelled && !manualCalendarRef.current) {
         setCalendarState({ phase: 'done', data, days: AUTO_CALENDAR_DAYS })
       }
@@ -156,7 +162,7 @@ export default function ReportCard({
       }
     })
     return () => { cancelled = true }
-  }, [report.lat, report.lon])
+  }, [report.lat, report.lon, calendarAnchor])
 
   // Verdict-layer chip: the first upcoming night in the outlook that scores
   // "good" (≥6); when none does, fall back to the best upcoming night that
@@ -553,7 +559,7 @@ export default function ReportCard({
           <div className="planning-tool">
             <h4 className="planning-tool-title">Calendar — Next Good Night</h4>
             <div className="nearby-body">
-              <CalendarRangePicker state={calendarState} onApply={handleFindCalendar} />
+              <CalendarRangePicker state={calendarState} anchor={calendarAnchor} onApply={handleFindCalendar} />
               {calendarState.phase === 'error' && (
                 <p className="sat-notice">{calendarState.message}</p>
               )}
@@ -561,6 +567,7 @@ export default function ReportCard({
                 <OutlookTelemetryRibbon
                   data={calendarState.data}
                   days={calendarState.days}
+                  startExpanded={manualCalendarRef.current}
                   onViewDetails={handleViewDetails}
                   isFetchingDetails={isFetchingDetails}
                   viewDetailsError={dateFetch.phase === 'error' ? dateFetch.message : null}

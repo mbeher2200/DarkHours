@@ -24,15 +24,17 @@ function fmtShort(iso: string): string {
  */
 export default function CalendarRangePicker({
   state,
+  anchor,
   onApply,
 }: {
   state: CalendarPickerState
+  anchor: string
   onApply: (start: string, days: number) => void
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const [draftStart, setDraftStart] = useState(() => tonightIso())
-  const [draftEnd, setDraftEnd] = useState(() => addDaysIso(tonightIso(), 6))
+  const [draftStart, setDraftStart] = useState(anchor)
+  const [draftEnd, setDraftEnd] = useState(() => addDaysIso(anchor, 6))
 
   useEffect(() => {
     if (!open) return
@@ -60,7 +62,7 @@ export default function CalendarRangePicker({
   }
 
   function applyPreset(days: number) {
-    onApply(tonightIso(), days)
+    onApply(anchor, days)
     setOpen(false)
   }
 
@@ -78,7 +80,7 @@ export default function CalendarRangePicker({
     : 'Select range'
 
   const isActivePreset = (days: number) =>
-    state.phase === 'done' && state.days === days && state.data.date_start === tonightIso()
+    state.phase === 'done' && state.days === days && state.data.date_start === anchor
 
   return (
     <div className="crp-wrap" ref={wrapRef}>
