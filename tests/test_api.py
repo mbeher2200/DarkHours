@@ -249,6 +249,26 @@ def test_night_date_only_omits_location_fields():
     assert "light_pollution" not in d
     assert "bortle_score" not in d
     assert "light_dome" not in d
+    # display_name too — it's location-keyed like the others, and stripping it avoids
+    # a wasted reverse-geocode lookup on every "View Details" click.
+    assert "display_name" not in d
     # Date-dependent fields are still present.
     assert isinstance(d["sunset"], str)
     assert d["phase_name"] and d["score"] is not None
+
+
+@pytest.mark.eph
+@requires_rasters
+def test_night_ignores_client_supplied_name_param(monkeypatch):
+    # A previous version of this endpoint accepted a `name` param and used it verbatim
+    # as display_name — anyone could craft a URL that put arbitrary text in another
+    # user's report header. `name` is no longer a declared query param, so FastAPI
+    # silently drops it; display_name always comes from the server-side resolver.
+    monkeypatch.setattr(main_mod._loc, "reverse_geocode", lambda lat, lon: "Trusted Name")
+    r = client.get("/night", params={
+        "lat": 35.1983, "lon": -111.6513, "date": "2026-06-15",
+        "weather": "false", "targets": "false", "satellites": "false",
+        "name": "Anything The Client Wants To Inject",
+    })
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "Trusted Name"

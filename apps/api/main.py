@@ -193,7 +193,11 @@ def _parse_date(s: str | None, field: str = "date") -> date:
 
 
 def _resolve(location: str | None, lat: float | None, lon: float | None):
-    """Resolve a request's place to (lat, lon, display_name, ZoneInfo)."""
+    """Resolve a request's place to (lat, lon, display_name, ZoneInfo).
+
+    For a lat/lon request, `_loc.reverse_geocode` itself checks the local POI/PAD-US
+    index before falling back to the network settlement lookup — see its docstring.
+    """
     if location:
         try:
             la, lo, disp, tz_name = _loc.resolve(location)
@@ -273,9 +277,12 @@ def night(
     if date_only:
         # Location-keyed, not date-keyed — the client already has these from
         # the initial full fetch for this location and doesn't need them again.
+        # display_name is included here too, avoiding a wasted reverse-geocode/
+        # POI-index lookup on every "View Details" date-only click.
         d.pop("light_pollution", None)
         d.pop("bortle_score", None)
         d.pop("light_dome", None)
+        d.pop("display_name", None)
     return d
 
 
