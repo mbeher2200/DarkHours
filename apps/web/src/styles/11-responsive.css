@@ -39,6 +39,15 @@
   .report-head {
     flex-wrap: wrap;
   }
+  /* Score card: collapse the 2-column grid (score+meta | dome) to a single
+     column, matching the Milky Way card's own grid→stack breakpoint. */
+  .overall {
+    grid-template-columns: 1fr;
+  }
+  .overall-left,
+  .lightdome-panel {
+    grid-column: 1;
+  }
 
   /* Report head: properly scales down location name on mobile */
   .report-head .place {
@@ -207,16 +216,10 @@
   .dp-today-btn {
     padding: 7px 0;
   }
-  /* Score card: tighter padding, flex-start so long sub-text doesn't mis-align number */
+  /* Score card: tighter padding on narrow phones */
   .overall {
     padding: 14px 16px;
     gap: 14px;
-    align-items: flex-start;
-    flex-direction: column;
-    /*width: 100%;*/
-  }
-  .overall .meta {
-    flex: 0 0 auto; /* column mode: flex-basis becomes height — reset to natural */
   }
   .overall-num {
     font-size: 3rem;
@@ -240,7 +243,7 @@
     gap: 6px;
     flex-wrap: wrap;
   }
-  .meta-row + .meta-row {
+  .meta-row-wrap + .meta-row-wrap {
     border-top: 1px solid rgba(var(--hairline-rgb), 0.25);
     padding-top: 6px;
   }
@@ -248,18 +251,10 @@
     flex: 1;
     padding-left: 0;
   }
-  /* Light dome stacks below the score, centered and full-width; the caption
-     stacks under the disk again (too little width to sit beside it). */
+  /* Light dome stacks below the score, full-width; centering and column
+     stacking of title/canvas/caption are the unconditional defaults now. */
   .lightdome-panel {
     width: 100%;
-    align-items: center;
-  }
-  .ld-body {
-    flex-direction: column;
-  }
-  .ld-caption {
-    align-items: center;
-    text-align: center;
   }
   input[type=range] {
     accent-color: var(--accent);

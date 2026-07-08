@@ -12,14 +12,14 @@ export const LD_MINOR = 0.25
 export const LD_MAJOR = 3.0
 // Log-interpolated colour stops (RGB), keyed on the thresholds, using the app's own
 // quality ramp (excellent → good → fair → poor). The darkest end fades to BLACK — the
-// "excellent of excellent" = true darkness. Glow rises: black → green → blue → lilac → rose.
+// "excellent of excellent" = true darkness. Glow rises: black → teal → blue → amber → rose.
 export const LD_STOPS: [number, [number, number, number]][] = [
   [0,        [0, 0, 0]],        // darkness — the best (excellent-of-excellent)
-  [0.03,     [74, 94, 168]],    // --excellent blue
-  [0.12,     [92, 184, 92]],    // --good green
-  [LD_MINOR, [240, 173, 78]],   // --fair amber — a minor dome
-  [0.9,      [217, 83, 79]],    // --poor red
-  [LD_MAJOR, [150, 40, 40]],    // deep --poor — a major dome
+  [0.03,     [58, 135, 114]],   // --excellent teal
+  [0.12,     [91, 123, 178]],   // --good blue
+  [LD_MINOR, [217, 155, 65]],   // --fair amber — a minor dome
+  [0.9,      [200, 86, 86]],    // --poor rose
+  [LD_MAJOR, [140, 55, 55]],    // deep --poor — a major dome
 ]
 // Bloom-legibility transform: real dome heights are ~1° (a sub-pixel rim sliver), so
 // for *display* we scale them up and floor them. This shapes the on-screen bloom, not
@@ -27,7 +27,7 @@ export const LD_STOPS: [number, [number, number, number]][] = [
 export const LD_THETA_K = 5
 export const LD_THETA_FLOOR_DEG = 6
 export const LD_THETA_DEFAULT_DEG = 4
-export const LD_SIZE = 300            // CSS px; disk + room for N/E/S/W labels
+export const LD_SIZE = 282            // CSS px; disk + room for N/E/S/W labels
 
 export function ldColor(v: number): [number, number, number] {
   if (v <= LD_STOPS[0][0]) return LD_STOPS[0][1]

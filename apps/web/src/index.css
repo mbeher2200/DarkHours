@@ -17,10 +17,10 @@
   --accent: #4A5EA8;       /* Sun blue */
 
   /* ── Semantic Data ──────────────────────────────────────────── */
-  --excellent: #5CB85C;    /* Success green */
-  --good: #4A5EA8;         /* Sun blue */
-  --fair: #F0AD4E;         /* Warning amber */
-  --poor: #D9534F;         /* Danger red */
+  --excellent: #3A8772;    /* Success teal */
+  --good: #5B7BB2;         /* Sun blue */
+  --fair: #D99B41;         /* Warning amber */
+  --poor: #C85656;         /* Danger red */
 
   /* ── Typography Scale ───────────────────────────────────────── */
   --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;

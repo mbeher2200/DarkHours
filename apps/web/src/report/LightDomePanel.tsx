@@ -16,8 +16,8 @@ import { LD_DIRS, LD_THETA_K, LD_THETA_FLOOR_DEG, LD_THETA_DEFAULT_DEG, LD_SIZE,
 export function LightDomePanel({ summary, imperial }: { summary: LightDomeSummary; imperial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  // Disk size; matched to the score card's content (the meta block) so the panel
-  // doesn't make the card taller. Capped at LD_SIZE; falls back to it pre-measure.
+  // Disk size; fills the panel's grid column (title + caption sit above/below it,
+  // not beside it), capped at LD_SIZE. Falls back to LD_SIZE pre-measure.
   const [size, setSize] = useState(LD_SIZE)
   const { sky_state, scores, darkest_direction, domes } = summary
   // The darkest horizon is only a meaningful "point here" call when a darker side exists.
@@ -26,17 +26,11 @@ export function LightDomePanel({ summary, imperial }: { summary: LightDomeSummar
   useEffect(() => {
     const panel = panelRef.current
     if (!panel) return
-    // ResizeObserver on the panel itself (flex: 0 0 100% — outer size is CSS-controlled,
+    // ResizeObserver on the panel itself (grid-column: 3 — outer size is CSS-controlled,
     // not affected by canvas content changes, so no feedback loop).
     let rafId = 0
     const measure = () => {
-      const body = panel.querySelector('.ld-body') as HTMLElement | null
-      const isRow = !!body && getComputedStyle(body).flexDirection === 'row'
-      const caption = panel.querySelector('.ld-caption') as HTMLElement | null
-      const captionW = isRow ? (caption?.offsetWidth ?? 130) : 0
-      const gap     = isRow ? 18 : 0
-      const avail   = panel.clientWidth - captionW - gap
-      setSize(Math.max(88, Math.min(LD_SIZE, Math.round(avail))))
+      setSize(Math.max(88, Math.min(LD_SIZE, Math.round(panel.clientWidth))))
     }
     // Debounce ResizeObserver: skip intermediate firings during layout reflow,
     // coalescing them into one rAF-deferred measurement per animation frame.
@@ -132,16 +126,10 @@ export function LightDomePanel({ summary, imperial }: { summary: LightDomeSummar
 
   return (
     <div className="lightdome-panel" ref={panelRef}>
-      <div className="ld-title">Horizon Glow</div>
       <div className="ld-body">
       <canvas ref={canvasRef} className="ld-canvas" role="img" aria-label={aria} />
+      <div className="ld-title">Horizon Glow</div>
       <div className="ld-caption">
-        <span className={`ld-state ld-state-${sky_state}`}>
-          {sky_state === 'dark' ? 'Dark sky'
-            : sky_state === 'domed' ? 'Light dome'
-            : sky_state === 'bright' ? 'Bright sky'
-            : 'Urban sky'}
-        </span>
         {sky_state === 'domed' && (
           <>
             <span className={`ld-line${top?.severity ? ` ld-dome-${top.severity}` : ''}`}>{top?.label}{topDist}</span>
