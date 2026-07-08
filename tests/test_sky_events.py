@@ -162,6 +162,40 @@ class TestFindLastEvent:
 
 
 # ---------------------------------------------------------------------------
+# Phase naming (pure angle math, no ephemeris)
+# ---------------------------------------------------------------------------
+
+class TestPhaseNameFromAngle:
+    """Principal phases are ±half-day windows around the instant; everything
+    between is crescent/gibbous. Regression: 2026-07-08..13 (angles ~274–342°)
+    must read Waning Crescent after the day of the quarter, not Third Quarter."""
+
+    @pytest.mark.parametrize("angle,expected", [
+        (0.0,   "New Moon"),
+        (6.0,   "New Moon"),
+        (6.2,   "Waxing Crescent"),
+        (45.0,  "Waxing Crescent"),
+        (83.8,  "Waxing Crescent"),
+        (84.0,  "First Quarter"),
+        (90.0,  "First Quarter"),
+        (96.2,  "Waxing Gibbous"),
+        (135.0, "Waxing Gibbous"),
+        (180.0, "Full Moon"),
+        (186.2, "Waning Gibbous"),
+        (225.0, "Waning Gibbous"),
+        (270.0, "Third Quarter"),
+        (273.9, "Third Quarter"),   # evening of the quarter day (2026-07-07/08)
+        (286.9, "Waning Crescent"), # one day later — the reported regression
+        (297.1, "Waning Crescent"), # 2026-07-10, illum ~25%
+        (341.9, "Waning Crescent"), # 2026-07-13, illum ~2.5%
+        (356.4, "New Moon"),        # day of new moon (2026-07-14)
+        (360.0, "New Moon"),
+    ])
+    def test_angle_bands(self, angle, expected):
+        from PyNightSkyPredictor.sky_events import phase_name_from_angle
+        assert phase_name_from_angle(angle) == expected
+
+
 # Ephemeris-based integration tests
 # ---------------------------------------------------------------------------
 

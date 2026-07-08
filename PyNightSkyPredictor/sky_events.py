@@ -18,16 +18,31 @@ from . import cache as _cache
 
 log = logging.getLogger(__name__)
 
-PHASE_NAMES = [
+# The four principal phases are instants (phase angle exactly 0/90/180/270),
+# not 45°-wide spans. Label them only within ±half a day of the event —
+# ±6.1° at the mean synodic rate of 12.19°/day — matching the almanac
+# convention that "Third Quarter" is the day of the quarter, and every other
+# day between quarters is crescent/gibbous. (The previous table treated each
+# name as a band *starting at* the instant, so e.g. three days after the
+# quarter — an obvious waning crescent — still read "Third Quarter".)
+PRINCIPAL_PHASES = [
     (0,   "New Moon"),
-    (45,  "Waxing Crescent"),
     (90,  "First Quarter"),
-    (135, "Waxing Gibbous"),
     (180, "Full Moon"),
-    (225, "Waning Gibbous"),
     (270, "Third Quarter"),
-    (315, "Waning Crescent"),
+    (360, "New Moon"),
 ]
+INTERMEDIATE_NAMES = ["Waxing Crescent", "Waxing Gibbous", "Waning Gibbous", "Waning Crescent"]
+PRINCIPAL_WINDOW_DEG = 6.1
+
+
+def phase_name_from_angle(angle_deg: float) -> str:
+    """Phase name for a sun–moon elongation angle (0° = new, 180° = full)."""
+    a = angle_deg % 360.0
+    for p_angle, p_name in PRINCIPAL_PHASES:
+        if abs(a - p_angle) <= PRINCIPAL_WINDOW_DEG:
+            return p_name
+    return INTERMEDIATE_NAMES[int(a // 90.0)]
 
 
 _load = Loader(str(Path(__file__).resolve().parent))
@@ -466,7 +481,7 @@ def moon_phase_info(at_utc: object) -> tuple:
     t   = ts.from_datetime(at_utc)
     angle        = almanac.moon_phase(eph, t).degrees
     illumination = round((1 - math.cos(math.radians(angle))) / 2 * 100, 1)
-    phase_name   = next(name for thresh, name in reversed(PHASE_NAMES) if angle >= thresh)
+    phase_name   = phase_name_from_angle(angle)
     log.debug("Moon phase angle: %.2f°  →  %s  (%.1f%% illuminated)", angle, phase_name, illumination)
     return phase_name, illumination
 
