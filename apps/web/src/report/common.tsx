@@ -1,5 +1,5 @@
 import React from 'react'
-import { cardinal } from '../format'
+import { cardinal, scoreBand } from '../format'
 import { InfoTip } from '../shared'
 
 // first, then altitude — e.g. "Az 195° S · Alt 42°".
@@ -23,14 +23,39 @@ export function cell(isFetching: boolean, value: React.ReactNode): React.ReactNo
 }
 
 // ── Metadata row ─────────────────────────────────────────────────────────────
+// `score` ties the row to its composite-score factor (Bortle → Light Pollution,
+// dark hours → Clear Dark Sky, etc.) via an inline bar; `scoreTip` carries the
+// weighting/methodology explainer that used to live on the standalone score
+// bars, now surfaced through a small "?" badge so it isn't lost.
 
-export function MetaRow({ k, v, icon, tip }: { k: string; v: string; icon?: React.ReactNode; tip?: React.ReactNode }) {
+export function MetaRow({ k, v, icon, tip, score, scoreTip }: {
+  k: string; v: string; icon?: React.ReactNode; tip?: React.ReactNode
+  score?: number | null; scoreTip?: React.ReactNode
+}) {
+  const pct = score != null ? Math.max(0, Math.min(100, score * 10)) : 0
   return (
-    <div className="meta-row">
-      <span className="meta-k">{tip ? <InfoTip tip={tip}>{k}</InfoTip> : k}:</span>
-      <span className="meta-v" style={icon ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : undefined}>
-        {icon}{v}
-      </span>
+    <div className="meta-row-wrap">
+      <div className="meta-row">
+        <span className="meta-k">{tip ? <InfoTip tip={tip}>{k}</InfoTip> : k}:</span>
+        <span className="meta-v" style={icon ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : undefined}>
+          {icon}{v}
+        </span>
+      </div>
+      {score != null && (
+        <div className="meta-bar">
+          <span className="bar-track">
+            <span className={`bar-fill band-${scoreBand(score)}`} style={{ width: `${pct}%` }} />
+          </span>
+          <span className="bar-value-cell">
+            <span className="bar-value">{score.toFixed(1)}</span>
+            {scoreTip && (
+              <InfoTip tip={scoreTip}>
+                <span className="score-help" aria-label="How this score is calculated">?</span>
+              </InfoTip>
+            )}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

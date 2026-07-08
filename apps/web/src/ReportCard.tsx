@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import type { NightReport, NearbyResult, CalendarResult } from './types'
 import { formatTime, formatHm, tzAbbr, tzTitle, fmtDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
-import { MoonPhaseSvg, ScoreBar, InfoTip } from './shared'
+import { MoonPhaseSvg, InfoTip } from './shared'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
 import CalendarRangePicker, { type CalendarPickerState } from './CalendarRangePicker'
@@ -446,6 +446,7 @@ export default function ReportCard({
       )}
 
       <div className={`overall band-${scoreBand(r.score)}`}>
+        <div className="overall-left">
         <div className="overall-score-block">
           <div className="overall-score-header">
             <div className="overall-num">{r.score.toFixed(1)}</div>
@@ -481,6 +482,8 @@ export default function ReportCard({
             k="Light Pollution"
             v={shortLps}
             tip={<>Bortle class 1 (pristine) to 9 (inner city), derived from satellite radiance{lp?.source ? ` (${lp.source})` : ''}. SQM is zenith sky brightness in mag/arcsec² — each +1 is ~2.5× darker; 21.7+ is a genuinely dark site.</>}
+            score={r.score_components.bortle}
+            scoreTip={<>10% of the composite — the Bortle class at this location. Fixed for the spot; the only lever is going somewhere darker (see Find Sky Nearby).</>}
           />
         )}
 
@@ -495,40 +498,28 @@ export default function ReportCard({
           k="Clear Dark Sky"
           v={darkStrCard}
           tip={<>Hours you can actually shoot: astronomical darkness (sun ≥18° below the horizon), minus moon interference, minus hours clouded over (&gt;50% cover).</>}
+          score={r.score_components.dark}
+          scoreTip={<>25% of the composite — tonight's moon-free dark hours measured against this lunar cycle's average, so the score reflects what this month can actually offer.</>}
         />
         {showWeather && r.weather_score != null && (
           <MetaRow
             k="Weather"
             v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  ·  ${r.wx_source}` : ''}`}
+            score={r.score_components.weather}
+            scoreTip={<>40% of the composite — hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity.</>}
           />
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~16-day forecast horizon)" />}
         {showWeather && r.wx_no_data && <MetaRow k="Weather" v="No data  (not covered for this location/date)" />}
         {showWeather && r.wx_error && !(r.weather_points?.length) && <MetaRow k="Weather" v="Temporarily unavailable: weather providers are down" />}
         <MetaRow k="Lunar Conditions" v={moonStrCard}
-          icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={30} />}
+          icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={20} />}
+          score={r.score_components.moon}
+          scoreTip={<>25% of the composite — Krisciunas &amp; Schaefer scattered-moonlight model: phase, moon altitude, and hours above the horizon, distance-corrected. A bright moon that sets early can still score well.</>}
         />
         </div>
+        </div>
         {r.light_dome && <LightDomePanel summary={r.light_dome} imperial={imperial} />}
-      </div>
-
-      <div className="bars">
-        {r.score_components.bortle != null && (
-          <ScoreBar label="Dark Sky" value={r.score_components.bortle}
-            tip={<>10% of the composite — the Bortle class at this location. Fixed for the spot; the only lever is going somewhere darker (see Find Sky Nearby).</>} />
-        )}
-        {r.score_components.moon != null && (
-          <ScoreBar label="Lunar" value={r.score_components.moon}
-            tip={<>25% of the composite — Krisciunas &amp; Schaefer scattered-moonlight model: phase, moon altitude, and hours above the horizon, distance-corrected. A bright moon that sets early can still score well.</>} />
-        )}
-        {r.score_components.dark != null && (
-          <ScoreBar label="Dark Hours" value={r.score_components.dark}
-            tip={<>25% of the composite — tonight's moon-free dark hours measured against this lunar cycle's average, so the score reflects what this month can actually offer.</>} />
-        )}
-        {showWeather && r.score_components.weather != null && (
-          <ScoreBar label="Weather" value={r.score_components.weather}
-            tip={<>40% of the composite — hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity.</>} />
-        )}
       </div>
 
 
