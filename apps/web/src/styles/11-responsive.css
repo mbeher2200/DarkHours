@@ -259,28 +259,30 @@
     white-space: normal;
   }
 
-  /* Global mobile table cell padding and wrapping */
+  /* Even, symmetric cell padding across every column — no per-column zeroing.
+     There's ~no horizontal slack at this width, so the gutter is kept small but
+     consistent so columns read as evenly spaced rather than crammed unevenly. */
   .wx-table th {
-    padding: 2px 1px 3px; /* 1px L/R padding */
+    padding: 2px 2px 3px;
     font-size: 9px;
     letter-spacing: 0.03em;
     white-space: normal;
     vertical-align: bottom; /* Clean bottom alignment */
   }
   .wx-table td {
-    padding: 3px 1px; /* 1px L/R padding */
+    padding: 3px 2px;
     white-space: normal;
   }
 
-  /* Time Column */
+  /* Time Column — sticky first column keeps its min-width; padding comes from
+     the shared rule above (its left edge stays flush via the base .wx-time rule). */
   .wx-table td.wx-time,
   .wx-table th:first-child {
     min-width: 52px;
-    padding-right: 0;
   }
 
-  /* Force the weather and wind icons to shrink and strip hardcoded margins.
-     The condition icon now lives inside the merged Sky Cover cell. */
+  /* Weather + wind icons shrink; the condition icon lives in the merged Sky
+     Cover cell now. */
   .wx-cond-cell svg,
   .wx-table td.wx-wind-col svg {
     width: 20px !important;
@@ -291,48 +293,29 @@
   .wx-cond-total {
     font-size: 9px;
   }
-
-  /* Sky Cover Column (icon + % + telemetry) */
-  .wx-table th.wx-cloud-col,
-  .wx-table td.wx-cloud-col {
-    padding-left: 0;
-    padding-right: 0;
-  }
   /* Tighten the gap between the icon+% and the telemetry stack on mobile. */
   .wx-sky-cell {
     gap: 3px;
   }
 
-  /* Clarity/Seeing Column */
-  .wx-table th.wx-atmos-col,
-  .wx-table td.wx-atmos-col {
-    padding-right: 0;
-  }
+  /* Clarity/Seeing — narrower segments, no inter-segment gaps, to stay compact. */
   .wx-eq2-seg {
-    width: 4px; /* Narrower segments */
+    width: 4px;
   }
   .wx-eq2-segs,
   .wx-eq2 {
-    gap: 0; /* Remove gaps between segments and rows */
+    gap: 0;
   }
 
-  /* Temp/Dew Pt Column */
-  .wx-table th.wx-temp-col,
+  /* Temp/Dew Pt — keep the value and unit glued on one line. */
   .wx-table td.wx-temp-col {
-    padding-left: 0;
-    padding-right: 0;
-    white-space: nowrap; /* Forces unit to stay glued to temp */
+    white-space: nowrap;
   }
 
-  /* Wind Column */
-  .wx-table th.wx-wind-col,
-  .wx-table td.wx-wind-col {
-    padding-left: 0;
-  }
+  /* Wind — let the readout wrap; unit hugs the value. */
   .wx-wind-col {
     flex-wrap: wrap;
   }
-  /* Remove fixed width on unit so arrow hugs the text */
   .wx-wind-unit {
     width: auto;
     padding-right: 2px;
