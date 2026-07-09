@@ -145,29 +145,34 @@ export function seeingTier(arcsec: number): 'Optimal' | 'Good' | 'Fair' | 'Poor'
   return 'Poor'
 }
 
-// ── Clarity / Seeing segmented EQ readout ────────────────────────────────────
+// ── Clarity / Seeing bar readout ─────────────────────────────────────────────
 // A quality (not volume) meter: "Full = Optimal". Both seeing and transparency
 // normalize to the same 4-tier vocabulary upstream (Poor/Fair/Good/Optimal, via
-// seeingTier + TRANSP_ABBR), which maps 1:1 onto a contiguous 4-segment scale by
-// the named index below.
+// seeingTier + TRANSP_ABBR), which maps 1:1 onto a proportional fill by the
+// named index below.
 const QUALITY_INDEX: Record<string, number> = {
   Poor: 1, Fair: 2, Good: 3, Optimal: 4, Excellent: 4,
 }
 const EQ_SEGMENTS = 4
 
-// One row of EQ_SEGMENTS rounded boxes — the first `index` are filled (active),
-// the rest are empty tracks — mirroring the cloud-cover EQ meter's solid fill +
-// rounded corners (see .wx-eq2* in 08-weather-table.css).
+// A single proportional fill bar (0–100%), shared by both the Clarity/Seeing
+// and Sky Cover readouts (see .wx-bar-track/.wx-bar-fill in
+// 08-weather-table.css).
+function Bar({ pct, title }: { pct: number; title?: string }) {
+  const clamped = Math.max(0, Math.min(100, pct))
+  return (
+    <span className="wx-bar-track" title={title}>
+      <span className="wx-bar-fill" style={{ width: `${clamped}%` }} />
+    </span>
+  )
+}
+
 function EqRow({ label, tier }: { label: string; tier: string }) {
   const index = Math.max(0, Math.min(EQ_SEGMENTS, QUALITY_INDEX[tier] ?? 0))
   return (
     <div className="wx-eq2-row">
       <span className="wx-eq2-label">{label}</span>
-      <span className="wx-eq2-segs" title={tier}>
-        {Array.from({ length: EQ_SEGMENTS }, (_, i) => (
-          <span key={i} className={`wx-eq2-seg ${i < index ? 'wx-eq2-seg-on' : 'wx-eq2-seg-off'}`} />
-        ))}
-      </span>
+      <Bar pct={(index / EQ_SEGMENTS) * 100} title={tier} />
     </div>
   )
 }
@@ -188,31 +193,15 @@ export function AtmosEq({ clarity, seeing }: {
 
 // ── Sky Cover — aviation-style telemetry readout ─────────────────────────────
 // A "big total" cloud-cover anchor on the left; a monospace telemetry stack of
-// three altitude tiers on the right, each mapping its pct to a bracketed
-// 4-segment EQ, rendered with the exact same rounded box segments as the
-// Clarity/Seeing readout (.wx-eq2-seg — filled --text-dim over a muted track),
-// framed by aviation-style brackets. Fill mapping per tier:
-//   0% → 0 · 1–25 → 1 · 26–50 → 2 · 51–75 → 3 · 76–100 → 4 segments
-function cloudTier(pct: number): number {
-  if (pct <= 0) return 0
-  if (pct <= 25) return 1
-  if (pct <= 50) return 2
-  if (pct <= 75) return 3
-  return 4
-}
-
+// three altitude tiers on the right, each rendered as a proportional fill bar
+// (the raw pct, unquantized) with the exact same bar styling as the
+// Clarity/Seeing readout (.wx-bar-track/.wx-bar-fill — filled --text-dim over
+// a muted track).
 function SkyTierRow({ label, pct }: { label: string; pct: number }) {
-  const n = cloudTier(pct)
   return (
     <div className="wx-sky-row">
       <span className="wx-sky-alt">{label}</span>
-      <span className="wx-sky-eq" title={`${label.trim()}: ${pct}%`}>
-        <span className="wx-eq2-segs">
-          {Array.from({ length: EQ_SEGMENTS }, (_, i) => (
-            <span key={i} className={`wx-eq2-seg ${i < n ? 'wx-eq2-seg-on' : 'wx-eq2-seg-off'}`} />
-          ))}
-        </span>
-      </span>
+      <Bar pct={pct} title={`${label.trim()}: ${pct}%`} />
     </div>
   )
 }
