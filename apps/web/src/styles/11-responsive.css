@@ -3,6 +3,7 @@
   .app {
     padding: 12px 4px max(48px, calc(48px + env(safe-area-inset-bottom)));
   }
+
   .masthead {
     margin-bottom: 10px;
   }
@@ -39,8 +40,8 @@
   .report-head {
     flex-wrap: wrap;
   }
-  /* Score card: collapse the 2-column grid (score+meta | dome) to a single
-     column, matching the Milky Way card's own grid→stack breakpoint. */
+
+  /* Score card: collapse to a single column */
   .overall {
     grid-template-columns: 1fr;
   }
@@ -49,72 +50,63 @@
     grid-column: 1;
   }
 
-  /* Report head: properly scales down location name on mobile */
   .report-head .place {
     font-size: 14px;
   }
-
   .report-head-coords {
     display: none;
   }
+
   /* Table bleed matches reduced card padding */
   .wx-table-wrap,
   .tg-table-wrap {
     margin-right: -8px;
     padding-right: 8px;
   }
+
   /* Satellite table: hide Set columns, Duration, and Peak Az to fit mobile */
   .sat-set-col,
   .sat-dur-col,
   .sat-peak-az-col {
     display: none;
   }
+
   /* MW card: collapse to single column so dome stacks below scores */
-  /* MW card: collapse to single column so dome stacks below scores */
-  .mw-layout {
+  .mw-layout,
+  .mw-top-section {
     grid-template-columns: 1fr;
+    gap: 16px;
   }
-  /* Center the dome SVG when stacked in single-column layout */
   .mw-dome-wrap {
     width: 100%;
     max-width: 420px;
     margin: 0 auto;
   }
-    /* MW card: collapse to single column so dome stacks below scores */
-  .mw-top-section {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
   .mw-mid-section {
     flex-direction: column;
-    align-items: center;  /* Centers the graphic and the notes block */
-    gap: 16px;            /* Adds breathing room between the dome and the notes */
+    align-items: center;
+    gap: 16px;
+  }
+  .mw-dome-container {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+  .mw-notes-container {
+    align-items: center;
+    margin-top: 0;
+    max-width: 100%;
   }
 
-.mw-dome-container {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
-
-/* Keep notes left-aligned in their own block below the dome */
-.mw-notes-container {
-    align-items: center;  /* Centers the badges horizontally */
-    margin-top: 0;        /* Resets the desktop nudge */
-    max-width: 100%;      /* Allows it to use the full width */
-  }
-  /* Restore nearby table layout for mobile, matching the Excel mockup */
+  /* Restore nearby table layout for mobile */
   .nearby-table {
     display: table;
     width: 100%;
     table-layout: auto;
   }
-
   .nearby-table thead {
-    display: table-header-group; /* Restores the missing column labels */
+    display: table-header-group;
   }
-
   .nearby-table th {
     white-space: normal;
     padding: 4px 2px;
@@ -124,31 +116,24 @@
     border-top: 1px solid rgba(255, 255, 255, 0.65);
     border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   }
-
   .nearby-table td {
     white-space: normal;
     padding: 6px 2px;
     vertical-align: top;
     border-bottom: 1px solid rgba(var(--hairline-rgb), 0.25);
   }
-
   .nearby-table tr:last-child td {
     border-bottom: none;
   }
-
-  /* Structure the Area column */
   .nearby-area-td {
     width: 100%;
   }
-
-  /* Flex container groups badge+icon so they don't split across lines */
   .nearby-area-inner {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 0 4px;
   }
-
   .nearby-area-inner .poi-namelink {
     flex: 0 0 100%;
     margin-bottom: 3px;
@@ -156,12 +141,9 @@
     line-height: 1.25;
     white-space: normal;
   }
-
   .nearby-area-inner .poi-area {
     margin-left: 0;
   }
-
-  /* Data columns: higher specificity to override .nearby-table td white-space */
   .nearby-table td.nearby-bortle-col,
   .nearby-table td.nearby-sqm-col,
   .nearby-table td.nearby-dist-col,
@@ -171,7 +153,8 @@
     text-align: right;
     white-space: nowrap;
   }
-  /* Blocked target rows: allow badge text to wrap instead of clipping */
+
+  /* Blocked target rows: allow badge text to wrap */
   .tg-row-blocked td {
     white-space: normal;
   }
@@ -194,11 +177,11 @@
   .es-caps {
     grid-template-columns: 1fr;
   }
-
   .masthead h1 {
     font-size: 1.25rem;
   }
-    /* ── Date Picker Mobile Compression ── */
+
+  /* Date Picker Mobile Compression */
   .dp-popover {
     padding: 12px;
   }
@@ -207,7 +190,7 @@
   }
   .dp-day,
   .dp-cell-empty {
-    height: 34px; /* Reduced from 42px to save vertical space */
+    height: 34px;
   }
   .dp-footer {
     margin-top: 8px;
@@ -216,7 +199,8 @@
   .dp-today-btn {
     padding: 7px 0;
   }
-  /* Score card: tighter padding on narrow phones */
+
+  /* Score card */
   .overall {
     padding: 14px 16px;
     gap: 14px;
@@ -228,11 +212,13 @@
     font-size: 1.5rem;
     margin-top: 0;
   }
-  /* Bar chart: tighter columns */
+
+  /* Bar chart */
   .bar-row {
     grid-template-columns: 100px 1fr 32px;
   }
-  /* Meta rows: keep horizontal, give key a fixed lane */
+
+  /* Meta rows */
   .meta-k {
     min-width: 100px;
     flex-shrink: 0;
@@ -251,8 +237,8 @@
     flex: 1;
     padding-left: 0;
   }
-  /* Light dome stacks below the score, full-width; centering and column
-     stacking of title/canvas/caption are the unconditional defaults now. */
+
+  /* Light dome */
   .lightdome-panel {
     width: 100%;
   }
@@ -260,57 +246,118 @@
     accent-color: var(--accent);
     cursor: pointer;
   }
-  /* Night Timeline / Weather table: squeeze to fit all columns without horizontal scroll */
+
+  /* ── Night Timeline / Weather table ── */
   .wx-table {
     font-size: 10px;
   }
-  /* "Haze: Aloft" / "Haze: Surface" wrap onto a second line here rather than
-     widening the Conditions column — vertical space is cheaper than width on a
-     narrow viewport. Overrides the inherited nowrap from .wx-table td; max-width
-     forces the break instead of just permitting it (normal alone doesn't shrink
-     the box, it only allows wrapping once something else constrains the width). */
+
+  /* Force Haze to wrap */
   .wx-cond-word {
     display: inline-block;
     max-width: 46px;
     white-space: normal;
   }
+
+  /* Global mobile table cell padding and wrapping */
   .wx-table th {
-    padding: 2px 2px 3px;
+    padding: 2px 1px 3px; /* 1px L/R padding */
     font-size: 9px;
     letter-spacing: 0.03em;
     white-space: normal;
+    vertical-align: bottom; /* Clean bottom alignment */
   }
   .wx-table td {
-    padding: 3px 2px;
+    padding: 3px 1px; /* 1px L/R padding */
+    white-space: normal;
   }
-  /* Cloud % stacks above the EQ meter here instead of sitting beside it —
-     narrower footprint than the desktop side-by-side layout. */
-  .wx-cloud-readout {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-  }
+
+  /* Time Column */
   .wx-table td.wx-time,
   .wx-table th:first-child {
     min-width: 52px;
+    padding-right: 0;
   }
-  /* Targets table: reduce font/padding and allow target name to wrap */
+
+  /* Force the weather and wind icons to shrink and strip hardcoded margins.
+     The condition icon now lives inside the merged Sky Cover cell. */
+  .wx-cond-cell svg,
+  .wx-table td.wx-wind-col svg {
+    width: 20px !important;
+    height: 20px !important;
+    margin-left: 0 !important;
+  }
+  /* Shrink the cloud % to sit better under the now-smaller icon. */
+  .wx-cond-total {
+    font-size: 9px;
+  }
+
+  /* Sky Cover Column (icon + % + telemetry) */
+  .wx-table th.wx-cloud-col,
+  .wx-table td.wx-cloud-col {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* Tighten the gap between the icon+% and the telemetry stack on mobile. */
+  .wx-sky-cell {
+    gap: 3px;
+  }
+
+  /* Clarity/Seeing Column */
+  .wx-table th.wx-atmos-col,
+  .wx-table td.wx-atmos-col {
+    padding-right: 0;
+  }
+  .wx-eq2-seg {
+    width: 4px; /* Narrower segments */
+  }
+  .wx-eq2-segs,
+  .wx-eq2 {
+    gap: 0; /* Remove gaps between segments and rows */
+  }
+
+  /* Temp/Dew Pt Column */
+  .wx-table th.wx-temp-col,
+  .wx-table td.wx-temp-col {
+    padding-left: 0;
+    padding-right: 0;
+    white-space: nowrap; /* Forces unit to stay glued to temp */
+  }
+
+  /* Wind Column */
+  .wx-table th.wx-wind-col,
+  .wx-table td.wx-wind-col {
+    padding-left: 0;
+  }
+  .wx-wind-col {
+    flex-wrap: wrap;
+  }
+  /* Remove fixed width on unit so arrow hugs the text */
+  .wx-wind-unit {
+    width: auto;
+    padding-right: 2px;
+  }
+
+  /* ── Targets table ── */
   .tg-table {
     font-size: 11px;
+    width: 100%;
+    table-layout: auto;
   }
   .tg-table th {
     padding: 3px 6px 4px;
     font-size: 9px;
+    white-space: normal;
   }
   .tg-table td {
     padding: 4px 6px;
+    white-space: normal;
   }
   .tg-table td:first-child {
-    white-space: normal;
     max-width: 160px;
   }
-  /* POI elements: reduce font sizes so nearby table fits */
+
+  /* POI elements */
   .poi-maplink,
   .poi-area,
   .poi-badge {
@@ -320,20 +367,13 @@
     width: 11px;
     height: 11px;
   }
-  /* Arch waypoints: allow window time range to wrap */
+
+  /* Arch waypoints */
   .wp-window-td {
     white-space: normal;
   }
-  /* Deep sky targets: fill width and let content wrap naturally */
-  .tg-table {
-    width: 100%;
-    table-layout: auto;
-  }
-  .tg-table td,
-  .tg-table th {
-    white-space: normal;
-  }
-  /* Remove fixed-width spans so alignment columns share space naturally */
+
+  /* Alignment columns */
   .tg-t,
   .tg-alt,
   .tg-az,

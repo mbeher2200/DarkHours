@@ -105,6 +105,26 @@ export const PRECIP_TYPE_ICON_NAMES: Record<string, string> = {
   tstorm: 'thunderstorm',
 }
 
+// Whether to surface the total cloud-cover % under the Conditions icon. Shown only
+// when the icon reads as a meaningful, non-precipitating cloud amount: there is some
+// cloud, it isn't a clear sky, and it isn't rain/snow/thunderstorm/etc — a big "100%"
+// next to a rain icon would read as a 100% chance of rain. Fog and windy skies (both
+// non-precip) still qualify; partly-cloudy/cloudy qualify via the >25% threshold
+// skyIconFromCloudCover uses to leave "clear".
+export function showCloudTotal({ code, cloudCover, precipType, windSpeedMs, windGustMs }: {
+  code: number | null; cloudCover?: number | null; precipType?: string | null
+  windSpeedMs?: number | null; windGustMs?: number | null
+}): boolean {
+  if (cloudCover == null || cloudCover <= 0) return false
+  if (precipType === 'fog') return true                    // fog: non-precip, show
+  const isNoPrecip = precipType == null || precipType === 'none'
+  if (!isNoPrecip) return false                            // rain/snow/frzr/icep/tstorm
+  if (code != null && code >= 51) return false             // WMO precip codes
+  const wind = [windSpeedMs, windGustMs].filter((v): v is number => v != null)
+  if (wind.length && Math.max(...wind) >= 8.94) return true // windy (non-precip) icon
+  return cloudCover > 25                                    // clear (≤25) hides; cloudy shows
+}
+
 // Transparency label for the combined Seeing/Transp column — the standard label as-is
 // (not an abbreviation). Explicit map, not a passthrough, so any unexpected value from
 // the provider (transparency is a generic string, not a strict union) still falls back
@@ -123,6 +143,105 @@ export function seeingTier(arcsec: number): 'Optimal' | 'Good' | 'Fair' | 'Poor'
   if (arcsec <= 1.5) return 'Good'
   if (arcsec <= 2.0) return 'Fair'
   return 'Poor'
+}
+
+// ── Clarity / Seeing segmented EQ readout ────────────────────────────────────
+// A quality (not volume) meter: "Full = Optimal". Both seeing and transparency
+// normalize to the same 4-tier vocabulary upstream (Poor/Fair/Good/Optimal, via
+// seeingTier + TRANSP_ABBR), which maps 1:1 onto a contiguous 4-segment scale by
+// the named index below.
+const QUALITY_INDEX: Record<string, number> = {
+  Poor: 1, Fair: 2, Good: 3, Optimal: 4, Excellent: 4,
+}
+const EQ_SEGMENTS = 4
+
+// One row of EQ_SEGMENTS rounded boxes — the first `index` are filled (active),
+// the rest are empty tracks — mirroring the cloud-cover EQ meter's solid fill +
+// rounded corners (see .wx-eq2* in 08-weather-table.css).
+function EqRow({ label, tier }: { label: string; tier: string }) {
+  const index = Math.max(0, Math.min(EQ_SEGMENTS, QUALITY_INDEX[tier] ?? 0))
+  return (
+    <div className="wx-eq2-row">
+      <span className="wx-eq2-label">{label}</span>
+      <span className="wx-eq2-segs" title={tier}>
+        {Array.from({ length: EQ_SEGMENTS }, (_, i) => (
+          <span key={i} className={`wx-eq2-seg ${i < index ? 'wx-eq2-seg-on' : 'wx-eq2-seg-off'}`} />
+        ))}
+      </span>
+    </div>
+  )
+}
+
+// Two stacked EQ rows — C (Clarity/transparency) above S (Seeing) — read as one
+// consolidated instrument. A null half is omitted; an all-null cell em-dashes.
+export function AtmosEq({ clarity, seeing }: {
+  clarity: string | null; seeing: string | null
+}) {
+  if (clarity == null && seeing == null) return <>—</>
+  return (
+    <div className="wx-eq2">
+      {clarity != null && <EqRow label="C" tier={clarity} />}
+      {seeing  != null && <EqRow label="S" tier={seeing} />}
+    </div>
+  )
+}
+
+// ── Sky Cover — aviation-style telemetry readout ─────────────────────────────
+// A "big total" cloud-cover anchor on the left; a monospace telemetry stack of
+// three altitude tiers on the right, each mapping its pct to a bracketed
+// 4-segment EQ, rendered with the exact same rounded box segments as the
+// Clarity/Seeing readout (.wx-eq2-seg — filled --text-dim over a muted track),
+// framed by aviation-style brackets. Fill mapping per tier:
+//   0% → 0 · 1–25 → 1 · 26–50 → 2 · 51–75 → 3 · 76–100 → 4 segments
+function cloudTier(pct: number): number {
+  if (pct <= 0) return 0
+  if (pct <= 25) return 1
+  if (pct <= 50) return 2
+  if (pct <= 75) return 3
+  return 4
+}
+
+function SkyTierRow({ label, pct }: { label: string; pct: number }) {
+  const n = cloudTier(pct)
+  return (
+    <div className="wx-sky-row">
+      <span className="wx-sky-alt">{label}</span>
+      <span className="wx-sky-eq" title={`${label.trim()}: ${pct}%`}>
+        <span className="wx-eq2-segs">
+          {Array.from({ length: EQ_SEGMENTS }, (_, i) => (
+            <span key={i} className={`wx-eq2-seg ${i < n ? 'wx-eq2-seg-on' : 'wx-eq2-seg-off'}`} />
+          ))}
+        </span>
+      </span>
+    </div>
+  )
+}
+
+// Altitude tier labels — imperial feet (>20kft / >6kft / <6kft) or metric km
+// (>6km / >2km / <2km, rounded from the 20,000 ft ≈ 6 km and 6,500 ft ≈ 2 km
+// layer boundaries), chosen by the unit toggle.
+const SKY_LABELS = {
+  imperial: { high: '>20k', mid: '>6k', low: '<6k' },
+  metric:   { high: '>6km',   mid: '>2km',  low: '<2km' },
+} as const
+
+// Per-altitude telemetry stack, ordered high → low (aviation convention:
+// high/cirrus, mid, low). The total cloud-cover % now lives under the Conditions
+// icon (see showCloudTotal), so this column is the breakdown only; a cell with no
+// per-tier data em-dashes.
+export function SkyCover({ low, mid, high, imperial = true }: {
+  low?: number | null; mid?: number | null; high?: number | null
+  imperial?: boolean
+}) {
+  if (low == null && mid == null && high == null) return <>—</>
+  const labels = imperial ? SKY_LABELS.imperial : SKY_LABELS.metric
+  return (
+    <div className="wx-sky-stack">
+      <SkyTierRow label={labels.high} pct={high ?? 0} />
+      <SkyTierRow label={labels.mid}  pct={mid ?? 0} />
+      <SkyTierRow label={labels.low}  pct={low ?? 0} />
+    </div>
+  )
 }
 
 export function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visibilityM, precipType, windSpeedMs, windGustMs, transparency }: {
