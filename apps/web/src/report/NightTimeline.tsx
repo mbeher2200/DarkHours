@@ -3,7 +3,7 @@ import type { SkyEvent, WeatherPoint } from '../types'
 import { formatTime, formatDayTime, fmtTempValue, tempUnitLabel, fmtWindSpeed, windUnitLabel, moonUpAt, formatAge, formatIssuedUtc } from '../format'
 import { InfoTip } from '../shared'
 import { Star } from 'lucide-react'
-import { WiIcon, TRANSP_ABBR, seeingTier, WmoIcon } from './icons'
+import { WiIcon, TRANSP_ABBR, seeingTier, AtmosEq, SkyCover, WmoIcon, showCloudTotal } from './icons'
 import { cell } from './common'
 
 // ── Weather table ────────────────────────────────────────────────────────────
@@ -170,11 +170,15 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
               <tr>
                 <th>Time</th>
                 <th className="wx-cond-col"></th>
-                <th className="wx-cloud-col wx-cloud-hdr">Cloud %<br />Low/Med/High</th>
+                <th className="wx-cloud-col wx-cloud-hdr">
+                  <InfoTip tip={<>The big number is total cloud cover. The telemetry stack breaks it out by altitude — high (&gt;20kft / &gt;6km), mid (&gt;6kft / &gt;2km), low (&lt;6kft / &lt;2km) — with more filled blocks meaning more cloud at that layer.</>}>
+                    Sky Cover
+                  </InfoTip>
+                </th>
                 {hasAtmos  && (
                   <th className="wx-atmos-col wx-atmos-hdr">
-                    <InfoTip tip={<>Seeing — turbulence blur in arcseconds: under 1.5″ is pin-sharp, over 2.5″ smears stars (matters most at long focal lengths). Transparency — how cleanly light passes the air column: Excellent → Poor. Both from 7Timer's astro forecast.</>}>
-                      Seeing /<br />Transp.
+                    <InfoTip tip={<>A segmented readout — more bars is better (Full = Optimal). C — Clarity (transparency): how cleanly light passes the air column (Optimal → Poor). S — Seeing: turbulence blur, steadier is better (under 1.5″ is pin-sharp, over 2.5″ smears stars, matters most at long focal lengths). Both from 7Timer's astro forecast.</>}>
+                      Clarity /<br />Seeing
                     </InfoTip>
                   </th>
                 )}
@@ -251,55 +255,31 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                 <tr key={`wx-${i}`} className={astroShadeCls}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
                   <td className="wx-num wx-rating">
-                    {cell(isFetching, <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
-                      moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
-                      aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
-                      windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />)}
+                    {cell(isFetching, <div className="wx-cond-cell">
+                      <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
+                        moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
+                        aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
+                        windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />
+                      {showCloudTotal({ code: p.weather_code, cloudCover: p.cloud_cover_pct, precipType: p.precip_type,
+                        windSpeedMs: p.wind_speed_ms, windGustMs: p.wind_gust_ms }) && (
+                        <span className="wx-cond-total">{p.cloud_cover_pct}%</span>
+                      )}
+                    </div>)}
                   </td>
                   <td className="wx-num wx-cloud-col">
-                    {cell(isFetching, (() => {
-                      if (p.cloud_cover_low_pct == null && p.cloud_cover_mid_pct == null && p.cloud_cover_high_pct == null) {
-                        return p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'
-                      }
-                      const low = p.cloud_cover_low_pct ?? 0
-                      const mid = p.cloud_cover_mid_pct ?? 0
-                      const high = p.cloud_cover_high_pct ?? 0
-                      return (
-                        <div className="wx-cloud-readout" title={`Low: ${low}% | Mid: ${mid}% | High: ${high}%`}>
-                          <span className="wx-cloud-val">{p.cloud_cover_pct != null ? `${p.cloud_cover_pct}%` : '—'}</span>
-                          <div className="wx-cloud-eq">
-                            <div className="wx-eq-track"><div className="wx-eq-fill" style={{ height: `${low}%` }} /></div>
-                            <div className="wx-eq-track"><div className="wx-eq-fill" style={{ height: `${mid}%` }} /></div>
-                            <div className="wx-eq-track"><div className="wx-eq-fill" style={{ height: `${high}%` }} /></div>
-                          </div>
-                        </div>
-                      )
-                    })())}
+                    {cell(isFetching, <SkyCover
+                      low={p.cloud_cover_low_pct}
+                      mid={p.cloud_cover_mid_pct}
+                      high={p.cloud_cover_high_pct}
+                      imperial={imperial}
+                    />)}
                   </td>
                   {hasAtmos && (
                     <td className="wx-num wx-atmos-col">
-                      {cell(isFetching, <span className="wx-atmos-inner">
-                        {p.seeing_arcsec != null && (() => {
-                          const tier = seeingTier(p.seeing_arcsec!)
-                          return (
-                            <span
-                              className={`wx-atmos-seeing${(tier === 'Fair' || tier === 'Poor') ? ' wx-gate-warn' : ''}`}
-                              title={`Seeing: ${p.seeing_arcsec!.toFixed(2)}"`}
-                            >
-                              {tier}
-                            </span>
-                          )
-                        })()}
-                        {p.seeing_arcsec != null && p.transparency != null && (
-                          <span className="wx-atmos-sep">/</span>
-                        )}
-                        {p.transparency != null && (
-                          <span className={`wx-atmos-transp${(p.transparency === 'Fair' || p.transparency === 'Poor') ? ' wx-gate-warn' : ''}`}>
-                            {TRANSP_ABBR[p.transparency] ?? p.transparency}
-                          </span>
-                        )}
-                        {p.seeing_arcsec == null && p.transparency == null && '—'}
-                      </span>)}
+                      {cell(isFetching, <AtmosEq
+                        clarity={p.transparency != null ? (TRANSP_ABBR[p.transparency] ?? p.transparency) : null}
+                        seeing={p.seeing_arcsec != null ? seeingTier(p.seeing_arcsec) : null}
+                      />)}
                     </td>
                   )}
                   {(hasTemp || hasDew) && (

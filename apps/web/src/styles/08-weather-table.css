@@ -308,3 +308,103 @@ html.red-mode .recalc-overlay {
     color: inherit;
   }
 }
+
+/* ── Clarity / Seeing segmented EQ readout ──────────────────────────────────
+   Two stacked rows (C = Clarity/transparency, S = Seeing) with a tight 2px gap
+   so they read as one consolidated instrument. Rendered as real rounded boxes
+   (not ▇/░ glyphs): filled = --text-dim, empty = a faint hairline track wash.
+   Both are tokens, so red-mode flips to pure red automatically. The Sky Cover
+   readout below reuses this same colour scheme. The whole block is inline-flex,
+   so it centres in the centred cell while its rows stay left-aligned against a
+   rigid label. */
+.wx-eq2 {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1;
+  text-align: left;
+}
+.wx-eq2-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Fixed-width label box → rigid left margin before the segments begin, so C and
+   S line up and the two bars share a common starting axis. Same mono font as the
+   rest of the table; unbold. */
+.wx-eq2-label {
+  width: 12px;
+  flex: none;
+  text-align: left;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+}
+.wx-eq2-segs {
+  display: inline-flex;
+  gap: 2px;
+}
+/* Small rounded segment boxes — wider than tall (the ~20% "shorter" look), with
+   the same 1px corner radius as the cloud-cover track tops. */
+.wx-eq2-seg {
+  width: 7px;
+  height: 6px;
+  border-radius: 1px;
+}
+.wx-eq2-seg-on  { background: var(--text-dim); }
+.wx-eq2-seg-off { background: rgba(var(--hairline-rgb), 0.15); }
+
+/* ── Conditions cell — weather icon + total cloud-cover % ────────────────────
+   The total % (formerly the Sky Cover "big total") now sits under the condition
+   icon, but only for meaningful non-precipitating cloud (see showCloudTotal) so
+   a "100%" never reads as a 100% chance of rain. Styled like the time-column
+   digits: standard sans, normal weight, dim grey. */
+.wx-cond-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.wx-cond-total {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+/* ── Sky Cover — aviation-style telemetry readout ───────────────────────────
+   A monospace telemetry stack of three altitude tiers (high → low). Monospace
+   keeps every tier the same width regardless of data. Colours reuse the
+   Clarity/Seeing scheme (filled = --text-dim, empty = a muted hairline wash),
+   all tokens, so red-mode flips to pure red automatically. */
+.wx-sky-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.wx-sky-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+/* Fixed-width altitude label, right-aligned so the unit sits flush against the
+   segment blocks. Sized to the widest label (4 chars: ">20k" / ">6km"). */
+.wx-sky-alt {
+  width: 30px;
+  flex: none;
+  text-align: right;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+/* EQ — the SAME rounded box segments as the Clarity/Seeing readout
+   (.wx-eq2-seg / .wx-eq2-segs, reused verbatim). */
+.wx-sky-eq {
+  display: inline-flex;
+  align-items: center;
+}
