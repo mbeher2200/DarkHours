@@ -280,6 +280,14 @@
   .wx-table th:first-child {
     min-width: 52px;
   }
+  /* Event rows (Sunset/Astro Dark/etc.) keep the desktop-width 6px horizontal
+     padding on their time cell otherwise — at 52px that leaves too little room
+     for an 8-char double-digit-hour stamp ("10:14 PM"), wrapping "PM" onto its
+     own line. Match the plain-row 2px gutter so it stays on one line. */
+  .wx-ev-row td.wx-ev-time {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
 
   /* Weather + wind icons shrink; the condition icon lives in the merged Sky
      Cover cell now. */
@@ -298,11 +306,10 @@
     gap: 3px;
   }
 
-  /* Clarity/Seeing — narrower segments, no inter-segment gaps, to stay compact. */
-  .wx-eq2-seg {
-    width: 4px;
+  /* Clarity/Seeing + Sky Cover — narrower bars, to stay compact. */
+  .wx-bar-track {
+    width: 22px;
   }
-  .wx-eq2-segs,
   .wx-eq2 {
     gap: 0;
   }
@@ -312,13 +319,9 @@
     white-space: nowrap;
   }
 
-  /* Wind — let the readout wrap; unit hugs the value. */
+  /* Wind — let the readout wrap. */
   .wx-wind-col {
     flex-wrap: wrap;
-  }
-  .wx-wind-unit {
-    width: auto;
-    padding-right: 2px;
   }
 
   /* ── Targets table ── */

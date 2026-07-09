@@ -403,7 +403,6 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   font-variant-numeric: tabular-nums;
 }
 .wx-wind-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
-.wx-wind-unit { display: inline-block; width: 26px; text-align: left; padding-left: 2px; color: var(--text-dim); }
 /* Gust sits between two visible neighbors ("/" and the unit), so unlike sustained
    it gets no fixed-width box — that would leave a blank gap against whichever
    side padding falls on. Sized to content instead, so it stays flush against
@@ -423,12 +422,6 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   font-variant-numeric: tabular-nums;
 }
 .wx-temp-sep { display: inline-block; margin: 0 1px; color: var(--text-dim); }
-/* No fixed width — the unit is the last element in the cell (nothing trails it)
-   and is identical on every row (global imperial/metric toggle, not per-row),
-   so unlike the dew value there's no cross-row variability to guard against. A
-   fixed box here only left trailing blank space after the short "°F"/"°C" text,
-   which is why the right-aligned header didn't line up with the visible data. */
-.wx-temp-unit { display: inline-block; padding-left: 2px; color: var(--text-dim); }
 .wx-dew-val { display: inline-block; width: auto; text-align: left; }
 .wx-dew-warn { color: var(--poor); font-weight: 700; }
 /* Combined Seeing/Transparency readout — always wraps to two lines (Seeing above

@@ -171,7 +171,7 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                 <th>Time</th>
                 <th className="wx-cloud-col wx-cloud-hdr">
                   <InfoTip tip={<>The weather icon and total cloud-cover % hang to the left; the telemetry stack breaks cloud out by altitude — high (&gt;20kft / &gt;6km), mid (&gt;6kft / &gt;2km), low (&lt;6kft / &lt;2km) — with more filled blocks meaning more cloud at that layer.</>}>
-                    Sky Cover
+                    Sky Cover at<br />Alt. ({imperial ? 'Feet' : 'Meters'})
                   </InfoTip>
                 </th>
                 {hasAtmos  && (
@@ -181,8 +181,8 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                     </InfoTip>
                   </th>
                 )}
-                {(hasTemp || hasDew) && <th className="wx-temp-col wx-temp-hdr">TEMP/<br />DEW PT</th>}
-                <th className="wx-wind-col">Wind</th>
+                {(hasTemp || hasDew) && <th className="wx-temp-col wx-temp-hdr">TEMP/<br />DEW PT ({tempUnitLabel(imperial)})</th>}
+                <th className="wx-wind-col">Wind ({windUnitLabel(imperial)})</th>
               </tr>
             </thead>
           )}
@@ -291,9 +291,6 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                             {fmtTempValue(p.dew_point_c, imperial)}
                           </span>
                         )}
-                        {(p.temperature_c != null || p.dew_point_c != null) && (
-                          <span className="wx-temp-unit">{tempUnitLabel(imperial)}</span>
-                        )}
                       </>)}
                     </td>
                   )}
@@ -310,7 +307,6 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                         </span>
                       </>
                     )}
-                    <span className="wx-wind-unit">{windUnitLabel(imperial)}</span>
                   </>
                 ) : '—'}
 

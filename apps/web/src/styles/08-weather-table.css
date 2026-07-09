@@ -31,7 +31,7 @@
   border-bottom: none;
 }
 .wx-now-row td.wx-now-time {
-  padding: 1px 6px 1px 0;
+  padding: 1px 6px;
   background: var(--card);
   color: var(--accent);
   border-left: 2px solid var(--accent);
@@ -66,9 +66,9 @@ html.red-mode .wx-now-row td.wx-now-time {
 }
 /* Time cell: restore padding, solid bg for sticky cover, accent border to mark event rows */
 .wx-ev-row td.wx-ev-time {
-  padding: 3px 6px 3px 0;
+  padding: 3px 6px;
   background: var(--card);
-  border-left: 1.5px solid rgba(var(--tint-rgb), 0.35);
+  border-left-color: rgba(var(--tint-rgb), 0.35);
 }
 /* Label cell: sticky immediately after the time column */
 .wx-ev-content {
@@ -121,7 +121,7 @@ html.red-mode .wx-now-row td.wx-now-time {
 .wx-ev-row.wx-ev-astro .wx-ev-divider::before,
 .wx-ev-row.wx-ev-astro .wx-ev-divider::after {
   content: '';
-  flex: 1;
+  flex: 0 1 32px;
   height: 0;
   border-top: 1px solid rgba(var(--hairline-rgb), 0.6);
 }
@@ -201,10 +201,12 @@ html.red-mode .wx-now-row td.wx-now-time {
   z-index: 1;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
-  text-align: right;
-  padding-left: 0;
+  text-align: left;
   width: 1px;
   min-width: 68px; /* fixed so event label cell can use left: 68px */
+  /* Fixed-width transparent border on every row (not just accented ones) so the
+     accent border below never shifts the time text — only its color changes. */
+  border-left: 2px solid transparent;
 }
 .wx-table th:first-child {
   width: 1px;
@@ -235,8 +237,17 @@ html.red-mode .wx-now-row td.wx-now-time {
    exception: its header stays right-aligned (via .wx-num / th:not(:first-child))
    so it sits over the telemetry while the icon+% hang off to the left. */
 .wx-table th.wx-wind-col, .wx-table td.wx-wind-col,
-.wx-table th.wx-atmos-col, .wx-table td.wx-atmos-col {
+.wx-table td.wx-atmos-col {
   text-align: center;
+}
+/* Clarity/Seeing header: left-align instead of centering, so "Clarity /" and
+   "Seeing" share one left edge across their two wrapped lines rather than each
+   line centering independently and reading as staggered/misaligned. Extra
+   left padding keeps that shared edge from hugging the Sky Cover column's
+   right edge — the centered C/S data below sits well clear of it already. */
+.wx-table th.wx-atmos-hdr {
+  text-align: left;
+  padding-left: 16px;
 }
 /* Grouped span headers (e.g. Rise / Peak / Set in sat table) look better centred */
 .wx-table th[colspan] {
@@ -309,12 +320,12 @@ html.red-mode .recalc-overlay {
   }
 }
 
-/* ── Clarity / Seeing segmented EQ readout ──────────────────────────────────
+/* ── Clarity / Seeing bar readout ───────────────────────────────────────────
    Two stacked rows (C = Clarity/transparency, S = Seeing) with a tight 2px gap
-   so they read as one consolidated instrument. Rendered as real rounded boxes
-   (not ▇/░ glyphs): filled = --text-dim, empty = a faint hairline track wash.
-   Both are tokens, so red-mode flips to pure red automatically. The Sky Cover
-   readout below reuses this same colour scheme. The whole block is inline-flex,
+   so they read as one consolidated instrument. Rendered as a proportional fill
+   bar (.wx-bar-track/.wx-bar-fill, shared with the Sky Cover readout below):
+   filled = --text-dim, empty = a faint hairline track wash. Both are tokens,
+   so red-mode flips to pure red automatically. The whole block is inline-flex,
    so it centres in the centred cell while its rows stay left-aligned against a
    rigid label. */
 .wx-eq2 {
@@ -329,8 +340,8 @@ html.red-mode .recalc-overlay {
   align-items: center;
   gap: 6px;
 }
-/* Fixed-width label box → rigid left margin before the segments begin, so C and
-   S line up and the two bars share a common starting axis. Same mono font as the
+/* Fixed-width label box → rigid left margin before the bar begins, so C and S
+   line up and the two bars share a common starting axis. Same mono font as the
    rest of the table; unbold. */
 .wx-eq2-label {
   width: 12px;
@@ -341,19 +352,24 @@ html.red-mode .recalc-overlay {
   font-weight: 400;
   font-size: 11px;
 }
-.wx-eq2-segs {
-  display: inline-flex;
-  gap: 2px;
+/* Bar track height is pinned to the cap-height of the 11px mono label beside
+   it, so the bar and its label read as one baseline-aligned unit rather than
+   a mismatched pair. */
+.wx-bar-track {
+  display: inline-block;
+  width: 34px;
+  height: 8px;
+  border-radius: 3px;
+  background: rgba(var(--hairline-rgb), 0.15);
+  overflow: hidden;
+  flex: none;
 }
-/* Small rounded segment boxes — wider than tall (the ~20% "shorter" look), with
-   the same 1px corner radius as the cloud-cover track tops. */
-.wx-eq2-seg {
-  width: 7px;
-  height: 6px;
-  border-radius: 1px;
+.wx-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--text-dim);
+  border-radius: inherit;
 }
-.wx-eq2-seg-on  { background: var(--text-dim); }
-.wx-eq2-seg-off { background: rgba(var(--hairline-rgb), 0.15); }
 
 /* Sky Cover cell — the condition icon + total % (left) and the altitude
    telemetry stack (right), sharing one column. The header is right-aligned over
@@ -403,17 +419,11 @@ html.red-mode .recalc-overlay {
   white-space: nowrap;
 }
 /* Fixed-width altitude label, right-aligned so the unit sits flush against the
-   segment blocks. Sized to the widest label (4 chars: ">20k" / ">6km"). */
+   bar. Sized to the widest label (4 chars: ">20k" / ">6km"). */
 .wx-sky-alt {
   width: 30px;
   flex: none;
   text-align: right;
   color: var(--text-dim);
   letter-spacing: 0.02em;
-}
-/* EQ — the SAME rounded box segments as the Clarity/Seeing readout
-   (.wx-eq2-seg / .wx-eq2-segs, reused verbatim). */
-.wx-sky-eq {
-  display: inline-flex;
-  align-items: center;
 }
