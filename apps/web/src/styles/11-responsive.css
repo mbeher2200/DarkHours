@@ -279,26 +279,28 @@
     padding-right: 0;
   }
 
-  /* Conditions Icon Column */
-  .wx-table th.wx-cond-col,
-  .wx-table td.wx-rating {
-    min-width: 24px;
-    padding-left: 0;
-  }
-
-  /* Force the weather and wind icons to shrink and strip hardcoded margins */
-  .wx-table td.wx-rating svg,
+  /* Force the weather and wind icons to shrink and strip hardcoded margins.
+     The condition icon now lives inside the merged Sky Cover cell. */
+  .wx-cond-cell svg,
   .wx-table td.wx-wind-col svg {
     width: 20px !important;
     height: 20px !important;
     margin-left: 0 !important;
   }
+  /* Shrink the cloud % to sit better under the now-smaller icon. */
+  .wx-cond-total {
+    font-size: 9px;
+  }
 
-  /* Cloud Cover Column */
+  /* Sky Cover Column (icon + % + telemetry) */
   .wx-table th.wx-cloud-col,
   .wx-table td.wx-cloud-col {
     padding-left: 0;
     padding-right: 0;
+  }
+  /* Tighten the gap between the icon+% and the telemetry stack on mobile. */
+  .wx-sky-cell {
+    gap: 3px;
   }
 
   /* Clarity/Seeing Column */

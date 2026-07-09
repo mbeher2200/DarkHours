@@ -44,7 +44,7 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
   const hasTransp = visiblePoints.some(p => p.transparency    != null)
   const hasAtmos  = hasSeeing || hasTransp
   const hasWx     = visiblePoints.length > 0
-  const totalCols = 5 + (hasAtmos ? 1 : 0) + ((hasTemp || hasDew) ? 1 : 0)
+  const totalCols = 4 + (hasAtmos ? 1 : 0) + ((hasTemp || hasDew) ? 1 : 0)
 
   // Astronomical night window (sun-based, matches the "ASTRO DARK BEGINS/ENDS"
   // divider rows below) — NOT darkIntervals/dark_intervals, which is a different
@@ -169,9 +169,8 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
             <thead>
               <tr>
                 <th>Time</th>
-                <th className="wx-cond-col"></th>
                 <th className="wx-cloud-col wx-cloud-hdr">
-                  <InfoTip tip={<>The big number is total cloud cover. The telemetry stack breaks it out by altitude — high (&gt;20kft / &gt;6km), mid (&gt;6kft / &gt;2km), low (&lt;6kft / &lt;2km) — with more filled blocks meaning more cloud at that layer.</>}>
+                  <InfoTip tip={<>The weather icon and total cloud-cover % hang to the left; the telemetry stack breaks cloud out by altitude — high (&gt;20kft / &gt;6km), mid (&gt;6kft / &gt;2km), low (&lt;6kft / &lt;2km) — with more filled blocks meaning more cloud at that layer.</>}>
                     Sky Cover
                   </InfoTip>
                 </th>
@@ -254,25 +253,25 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
               return (
                 <tr key={`wx-${i}`} className={astroShadeCls}>
                   <td className="wx-time">{formatTime(p.time, tz)}</td>
-                  <td className="wx-num wx-rating">
-                    {cell(isFetching, <div className="wx-cond-cell">
-                      <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
-                        moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
-                        aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
-                        windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />
-                      {showCloudTotal({ code: p.weather_code, cloudCover: p.cloud_cover_pct, precipType: p.precip_type,
-                        windSpeedMs: p.wind_speed_ms, windGustMs: p.wind_gust_ms }) && (
-                        <span className="wx-cond-total">{p.cloud_cover_pct}%</span>
-                      )}
-                    </div>)}
-                  </td>
                   <td className="wx-num wx-cloud-col">
-                    {cell(isFetching, <SkyCover
-                      low={p.cloud_cover_low_pct}
-                      mid={p.cloud_cover_mid_pct}
-                      high={p.cloud_cover_high_pct}
-                      imperial={imperial}
-                    />)}
+                    {cell(isFetching, <div className="wx-sky-cell">
+                      <div className="wx-cond-cell">
+                        <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
+                          moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
+                          aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
+                          windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />
+                        {showCloudTotal({ code: p.weather_code, cloudCover: p.cloud_cover_pct, precipType: p.precip_type,
+                          windSpeedMs: p.wind_speed_ms, windGustMs: p.wind_gust_ms }) && (
+                          <span className="wx-cond-total">{p.cloud_cover_pct}%</span>
+                        )}
+                      </div>
+                      <SkyCover
+                        low={p.cloud_cover_low_pct}
+                        mid={p.cloud_cover_mid_pct}
+                        high={p.cloud_cover_high_pct}
+                        imperial={imperial}
+                      />
+                    </div>)}
                   </td>
                   {hasAtmos && (
                     <td className="wx-num wx-atmos-col">

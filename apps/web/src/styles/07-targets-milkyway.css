@@ -443,15 +443,9 @@ html.red-mode .cond-glow { color: rgb(160, 0, 0) !important; }
   line-height: 1.15;
   vertical-align: bottom;
 }
-/* NOTE: the Clarity/Seeing segmented EQ readout (.wx-eq2*) lives in
-   08-weather-table.css alongside the rest of the weather-table cell styling. */
-/* Conditions column has no header label (icon-only) — pin a comfortable fixed width
-   instead of letting it auto-size to the icon alone. */
-.wx-table th.wx-cond-col,
-.wx-table td.wx-rating {
-  width: 1px;
-  min-width: 42px;
-}
+/* NOTE: the Clarity/Seeing segmented EQ readout (.wx-eq2*) and the merged Sky
+   Cover cell (.wx-sky-cell — icon + % + telemetry) live in 08-weather-table.css
+   alongside the rest of the weather-table cell styling. */
 /* Fog/Haze/Haze-Aloft/Haze-Surface — bold word instead of an icon (see WmoIcon).
    Stays single-line by default; narrow viewports override to wrap "Aloft"/"Surface"
    onto their own line below "Haze:" rather than widening the column (see the

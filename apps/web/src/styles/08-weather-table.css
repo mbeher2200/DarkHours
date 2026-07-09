@@ -179,10 +179,10 @@ html.red-mode .wx-now-row td.wx-now-time {
   color: var(--text);
   white-space: nowrap;
 }
-/* Conditions and Wind cells hold a 32px icon — the tallest content in the row,
-   so it alone sets the row height for every cell. Tighter vertical padding here
-   brings the row back down without shrinking the icon itself. */
-.wx-table td.wx-rating,
+/* The Wind cell holds a 32px icon; the Sky Cover cell holds the 3-row telemetry
+   stack plus the condition icon. Both are among the tallest content in the row,
+   so tighter vertical padding here keeps rows compact without shrinking them. */
+.wx-table td.wx-cloud-col,
 .wx-table td.wx-wind-col {
   padding-top: 3px;
   padding-bottom: 3px;
@@ -231,9 +231,9 @@ html.red-mode .wx-now-row td.wx-now-time {
 /* Center every icon-headed column: the header icon and its data (which can be
    wider than the icon itself, e.g. the L/M/H cloud tiers) share one center
    point, so they align regardless of the data's rendered width — unlike
-   right-align, which only guarantees the shared edge lines up. */
-.wx-table th.wx-cond-col, .wx-table td.wx-rating,
-.wx-table th.wx-cloud-col, .wx-table td.wx-cloud-col,
+   right-align, which only guarantees the shared edge lines up. Sky Cover is the
+   exception: its header stays right-aligned (via .wx-num / th:not(:first-child))
+   so it sits over the telemetry while the icon+% hang off to the left. */
 .wx-table th.wx-wind-col, .wx-table td.wx-wind-col,
 .wx-table th.wx-atmos-col, .wx-table td.wx-atmos-col {
   text-align: center;
@@ -354,6 +354,15 @@ html.red-mode .recalc-overlay {
 }
 .wx-eq2-seg-on  { background: var(--text-dim); }
 .wx-eq2-seg-off { background: rgba(var(--hairline-rgb), 0.15); }
+
+/* Sky Cover cell — the condition icon + total % (left) and the altitude
+   telemetry stack (right), sharing one column. The header is right-aligned over
+   the telemetry, so the icon+% appear to hang off the left edge of the column. */
+.wx-sky-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* ── Conditions cell — weather icon + total cloud-cover % ────────────────────
    The total % (formerly the Sky Cover "big total") now sits under the condition
