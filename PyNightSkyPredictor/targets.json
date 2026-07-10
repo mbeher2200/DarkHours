@@ -75,6 +75,15 @@
     "angular_size_arcmin": 65
   },
   {
+    "name": "Barnard's Loop",
+    "type": "nebula",
+    "ra": "05h 53m 00s",
+    "dec": "-03° 00' 00\"",
+    "magnitude": 5.0,
+    "surface_brightness": 16.5,
+    "angular_size_arcmin": 600
+  },
+  {
     "name": "Lagoon Nebula",
     "type": "nebula",
     "ra": "18h 03m 37s",
@@ -84,24 +93,6 @@
     "angular_size_arcmin": 90
   },
   {
-    "name": "Eagle Nebula",
-    "type": "nebula",
-    "ra": "18h 18m 48s",
-    "dec": "-13° 49' 00\"",
-    "magnitude": 6.4,
-    "surface_brightness": 14.5,
-    "angular_size_arcmin": 7
-  },
-  {
-    "name": "Swan Nebula",
-    "type": "nebula",
-    "ra": "18h 20m 26s",
-    "dec": "-16° 10' 36\"",
-    "magnitude": 6.0,
-    "surface_brightness": 14.0,
-    "angular_size_arcmin": 11
-  },
-  {
     "name": "Trifid Nebula",
     "type": "nebula",
     "ra": "18h 02m 23s",
@@ -109,24 +100,6 @@
     "magnitude": 6.3,
     "surface_brightness": 14.5,
     "angular_size_arcmin": 28
-  },
-  {
-    "name": "Ring Nebula",
-    "type": "nebula",
-    "ra": "18h 53m 35s",
-    "dec": "+33° 01' 45\"",
-    "magnitude": 8.8,
-    "surface_brightness": 13.0,
-    "angular_size_arcmin": 1.4
-  },
-  {
-    "name": "Dumbbell Nebula",
-    "type": "nebula",
-    "ra": "19h 59m 36s",
-    "dec": "+22° 43' 16\"",
-    "magnitude": 7.4,
-    "surface_brightness": 13.5,
-    "angular_size_arcmin": 8
   },
   {
     "name": "Veil Nebula",
@@ -147,13 +120,31 @@
     "angular_size_arcmin": 120
   },
   {
-    "name": "Crab Nebula",
+    "name": "California Nebula",
     "type": "nebula",
-    "ra": "05h 34m 32s",
-    "dec": "+22° 00' 52\"",
-    "magnitude": 8.4,
-    "surface_brightness": 12.5,
-    "angular_size_arcmin": 7
+    "ra": "04h 03m 18s",
+    "dec": "+36° 22' 00\"",
+    "magnitude": 6.0,
+    "surface_brightness": 15.5,
+    "angular_size_arcmin": 150
+  },
+  {
+    "name": "Heart Nebula",
+    "type": "nebula",
+    "ra": "02h 33m 22s",
+    "dec": "+61° 26' 36\"",
+    "magnitude": 18.3,
+    "surface_brightness": 17.0,
+    "angular_size_arcmin": 150
+  },
+  {
+    "name": "Soul Nebula",
+    "type": "nebula",
+    "ra": "02h 51m 00s",
+    "dec": "+60° 24' 00\"",
+    "magnitude": 6.5,
+    "surface_brightness": 16.0,
+    "angular_size_arcmin": 150
   },
   {
     "name": "Helix Nebula",
@@ -201,42 +192,6 @@
     "angular_size_arcmin": 70
   },
   {
-    "name": "Whirlpool Galaxy",
-    "type": "galaxy",
-    "ra": "13h 29m 53s",
-    "dec": "+47° 11' 43\"",
-    "magnitude": 8.4,
-    "surface_brightness": 13.0,
-    "angular_size_arcmin": 11
-  },
-  {
-    "name": "Sombrero Galaxy",
-    "type": "galaxy",
-    "ra": "12h 39m 59s",
-    "dec": "-11° 37' 23\"",
-    "magnitude": 8.0,
-    "surface_brightness": 12.0,
-    "angular_size_arcmin": 8.7
-  },
-  {
-    "name": "Pinwheel Galaxy",
-    "type": "galaxy",
-    "ra": "14h 03m 13s",
-    "dec": "+54° 20' 57\"",
-    "magnitude": 7.9,
-    "surface_brightness": 14.8,
-    "angular_size_arcmin": 28
-  },
-  {
-    "name": "Bode's Galaxy",
-    "type": "galaxy",
-    "ra": "09h 55m 33s",
-    "dec": "+69° 03' 55\"",
-    "magnitude": 6.9,
-    "surface_brightness": 12.5,
-    "angular_size_arcmin": 26
-  },
-  {
     "name": "Sculptor Galaxy",
     "type": "galaxy",
     "ra": "00h 47m 33s",
@@ -244,15 +199,6 @@
     "magnitude": 7.1,
     "surface_brightness": 13.0,
     "angular_size_arcmin": 40
-  },
-  {
-    "name": "Centaurus A",
-    "type": "galaxy",
-    "ra": "13h 25m 28s",
-    "dec": "-43° 01' 09\"",
-    "magnitude": 6.8,
-    "surface_brightness": 12.5,
-    "angular_size_arcmin": 25
   },
   {
     "name": "Large Magellanic Cloud",
@@ -290,14 +236,6 @@
     "angular_size_arcmin": 110
   },
   {
-    "name": "Hercules Cluster",
-    "type": "cluster",
-    "ra": "16h 41m 42s",
-    "dec": "+36° 27' 36\"",
-    "magnitude": 5.8,
-    "angular_size_arcmin": 20
-  },
-  {
     "name": "Omega Centauri",
     "type": "cluster",
     "ra": "13h 26m 47s",
@@ -328,22 +266,6 @@
     "dec": "-72° 04' 52\"",
     "magnitude": 4.0,
     "angular_size_arcmin": 30
-  },
-  {
-    "name": "Wild Duck Cluster",
-    "type": "cluster",
-    "ra": "18h 51m 05s",
-    "dec": "-06° 16' 00\"",
-    "magnitude": 6.3,
-    "angular_size_arcmin": 14
-  },
-  {
-    "name": "Jewel Box",
-    "type": "cluster",
-    "ra": "12h 53m 42s",
-    "dec": "-60° 21' 24\"",
-    "magnitude": 4.2,
-    "angular_size_arcmin": 10
   },
   {
     "name": "Mercury",
@@ -439,6 +361,26 @@
     "peak_day": 21,
     "active_window_days": 14,
     "peak_zhr": 20
+  },
+  {
+    "name": "Northern Taurids",
+    "type": "meteor_shower",
+    "radiant_ra": "03h 52m 00s",
+    "radiant_dec": "+22° 00' 00\"",
+    "peak_month": 11,
+    "peak_day": 12,
+    "active_window_days": 50,
+    "peak_zhr": 5
+  },
+  {
+    "name": "Southern Taurids",
+    "type": "meteor_shower",
+    "radiant_ra": "03h 12m 00s",
+    "radiant_dec": "+13° 00' 00\"",
+    "peak_month": 11,
+    "peak_day": 5,
+    "active_window_days": 60,
+    "peak_zhr": 5
   },
   {
     "name": "Leonids",

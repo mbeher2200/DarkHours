@@ -18,7 +18,7 @@ interface HistoryEntry {
 }
 
 const HISTORY_KEY = 'search-history'
-const HISTORY_MAX = 8
+const HISTORY_MAX = 12
 
 function loadHistory(): HistoryEntry[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
@@ -93,9 +93,7 @@ export default function App() {
 
   const { wxForecastUnavailable, satUnavailable, isPastDate } = (() => {
     if (!date) return { wxForecastUnavailable: false, satUnavailable: false, isPastDate: false }
-    const { wxUnavail, satUnavail } = availabilityFor(date)
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const days = Math.round((new Date(date + 'T00:00:00').getTime() - today.getTime()) / 86_400_000)
+    const { wxUnavail, satUnavail, days } = availabilityFor(date)
     return { wxForecastUnavailable: wxUnavail, satUnavailable: satUnavail, isPastDate: days < 0 }
   })()
 
