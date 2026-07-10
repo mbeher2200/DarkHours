@@ -6,12 +6,13 @@ import { ScoreBar } from './shared'
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DOW_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
-function dateParts(iso: string): { dow: string; mmdd: string; long: string } {
+function dateParts(iso: string): { dow: string; mmdd: string; long: string; longWithYear: string } {
   const d = new Date(iso + 'T00:00:00')
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   const long = `${DOW[d.getDay()]}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-  return { dow: DOW[d.getDay()], mmdd: `${mm}/${dd}`, long }
+  const longWithYear = `${DOW[d.getDay()]}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  return { dow: DOW[d.getDay()], mmdd: `${mm}/${dd}`, long, longWithYear }
 }
 
 // Monochromatic luminance map: the raw score alone drives the cell wash's
@@ -74,7 +75,7 @@ export default function OutlookTelemetryRibbon({
         onToggle={e => setExpanded(e.currentTarget.open)}
       >
         <summary>
-          <strong>Next Best Day:</strong>{' '}
+          <strong>Optimal Window:</strong>{' '}
           {best?.score != null ? (
             <>
               {dateParts(best.date).long} -{' '}
@@ -129,8 +130,8 @@ export default function OutlookTelemetryRibbon({
             {selected ? (
               <>
                 <div className="telemetry-selected-head">
-                  <span className="telemetry-preview-badge">Alternative Day</span>
-                  <div className="telemetry-selected-date">{dateParts(selected.date).long}</div>
+                  <span className="telemetry-preview-badge">Date Preview</span>
+                  <div className="telemetry-selected-date">{dateParts(selected.date).longWithYear}</div>
                 </div>
                 <div className="meta-row">
                   <span className="meta-k">Score</span>
@@ -162,7 +163,7 @@ export default function OutlookTelemetryRibbon({
                   disabled={isFetchingDetails}
                   onClick={() => onViewDetails(selected.date)}
                 >
-                  {isFetchingDetails ? 'Loading…' : 'View Details'}
+                  {isFetchingDetails ? 'Loading…' : 'Load Timeline'}
                 </button>
                 {viewDetailsError && <p className="sat-notice">{viewDetailsError}</p>}
               </>

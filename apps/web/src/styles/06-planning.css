@@ -430,12 +430,13 @@ html.red-mode .heatmap-cell.hm-excellent .hm-score {
 /* Colors/border/hover/active/disabled/red-mode all come from .submit (shared
    with "Score the night") — this class only positions it in the flex column. */
 .telemetry-view-details {
-  align-self: flex-start;
+  align-self: stretch;
   margin-top: 4px;
 }
 .telemetry-selected-head {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   margin-bottom: 2px;
 }
