@@ -164,6 +164,16 @@ html.red-mode .submit {
   color: #e00000;
   box-shadow: none;
 }
+html.red-mode .nearby-radius-select {
+  background: #5a0000;
+  color: #e00000;
+}
+html.red-mode .nearby-radius-select:hover {
+  background: #6e0000;
+}
+html.red-mode .nearby-radius-select-chevron {
+  color: #e00000;
+}
 html.red-mode .submit:hover:not(:disabled) {
   background: #6e0000;
   box-shadow: none;
@@ -315,6 +325,10 @@ html.red-mode .dp-trigger {
   background: var(--field-bg);
   border-color: rgba(255, 0, 0, 0.25);
   box-shadow: none;
+}
+html.red-mode .planning-tools-section {
+  background: rgba(255, 0, 0, 0.03);
+  border-color: rgba(255, 0, 0, 0.18);
 }
 .masthead h1 {
   display: inline-flex;

@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import type { CalendarNight, CalendarResult } from './types'
-import { scoreBand, scoreLabel, tonightIso, formatHm } from './format'
-import { MoonPhaseSvg, ScoreBar } from './shared'
+import { scoreBand, scoreLabel, tonightIso } from './format'
+import { ScoreBar } from './shared'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DOW_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -34,10 +34,9 @@ function cellAlpha(score: number): number {
  * factor in.
  */
 export default function OutlookTelemetryRibbon({
-  data, days, startExpanded, onViewDetails, isFetchingDetails, viewDetailsError,
+  data, startExpanded, onViewDetails, isFetchingDetails, viewDetailsError,
 }: {
   data: CalendarResult
-  days: number
   startExpanded?: boolean
   onViewDetails: (date: string) => void
   isFetchingDetails?: boolean
@@ -69,115 +68,108 @@ export default function OutlookTelemetryRibbon({
 
   return (
     <div className="telemetry-ribbon">
-      {best?.score != null && (
-        <div className="telemetry-hero">
-          <span className="telemetry-hero-label">
-            Best night, {days}-day outlook · {dateParts(best.date).long} -{' '}
-          </span>
-          <span className={bestBand ? `telemetry-score-${bestBand}` : undefined}>
-            {best.score.toFixed(1)}/10
-          </span>
-        </div>
-      )}
-
       <details
         className="telemetry-collapse"
         open={expanded}
         onToggle={e => setExpanded(e.currentTarget.open)}
       >
-        <summary>Calendar &amp; Next Best Night</summary>
-
-        <div className="heatmap-body">
-          <div className="heatmap-dow-row" aria-hidden="true">
-            {DOW_SHORT.map((d, i) => <span key={i}>{d}</span>)}
-          </div>
-          <div className="heatmap-grid">
-            {cells.map((n, i) => {
-              if (!n) return <span key={`pad-${i}`} className="heatmap-cell heatmap-cell-empty" />
-              const band = n.score != null ? scoreBand(n.score) : null
-              const isPast = n.date < today
-              const isMuted = isPast || n.score == null
-              const isSelected = n.date === selectedDate
-              const isBest = n.date === best?.date
-              const { dow, mmdd } = dateParts(n.date)
-              const dayNum = Number(n.date.slice(8, 10))
-              return (
-                <button
-                  key={n.date}
-                  type="button"
-                  className={[
-                    'heatmap-cell',
-                    band ? `hm-${band}` : '',
-                    isMuted ? 'muted' : '',
-                    isSelected ? 'selected' : '',
-                    isBest ? 'best' : '',
-                  ].filter(Boolean).join(' ')}
-                  style={n.score != null ? ({ '--cell-alpha': cellAlpha(n.score) } as CSSProperties) : undefined}
-                  onClick={() => setSelectedDate(n.date)}
-                  aria-pressed={isSelected}
-                  title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''}`}
-                  aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}${isBest ? ', best night' : ''}${isSelected ? ', currently selected' : ''}`}
-                >
-                  <span className="hm-day">{dayNum}</span>
-                  <span className="hm-score">{n.score != null ? n.score.toFixed(1) : '—'}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="telemetry-readout">
-          {selected ? (
+        <summary>
+          <strong>Next Best Day:</strong>{' '}
+          {best?.score != null ? (
             <>
-              <div className="telemetry-selected-head">
-                <MoonPhaseSvg phaseName={selected.phase_name} illuminationPct={selected.illumination_pct} size={30} />
-                <div className="telemetry-selected-date">{dateParts(selected.date).long}</div>
-              </div>
-              <div className="meta-row">
-                <span className="meta-k">Score</span>
-                <span className={`meta-v${selectedBand ? ` telemetry-score-${selectedBand}` : ''}`}>
-                  {selected.score != null ? `${selected.score.toFixed(1)} · ${scoreLabel(selected.score)}` : '—'}
-                </span>
-              </div>
-              <div className="meta-row">
-                <span className="meta-k">Dark Hours</span>
-                <span className="meta-v">{formatHm(selected.dark_hours)}</span>
-              </div>
-              <div className="meta-row">
-                <span className="meta-k">Lunar Conditions</span>
-                <span className="meta-v">{selected.phase_name} · {selected.illumination_pct.toFixed(0)}% illuminated</span>
-              </div>
-              {!selected.weather_informed && (
-                <p className="sat-notice">
-                  Astronomy-only estimate —{' '}
-                  {selected.wx_pending
-                    ? 'forecast not yet available for this date'
-                    : selected.wx_no_data
-                    ? 'weather provider returned no data for this date'
-                    : 'beyond the 16-day forecast horizon'}
-                </p>
-              )}
-              {sc && (
-                <div className="telemetry-mini-bars">
-                  {sc.bortle != null && <ScoreBar label="Dark Sky" value={sc.bortle} />}
-                  {sc.moon   != null && <ScoreBar label="Lunar"    value={sc.moon} />}
-                  {sc.dark   != null && <ScoreBar label="Dark Hours" value={sc.dark} />}
-                  {selected.weather_informed && sc.weather != null && <ScoreBar label="Weather" value={sc.weather} />}
-                </div>
-              )}
-              <button
-                type="button"
-                className="telemetry-view-details submit"
-                disabled={isFetchingDetails}
-                onClick={() => onViewDetails(selected.date)}
-              >
-                {isFetchingDetails ? 'Loading…' : 'View Details'}
-              </button>
-              {viewDetailsError && <p className="sat-notice">{viewDetailsError}</p>}
+              {dateParts(best.date).long} -{' '}
+              <span className={bestBand ? `telemetry-score-${bestBand}` : undefined}>
+                {best.score.toFixed(1)}/10
+              </span>
             </>
-          ) : (
-            <p className="sat-notice">No data</p>
-          )}
+          ) : '—'}
+        </summary>
+
+        <div className="telemetry-columns">
+          <div className="heatmap-body">
+            <div className="heatmap-dow-row" aria-hidden="true">
+              {DOW_SHORT.map((d, i) => <span key={i}>{d}</span>)}
+            </div>
+            <div className="heatmap-grid">
+              {cells.map((n, i) => {
+                if (!n) return <span key={`pad-${i}`} className="heatmap-cell heatmap-cell-empty" />
+                const band = n.score != null ? scoreBand(n.score) : null
+                const isPast = n.date < today
+                const isMuted = isPast || n.score == null
+                const isSelected = n.date === selectedDate
+                const isBest = n.date === best?.date
+                const { dow, mmdd } = dateParts(n.date)
+                const dayNum = Number(n.date.slice(8, 10))
+                return (
+                  <button
+                    key={n.date}
+                    type="button"
+                    className={[
+                      'heatmap-cell',
+                      band ? `hm-${band}` : '',
+                      isMuted ? 'muted' : '',
+                      isSelected ? 'selected' : '',
+                      isBest ? 'best' : '',
+                    ].filter(Boolean).join(' ')}
+                    style={n.score != null ? ({ '--cell-alpha': cellAlpha(n.score) } as CSSProperties) : undefined}
+                    onClick={() => setSelectedDate(n.date)}
+                    aria-pressed={isSelected}
+                    title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''}`}
+                    aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}${isBest ? ', best night' : ''}${isSelected ? ', currently selected' : ''}`}
+                  >
+                    <span className="hm-day">{dayNum}</span>
+                    <span className="hm-score">{n.score != null ? n.score.toFixed(1) : '—'}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="telemetry-readout">
+            {selected ? (
+              <>
+                <div className="telemetry-selected-head">
+                  <span className="telemetry-preview-badge">Alternative Day</span>
+                  <div className="telemetry-selected-date">{dateParts(selected.date).long}</div>
+                </div>
+                <div className="meta-row">
+                  <span className="meta-k">Score</span>
+                  <span className={`meta-v${selectedBand ? ` telemetry-score-${selectedBand}` : ''}`}>
+                    {selected.score != null ? `${selected.score.toFixed(1)} · ${scoreLabel(selected.score)}` : '—'}
+                  </span>
+                </div>
+                {!selected.weather_informed && (
+                  <p className="sat-notice">
+                    Astronomy-only estimate —{' '}
+                    {selected.wx_pending
+                      ? 'forecast not yet available for this date'
+                      : selected.wx_no_data
+                      ? 'weather provider returned no data for this date'
+                      : 'beyond the 16-day forecast horizon'}
+                  </p>
+                )}
+                {sc && (
+                  <div className="telemetry-mini-bars">
+                    {sc.bortle != null && <ScoreBar label="Light Pollution" value={sc.bortle} />}
+                    {sc.dark   != null && <ScoreBar label="Clear Dark Sky"  value={sc.dark} />}
+                    {selected.weather_informed && sc.weather != null && <ScoreBar label="Weather" value={sc.weather} />}
+                    {sc.moon   != null && <ScoreBar label="Lunar Conditions" value={sc.moon} />}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="telemetry-view-details submit"
+                  disabled={isFetchingDetails}
+                  onClick={() => onViewDetails(selected.date)}
+                >
+                  {isFetchingDetails ? 'Loading…' : 'View Details'}
+                </button>
+                {viewDetailsError && <p className="sat-notice">{viewDetailsError}</p>}
+              </>
+            ) : (
+              <p className="sat-notice">No data</p>
+            )}
+          </div>
         </div>
       </details>
     </div>

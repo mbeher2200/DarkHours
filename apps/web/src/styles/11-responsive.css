@@ -170,6 +170,13 @@
     font-size: 11px;
     padding: 8px;
   }
+  .telemetry-columns {
+    flex-direction: column;
+  }
+  .telemetry-columns .heatmap-body {
+    border-right: none;
+    border-bottom: 1px solid var(--card-border);
+  }
 }
 
 /* ── responsive: ≤480px (phone portrait) ────────────────────────────────── */

@@ -92,7 +92,7 @@ export default function CalendarRangePicker({
         onClick={() => setOpen(o => !o)}
       >
         <CalendarDays size={13} strokeWidth={2} />
-        <span>{label}</span>
+        <span>Time Range: {label}</span>
         <ChevronDown size={13} strokeWidth={2} />
       </button>
 

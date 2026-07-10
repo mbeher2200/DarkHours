@@ -1,4 +1,12 @@
 /* ── planning tools section ──────────────────────────────────────────────── */
+.planning-tools-section {
+  border: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, 0.03);
+  padding: 0 14px 14px;
+}
+.planning-tools-section > summary {
+  margin: 0 -14px;
+}
 .planning-tools-body {
   padding-top: 10px;
   display: flex;
@@ -10,6 +18,65 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
+  text-transform: uppercase;
+}
+.planning-tool-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+.nearby-radius-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 160px;
+}
+.nearby-radius-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.nearby-radius-select-wrap {
+  position: relative;
+  width: 100%;
+}
+.nearby-radius-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--accent);
+  border: 0;
+  border-radius: 2px;
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 13px 32px 13px 13px;
+  transition: background 0.15s ease;
+}
+.nearby-radius-select:hover {
+  background: #5C73B8;
+}
+.nearby-radius-select:focus {
+  outline: 2px solid var(--text-h);
+  outline-offset: 2px;
+}
+.nearby-radius-select-chevron {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--on-accent);
+}
+.nearby-search-btn {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 11px;
 }
 
 /* ── nearby dark-sky section ─────────────────────────────────────────────── */
@@ -227,18 +294,24 @@
 
 /* ── outlook telemetry ribbon ─────────────────────────────────────────────── */
 .telemetry-ribbon {
-  border: 1px solid var(--card-border);
-}
-.telemetry-hero {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--card-border);
-  font-size: 13px;
-}
-.telemetry-hero-label {
-  color: var(--text-h);
+  border: 2px solid var(--card-border);
+  background: var(--field-bg);
 }
 .telemetry-collapse > summary {
   margin: 0;
+}
+.telemetry-columns {
+  display: flex;
+  align-items: flex-start;
+}
+.telemetry-columns .heatmap-body {
+  flex: 1 1 0;
+  border-bottom: none;
+  border-right: 1px solid var(--card-border);
+}
+.telemetry-columns .telemetry-readout {
+  flex: 1 1 0;
+  min-width: 0;
 }
 .heatmap-body {
   padding: 8px 10px;
@@ -347,7 +420,6 @@ html.red-mode .heatmap-cell.hm-excellent .hm-score {
 }
 .telemetry-readout {
   padding: 10px 12px;
-  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -371,6 +443,16 @@ html.red-mode .heatmap-cell.hm-excellent .hm-score {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-h);
+}
+.telemetry-preview-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(127, 127, 127, 0.18));
 }
 .telemetry-score-excellent,
 .telemetry-score-good,
