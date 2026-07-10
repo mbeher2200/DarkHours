@@ -38,6 +38,10 @@ This project was developed with substantial assistance from:
 - **Celestrak**: Two-Line Element sets (TLEs) for ISS, Hubble Space Telescope, Tiangong, and Starlink satellites, used for satellite pass prediction
   - https://celestrak.org/
   - Data is freely available for non-commercial use; see https://celestrak.org/data/update-policy.php
+- **Meteor shower ZHR decay model**: double-exponential (asymmetric log-linear) activity-profile decay rate constants (`b_rise`/`b_decline` in `targets.json`), used to model how a shower's ZHR falls off before/after its peak date. See [docs/TARGETS.md § Meteor Shower ZHR Decay Model](TARGETS.md#meteor-shower-zhr-decay-model) for the formula and per-shower caveats.
+  - Moorhead, A., Blaauw, R., Moser, D., Campbell-Brown, M., Brown, P., Cooke, W. (2019). *Meteor Shower Forecasting in Near-Earth Space.* Journal of Spacecraft and Rockets / [arXiv:1904.06370](https://arxiv.org/abs/1904.06370), Table 5 (NASA Meteoroid Environment Office)
+  - Egal, A. et al. (2020). *Activity of the η-Aquariid and Orionid meteor showers.* Astronomy & Astrophysics, 640, A58
+  - Peak-time-of-day (`peak_hour_utc`) sourced from [EarthSky's meteor shower guide](https://earthsky.org/astronomy-essentials/earthskys-meteor-shower-guide/) (2026/2027 apparition), drawn from AMS/IMO predictions
 
 ## Python Dependencies
 

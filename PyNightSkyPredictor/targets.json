@@ -310,7 +310,10 @@
     "peak_month": 1,
     "peak_day": 3,
     "active_window_days": 6,
-    "peak_zhr": 120
+    "peak_zhr": 120,
+    "b_rise": 0.865,
+    "b_decline": 0.827,
+    "peak_hour_utc": 3.5
   },
   {
     "name": "Lyrids",
@@ -320,7 +323,10 @@
     "peak_month": 4,
     "peak_day": 22,
     "active_window_days": 10,
-    "peak_zhr": 18
+    "peak_zhr": 18,
+    "b_rise": 1.229,
+    "b_decline": 4.620,
+    "peak_hour_utc": 1.68
   },
   {
     "name": "Eta Aquariids",
@@ -330,7 +336,10 @@
     "peak_month": 5,
     "peak_day": 5,
     "active_window_days": 18,
-    "peak_zhr": 50
+    "peak_zhr": 50,
+    "b_rise": 0.125,
+    "b_decline": 0.079,
+    "peak_hour_utc": 9.47
   },
   {
     "name": "Delta Aquariids",
@@ -340,7 +349,10 @@
     "peak_month": 7,
     "peak_day": 28,
     "active_window_days": 20,
-    "peak_zhr": 25
+    "peak_zhr": 25,
+    "b_rise": 0.109,
+    "b_decline": 0.071,
+    "peak_hour_utc": 10.0
   },
   {
     "name": "Perseids",
@@ -350,7 +362,10 @@
     "peak_month": 8,
     "peak_day": 12,
     "active_window_days": 14,
-    "peak_zhr": 100
+    "peak_zhr": 100,
+    "b_rise": 0.050,
+    "b_decline": 0.092,
+    "peak_hour_utc": 14.88
   },
   {
     "name": "Orionids",
@@ -360,7 +375,10 @@
     "peak_month": 10,
     "peak_day": 21,
     "active_window_days": 14,
-    "peak_zhr": 20
+    "peak_zhr": 20,
+    "b_rise": 0.120,
+    "b_decline": 0.119,
+    "peak_hour_utc": 6.9
   },
   {
     "name": "Northern Taurids",
@@ -370,7 +388,10 @@
     "peak_month": 11,
     "peak_day": 12,
     "active_window_days": 50,
-    "peak_zhr": 5
+    "peak_zhr": 5,
+    "b_rise": 0.026,
+    "b_decline": 0.026,
+    "peak_hour_utc": 6.98
   },
   {
     "name": "Southern Taurids",
@@ -380,7 +401,10 @@
     "peak_month": 11,
     "peak_day": 5,
     "active_window_days": 60,
-    "peak_zhr": 5
+    "peak_zhr": 5,
+    "b_rise": 0.026,
+    "b_decline": 0.026,
+    "peak_hour_utc": 0.37
   },
   {
     "name": "Leonids",
@@ -390,7 +414,10 @@
     "peak_month": 11,
     "peak_day": 17,
     "active_window_days": 10,
-    "peak_zhr": 15
+    "peak_zhr": 15,
+    "b_rise": 0.025,
+    "b_decline": 0.15,
+    "peak_hour_utc": 0.0
   },
   {
     "name": "Geminids",
@@ -400,7 +427,10 @@
     "peak_month": 12,
     "peak_day": 14,
     "active_window_days": 10,
-    "peak_zhr": 150
+    "peak_zhr": 150,
+    "b_rise": 0.150,
+    "b_decline": 0.462,
+    "peak_hour_utc": 5.73
   },
   {
     "name": "Ursids",
@@ -410,7 +440,10 @@
     "peak_month": 12,
     "peak_day": 22,
     "active_window_days": 6,
-    "peak_zhr": 10
+    "peak_zhr": 10,
+    "b_rise": 2.292,
+    "b_decline": 1.258,
+    "peak_hour_utc": 20.98
   },
   {
     "name": "Galactic Core",
