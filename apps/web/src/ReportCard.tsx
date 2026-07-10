@@ -92,6 +92,8 @@ export default function ReportCard({
     return radius != null ? { phase: 'loading', radius } : { phase: 'idle' }
   })
 
+  const [draftRadius, setDraftRadius] = useState<60 | 120>(60)
+
   async function handleFindNearby(radius: number) {
     setNearbyState({ phase: 'loading', radius })
     try {
@@ -163,6 +165,10 @@ export default function ReportCard({
     })
     return () => { cancelled = true }
   }, [report.lat, report.lon, calendarAnchor])
+
+  const outlookDays = calendarState.phase === 'loading' || calendarState.phase === 'done'
+    ? calendarState.days
+    : AUTO_CALENDAR_DAYS
 
   // Verdict-layer chip: the first upcoming night in the outlook that scores
   // "good" (≥6); when none does, fall back to the best upcoming night that
@@ -528,11 +534,20 @@ export default function ReportCard({
         <div className="planning-tools-body">
           <div className="planning-tool">
             <h4 className="planning-tool-title">Find Sky Nearby</h4>
+            <p className="planning-tool-subtitle">Search for better sky in other locations</p>
             <div className="nearby-body">
               {nearbyState.phase === 'idle' && (
-                <div className="nearby-radius-toggle">
-                  <button className="submit" onClick={() => handleFindNearby(60)}>{fmtDist(60 * 1.60934, imperial)}</button>
-                  <button className="submit" onClick={() => handleFindNearby(120)}>{fmtDist(120 * 1.60934, imperial)}</button>
+                <div className="nearby-radius-control">
+                  <span className="nearby-radius-label">Radius</span>
+                  <div className="units-toggle" role="group" aria-label="Search radius">
+                    <button type="button" className={draftRadius === 60 ? 'active' : ''} onClick={() => setDraftRadius(60)}>
+                      {fmtDist(60 * 1.60934, imperial)}
+                    </button>
+                    <button type="button" className={draftRadius === 120 ? 'active' : ''} onClick={() => setDraftRadius(120)}>
+                      {fmtDist(120 * 1.60934, imperial)}
+                    </button>
+                  </div>
+                  <button className="submit nearby-search-btn" onClick={() => handleFindNearby(draftRadius)}>Search Nearby</button>
                 </div>
               )}
               {nearbyState.phase === 'loading' && (
@@ -547,8 +562,10 @@ export default function ReportCard({
             </div>
           </div>
 
+          <div className="iconic-section-divider" />
+
           <div className="planning-tool">
-            <h4 className="planning-tool-title">Calendar — Next Good Night</h4>
+            <h4 className="planning-tool-title">{outlookDays} Day Outlook View</h4>
             <div className="nearby-body">
               <CalendarRangePicker state={calendarState} anchor={calendarAnchor} onApply={handleFindCalendar} />
               {calendarState.phase === 'error' && (
@@ -557,7 +574,6 @@ export default function ReportCard({
               {calendarState.phase === 'done' && (
                 <OutlookTelemetryRibbon
                   data={calendarState.data}
-                  days={calendarState.days}
                   startExpanded={manualCalendarRef.current}
                   onViewDetails={handleViewDetails}
                   isFetchingDetails={isFetchingDetails}

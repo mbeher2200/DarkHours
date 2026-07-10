@@ -316,6 +316,10 @@ html.red-mode .dp-trigger {
   border-color: rgba(255, 0, 0, 0.25);
   box-shadow: none;
 }
+html.red-mode .planning-tools-section {
+  background: rgba(255, 0, 0, 0.03);
+  border-color: rgba(255, 0, 0, 0.18);
+}
 .masthead h1 {
   display: inline-flex;
   align-items: center;
