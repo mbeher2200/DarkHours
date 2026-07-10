@@ -170,6 +170,27 @@
     font-size: 11px;
     padding: 8px;
   }
+  .telemetry-columns {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .telemetry-columns .heatmap-body {
+    border-right: none;
+    border-bottom: 1px solid var(--card-border);
+  }
+  .planning-tools-section {
+    padding: 0 8px 8px;
+  }
+  .planning-tools-section > summary {
+    margin: 0 -8px;
+  }
+  .crp-wrap {
+    width: 100%;
+  }
+  .crp-trigger {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* ── responsive: ≤480px (phone portrait) ────────────────────────────────── */
