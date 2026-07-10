@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import type { NightReport, TargetWindow, VisibleTarget, WeatherPoint } from '../types'
-import { formatTime, cardinal, rateConditions, scoreBand, moonWashSeverity, moonUpAt } from '../format'
+import { formatTime, formatDayTime, cardinal, rateConditions, scoreBand, moonWashSeverity, moonUpAt } from '../format'
 import { InfoTip } from '../shared'
 import { WmoIcon } from './icons'
 import { fmtPos } from './common'
@@ -147,6 +147,13 @@ export function MeteorShowerCard({ target, zhr, report }: {
             Peak ZHR {zhr}
           </InfoTip>
         </span>
+        {w.local_rate_at_peak != null && (
+          <span className="ms-local-rate">
+            <InfoTip tip={<>Peak ZHR adjusted for tonight's decay-from-peak and radiant altitude — the rate you'd actually observe, not the idealized zenith figure.</>}>
+              ~{Math.round(w.local_rate_at_peak)}/hr locally
+            </InfoTip>
+          </span>
+        )}
       </div>
       {target.note && <div className="ms-note">{target.note}</div>}
       {w.peak_time && w.peak_alt_deg != null && (
@@ -168,6 +175,11 @@ export function MeteorShowerCard({ target, zhr, report }: {
               <span className={`tg-sky ${skyCls}`}>{sky}</span>
             </div>
           )}
+          {(w.blockers?.length ?? 0) > 0 && (
+            <div className="mw-row">
+              <BlockerBadge blockers={w.blockers} />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -176,11 +188,26 @@ export function MeteorShowerCard({ target, zhr, report }: {
 
 // ── Blocker badge (Phase 2) ───────────────────────────────────────────────────
 
+// Shared priority-ordered blocker → (badge label, CTA reason) table.
+// blockerLabel() and blockerReason() both read from this one list so the
+// blocked-row badge and the meteor alert banner can't drift out of sync.
+const _BLOCKER_PRIORITY: [string, string, string][] = [
+  // [blocker key, badge label, CTA reason]
+  ['cloud', 'Clouded out', 'weather'],
+  ['transparency', 'Clouded out', 'weather'],
+  ['moon_washout', 'Moon washout', 'moonwash'],
+  ['light_dome', 'Lost in light dome', 'light pollution'],
+  ['low_radiant', 'Radiant too low', 'low radiant'],
+]
+
 export function blockerLabel(blockers: string[]): string {
-  if (blockers.includes('cloud') || blockers.includes('transparency')) return 'Clouded out'
-  if (blockers.includes('moon_washout')) return 'Moon washout'
-  if (blockers.includes('light_dome')) return 'Lost in light dome'
+  for (const [key, label] of _BLOCKER_PRIORITY) if (blockers.includes(key)) return label
   return 'Unavailable Tonight'
+}
+
+export function blockerReason(blockers: string[]): string | null {
+  for (const [key, , reason] of _BLOCKER_PRIORITY) if (blockers.includes(key)) return reason
+  return null
 }
 
 export function BlockerBadge({ blockers }: { blockers: string[] }) {
@@ -195,6 +222,102 @@ export function clipTooltip(w: TargetWindow, tz: string): string {
   if (b.includes('moon_washout')) return 'Moon washout'
   if (b.includes('light_dome'))   return 'Viewing constrained by horizon glow'
   return 'Window clipped by conditions'
+}
+
+// ── Meteor shower alert (scorecard banner) ────────────────────────────────────
+
+export interface MeteorAlert {
+  shower: VisibleTarget
+  state: 'ok' | 'degraded' | 'blocked'
+  prefix: string           // plain-color lead-in — name, "active tonight", local rate
+  warning: string | null   // red clause — leading comma through trailing period; null for 'ok'
+  suffix: string | null    // plain-color trailing sentence — the "consider another..." CTA; null for 'ok'
+  peakTimeLocal: string | null  // formatted local date+time of the shower's peak, or null if unsourced
+}
+
+const _BANNER_MIN_LOCAL_RATE = 5  // meteors/hr — below this, not worth the "unmissable" banner interruption
+
+export function meteorShowerAlert(r: NightReport): MeteorAlert | null {
+  const showers = (r.visible_targets ?? []).filter(t => t.type === 'meteor_shower')
+  if (showers.length === 0) return null
+
+  // Only showers whose estimated local rate clears the floor earn the banner —
+  // a technically-active shower decayed to 1-2/hr is indistinguishable from
+  // sporadic background and would just be noise here. It still appears in the
+  // Prominent Sky Features card regardless (no rate floor there).
+  const qualifying = showers.filter(t => {
+    const w = bestWindow(t)
+    const rate = w.local_rate_at_peak ?? t.zhr_effective ?? 0
+    return rate >= _BANNER_MIN_LOCAL_RATE
+  })
+  if (qualifying.length === 0) return null
+
+  // Multiple simultaneously-active, qualifying showers (e.g. N/S Taurids
+  // overlap in Nov): show only the highest zhr_effective to keep a
+  // single-glance framing — the rest still render individually as
+  // MeteorShowerCards in Prominent Sky Features.
+  const primary = [...qualifying].sort((a, b) => (b.zhr_effective ?? 0) - (a.zhr_effective ?? 0))[0]
+  const w = bestWindow(primary)
+  const reason = blockerReason(w.blockers ?? [])
+  const rate = w.local_rate_at_peak ?? primary.zhr_effective ?? 0
+
+  // peak_time_utc lives on active_showers (date-only fast path, no geometry
+  // needed) — looked up by name, same pattern the existing zhr lookup at
+  // ReportCard.tsx uses.
+  const peakIso = r.active_showers?.find(s => s.name === primary.name)?.peak_time_utc ?? null
+  const peakTimeLocal = peakIso ? formatDayTime(peakIso, r.tz_name) : null
+  const rateSentence = `The estimated local rate is ~${Math.round(rate)} meteors per hour`
+
+  if (primary.viability === 'ok' || !reason) {
+    return {
+      shower: primary, state: 'ok',
+      prefix: `PREDICTED SKY EVENT: The ${primary.name} meteor shower is active tonight. ${rateSentence}.`,
+      warning: null,
+      suffix: null,
+      peakTimeLocal,
+    }
+  }
+
+  if (reason === 'moonwash') {
+    return {
+      shower: primary, state: primary.viability,
+      prefix: `PREDICTED SKY EVENT: The ${primary.name} meteor shower is active tonight. ${rateSentence}`,
+      warning: `, but tonight's moonwash will severely degrade visibility globally.`,
+      suffix: ` Consider another night for better viewing.`,
+      peakTimeLocal,
+    }
+  }
+
+  // 'weather' | 'light pollution' | 'low radiant' — local issues, a different site can fix them.
+  const factor = reason === 'low radiant' ? 'low radiant altitude' : reason
+  return {
+    shower: primary, state: primary.viability,
+    prefix: `PREDICTED SKY EVENT: The ${primary.name} meteor shower is active tonight. ${rateSentence}`,
+    warning: `, but this location's ${factor} will prevent visibility.`,
+    suffix: ` Consider another location for better viewing.`,
+    peakTimeLocal,
+  }
+}
+
+export function MeteorAlertBanner({ alert }: { alert: MeteorAlert }) {
+  return (
+    <div className={`meteor-alert-banner state-${alert.state}`}>
+      <div className="mab-headline">
+        {alert.prefix}
+        {alert.warning && <span className="mab-warning">{alert.warning}</span>}
+        {alert.suffix}
+      </div>
+      <div className="mab-sub-row">
+        {alert.peakTimeLocal && (
+          <span className="mab-peak-time">
+            <InfoTip tip={<>The statistically fitted peak moment — for broad showers, rates stay elevated for hours either side, not a knife-edge instant.</>}>
+              Peaks {alert.peakTimeLocal} local
+            </InfoTip>
+          </span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /*function clipReasonShort(w: TargetWindow): string {

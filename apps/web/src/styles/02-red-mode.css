@@ -153,6 +153,11 @@ html.red-mode .band-fair,
 html.red-mode .band-poor {
   background: rgba(255, 0, 0, 0.05);
 }
+/* Meteor alert banner tint (was green/purple/red rgba) → faint red;
+   border-color already resolves correctly via --good/--fair/--poor. */
+html.red-mode .meteor-alert-banner {
+  background: rgba(255, 0, 0, 0.05);
+}
 /* Links (incl. visited): otherwise they fall back to the browser's blue/purple. */
 html.red-mode a:link,
 html.red-mode a:visited {

@@ -368,6 +368,70 @@ html.red-mode .ld-legend-bar { background: #6a0000; }
   color: var(--poor);
 }
 
+/* ── Meteor shower scorecard alert banner ──────────────────────── */
+/* .overall-group is the single bordered container when an alert is present —
+   it owns the ONE continuous border in the alert's state color; the banner
+   and .overall inside are borderless (overall--has-alert strips .overall's
+   own border/radius) so there's no seam, no color mismatch, and no gap from
+   .report's flex `gap` (banner+card are one flex child, not two). */
+.overall-group.state-ok,
+.overall-group.state-degraded,
+.overall-group.state-blocked {
+  border-radius: 3px;
+  overflow: hidden;
+}
+.overall-group.state-ok       { border: 1px solid var(--good); }
+.overall-group.state-degraded { border: 1px solid var(--fair); }
+.overall-group.state-blocked  { border: 1px solid var(--poor); }
+
+.meteor-alert-banner {
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.meteor-alert-banner.state-ok {
+  border-bottom: 1px solid var(--good);
+  background: rgba(90, 209, 154, 0.05);
+}
+.meteor-alert-banner.state-degraded {
+  border-bottom: 1px solid var(--fair);
+  background: rgba(167, 139, 250, 0.05);
+}
+.meteor-alert-banner.state-blocked {
+  border-bottom: 1px solid var(--poor);
+  background: rgba(248, 113, 113, 0.05);
+}
+.mab-headline {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-h);
+  line-height: 1.4;
+}
+/* The "why it's not visible" clause — leading comma through trailing period —
+   always reads as a hard stop, regardless of the banner's own state color
+   (amber for degraded, red for blocked). */
+.mab-warning {
+  color: var(--poor);
+}
+.mab-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.mab-peak-time {
+  color: var(--text-dim);
+}
+/* Score module loses its own border/radius entirely when wrapped — the
+   parent .overall-group owns the single continuous border instead. */
+.overall--has-alert {
+  border: none;
+  border-radius: 0;
+}
+
 .bar-row {
   display: grid;
   grid-template-columns: 120px 1fr 36px;

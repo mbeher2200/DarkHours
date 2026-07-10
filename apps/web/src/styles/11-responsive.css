@@ -49,6 +49,12 @@
   .lightdome-panel {
     grid-column: 1;
   }
+  .meteor-alert-banner {
+    padding: 10px 8px;
+  }
+  .mab-sub-row {
+    gap: 8px;
+  }
 
   .report-head .place {
     font-size: 14px;

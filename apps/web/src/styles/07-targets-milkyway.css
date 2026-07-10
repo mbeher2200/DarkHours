@@ -75,6 +75,10 @@
   font-size: 12px;
   color: var(--text-dim);
 }
+.ms-local-rate {
+  font-size: 12px;
+  color: var(--text-dim);
+}
 .ms-note {
   font-size: 12px;
   color: var(--fair);
