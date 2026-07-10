@@ -593,6 +593,8 @@ export default function ReportCard({
           imperial={imperial}
           moonrise={r.moonrise}
           moonset={r.moonset}
+          moonPhaseName={r.phase_name}
+          moonIlluminationPct={r.illumination_pct}
           isFetching={isFetchingDetails}
           cathodeSnap={cathodeSnap}
           wxSource={showWeather ? r.wx_source : null}

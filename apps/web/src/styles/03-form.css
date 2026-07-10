@@ -98,15 +98,28 @@
   border-radius: 3px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
   z-index: 50;
-  overflow: hidden;
+  max-height: 90px;
+  overflow-y: auto;
   animation: dropdown-in 0.12s ease both;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--hairline-rgb), 0.55) transparent;
+}
+.place-dropdown::-webkit-scrollbar {
+  width: 8px;
+}
+.place-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.place-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(var(--hairline-rgb), 0.55);
+  border-radius: 4px;
 }
 .place-dropdown-item {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 7px 14px;
   text-align: left;
   background: transparent;
   border: 0;

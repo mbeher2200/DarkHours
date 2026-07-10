@@ -8,13 +8,15 @@ import { cell } from './common'
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-export function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, isFetching = false, cathodeSnap = false, wxSource = null, wxFetchedAt = null }: {
+export function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, moonPhaseName = null, moonIlluminationPct = null, isFetching = false, cathodeSnap = false, wxSource = null, wxFetchedAt = null }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
   imperial: boolean
   moonrise?: string | null
   moonset?: string | null
+  moonPhaseName?: string | null
+  moonIlluminationPct?: number | null
   isFetching?: boolean
   cathodeSnap?: boolean
   wxSource?: string | null
@@ -258,6 +260,7 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                       <div className="wx-cond-cell">
                         <WmoIcon code={p.weather_code} cloudCover={p.cloud_cover_pct}
                           moonUp={moonUpAt(p.time, moonrise ?? null, moonset ?? null)}
+                          moonPhaseName={moonPhaseName} moonIlluminationPct={moonIlluminationPct}
                           aod={p.aerosol_optical_depth} pm25={p.pm2_5} visibilityM={p.visibility_m} precipType={p.precip_type}
                           windSpeedMs={p.wind_speed_ms} windGustMs={p.wind_gust_ms} transparency={p.transparency} />
                         {showCloudTotal({ code: p.weather_code, cloudCover: p.cloud_cover_pct, precipType: p.precip_type,
