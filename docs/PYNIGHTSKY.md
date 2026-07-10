@@ -210,6 +210,8 @@ Meteor Showers:     Perseids · Peak night · ZHR 100
 
 With `--targets`, showers also appear in the targets table with the full astro window.
 
+The `ZHR` shown here is always the catalog's raw peak value, regardless of how far the queried night falls from the actual peak date. The engine also computes a day-decayed, radiant-altitude-corrected "local rate" estimate (surfaced today in the web app's scorecard alert, not yet in this CLI output) — see [docs/TARGETS.md § Meteor Shower ZHR Decay Model](TARGETS.md#meteor-shower-zhr-decay-model) for the formula and sourcing.
+
 ---
 
 ## Milky Way

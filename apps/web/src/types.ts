@@ -47,9 +47,10 @@ export interface TargetWindow {
   effective_start: string | null    // MCVI lower bound (condition-gated window start)
   effective_end: string | null      // MCVI upper bound (condition-gated window end)
   best_time: string | null          // recommended observation moment within [effective_start, effective_end]
-  blockers: string[]                // e.g. ["cloud", "transparency", "light_dome", "moon_washout"]
+  blockers: string[]                // e.g. ["cloud", "transparency", "light_dome", "moon_washout", "low_radiant"]
   weather_score_at_best: number | null  // rate_conditions() score (1–10) at best_time
   dome_glow_at_peak: number | null  // glow_toward() value at peak az/alt; null outside CONUS
+  local_rate_at_peak: number | null // meteor showers only: zhr_effective × sin(radiant_alt)
 }
 
 export interface VisibleTarget {
@@ -60,6 +61,7 @@ export interface VisibleTarget {
   viability: 'ok' | 'degraded' | 'blocked'  // Phase 1: aggregate condition state
   angular_size_arcmin: number | null         // Phase 3: catalog angular extent
   landscape_suitability: 'prominent' | 'diffuse' | 'too_small'  // Phase 3: wide-field filter
+  zhr_effective: number | null              // meteor showers only: day-decayed peak ZHR
 }
 
 export interface WeatherPoint {
@@ -97,6 +99,8 @@ export interface ActiveShower {
   name: string
   note: string
   zhr: number
+  zhr_effective: number | null
+  peak_time_utc: string | null
 }
 
 export interface SatPass {

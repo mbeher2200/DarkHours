@@ -60,7 +60,7 @@ Every run produces a single-night report:
 - **Night Timeline** — sunset, astronomical night begin/end, moonrise/set, sunrise
 - **Light Pollution** — SQM, Bortle class, djlorenz zone for the coordinates
 - **Moon** — phase, illumination, distance; supermoon/micromoon flags; eclipse type and magnitude when applicable
-- **Meteor Showers** — active showers with peak note and ZHR (always shown, no flag needed)
+- **Meteor Showers** — active showers with peak note and ZHR (always shown, no flag needed); the engine also models day-decayed, radiant-altitude-corrected local rates — see [docs/TARGETS.md](docs/TARGETS.md#meteor-shower-zhr-decay-model)
 - **Clear Dark Sky Hours** — effective dark time, cloud-adjusted and moon-corrected; lunar-cycle average alongside for context
 
 `--weather` adds an hourly conditions table: cloud cover, seeing, transparency, wind (speed + direction), dew point, feels-like, humidity, precipitation — each hour rated 1–10 for astrophotography.
