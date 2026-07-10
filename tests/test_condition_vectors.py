@@ -53,6 +53,13 @@ def _make_target(window):
     return VisibleTarget(name="M42", type="nebula", windows=[window], note=None)
 
 
+def _make_shower_target(window, zhr_effective=100.0):
+    return VisibleTarget(
+        name="Perseids", type="meteor_shower", windows=[window], note="Peak night",
+        zhr_effective=zhr_effective,
+    )
+
+
 def _wx(offset_h, cloud=0, transparency="Excellent", humidity=50):
     return WeatherPoint(
         time=_BASE + timedelta(hours=offset_h),
@@ -370,3 +377,55 @@ def test_photo_cutoff_clamps_effective_end():
     t = _make_target(w)
     _run(t, weather=wx_pts)
     assert w.effective_end <= photo_cutoff
+
+
+# ---------------------------------------------------------------------------
+# Radiant Altitude / Local Rate Vector (meteor showers only)
+# ---------------------------------------------------------------------------
+
+def test_low_radiant_blocker_fires_below_threshold():
+    """Radiant at 10° (< 25° threshold) → low_radiant blocker; local rate ≈ zhr_effective * sin(10°)."""
+    import math
+    w = _make_window(peak_alt=10.0)
+    t = _make_shower_target(w, zhr_effective=100.0)
+    _run(t)
+    assert "low_radiant" in w.blockers
+    assert w.local_rate_at_peak == pytest.approx(100.0 * math.sin(math.radians(10.0)), abs=0.05)
+
+
+def test_low_radiant_blocker_absent_above_threshold():
+    """Radiant at 45° (>= 25° threshold) → no low_radiant blocker."""
+    w = _make_window(peak_alt=45.0)
+    t = _make_shower_target(w, zhr_effective=100.0)
+    _run(t)
+    assert "low_radiant" not in w.blockers
+    assert w.local_rate_at_peak is not None
+
+
+def test_local_rate_none_for_non_shower_targets():
+    """DSO target: local_rate_at_peak stays None — vector is type-scoped."""
+    w = _make_window(peak_alt=10.0)
+    t = _make_target(w)  # type="nebula"
+    _run(t)
+    assert w.local_rate_at_peak is None
+    assert "low_radiant" not in w.blockers
+
+
+def test_local_rate_zero_at_or_below_horizon():
+    """Radiant at/below horizon → local_rate_at_peak is 0.0, not None or negative."""
+    w = _make_window(peak_alt=0.0)
+    t = _make_shower_target(w, zhr_effective=100.0)
+    _run(t)
+    assert w.local_rate_at_peak == 0.0
+    assert "low_radiant" in w.blockers
+
+
+def test_low_radiant_combines_with_other_blockers():
+    """Low radiant + full cloud cover → both blockers present, viability blocked."""
+    w = _make_window(peak_alt=10.0)
+    wx_pts = [_wx(i, cloud=95) for i in range(5)]
+    t = _make_shower_target(w, zhr_effective=100.0)
+    _run(t, weather=wx_pts)
+    assert "low_radiant" in w.blockers
+    assert "cloud" in w.blockers
+    assert t.viability == "blocked"

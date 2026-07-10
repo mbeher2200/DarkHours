@@ -159,6 +159,11 @@ _WEATHER_GAP_SECS         = 5400  # 90 min nearest-neighbour tolerance (matches 
 _MIN_VIABLE_MIN           = 30    # effective window must be at least this long to be viable
 _MOON_WASHOUT_RADIUS_DEG  = 45.0  # washout zone radius at 100% illumination;
                                    # scales linearly → effective = 45° × (illum/100)
+_LOW_RADIANT_ALT_DEG      = 25.0  # meteor showers only: radiant altitude below this →
+                                   # "low_radiant" blocker. sin(25°) ≈ 0.42 — local rate
+                                   # collapses to <45% of the decayed-ZHR figure from
+                                   # foreshortening/extinction alone, even under an
+                                   # otherwise clear, dark, moonless sky.
 
 
 def _bt_window_best(
@@ -360,6 +365,28 @@ def _apply_condition_vectors(
                 effective_radius = _MOON_WASHOUT_RADIUS_DEG * (illumination_pct / 100.0)
                 if window.moon_sep_at_peak_deg < effective_radius:
                     blockers.append("moon_washout")
+
+            # --- Radiant Altitude / Local Rate Vector (meteor showers only) ----
+            # window.peak_alt_deg/peak_az_deg ARE the radiant's alt/az for shower
+            # targets (_sky_object builds the Star from radiant_ra/radiant_dec),
+            # so no extra geometry is needed here. local_rate_at_peak is the
+            # zenith/radiant-altitude-corrected rate a visual observer would
+            # actually see (ZHR convention divides observed rate by sin(radiant
+            # alt) to normalize to zenith; inverted, that's the multiplication
+            # below) — feeds both the scorecard banner's "local rate" figure and
+            # the low_radiant blocker. Scoped to meteor_shower so DSO/planet
+            # blocker logic is untouched.
+            if target.type == "meteor_shower":
+                zhr_eff = target.zhr_effective
+                if zhr_eff is not None and window.peak_alt_deg is not None:
+                    window.local_rate_at_peak = (
+                        round(zhr_eff * math.sin(math.radians(window.peak_alt_deg)), 1)
+                        if window.peak_alt_deg > 0 else 0.0
+                    )
+                    if window.peak_alt_deg < _LOW_RADIANT_ALT_DEG:
+                        blockers.append("low_radiant")
+                else:
+                    window.local_rate_at_peak = None
 
             window.blockers = blockers
 
@@ -677,7 +704,7 @@ def assemble_night(
             _site_sqm = ds_info.get("sqm") if ds_info else None
             _vt_future = _pool.submit(
                 _tgt.visible_targets, lat, lon, sunset, sunrise, illumination,
-                night_start=night_start, night_end=night_end, sky_sqm=_site_sqm,
+                night_start=night_start, night_end=night_end, sky_sqm=_site_sqm, tz=tz,
             )
 
         # Collect satellite passes

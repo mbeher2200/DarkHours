@@ -9,7 +9,7 @@ import { fmtNightDate, MetaRow } from './report/common'
 import { WeatherTable } from './report/NightTimeline'
 import { SatellitePasses } from './report/Satellites'
 import { MilkyWayAbsent, MilkyWayCard } from './report/MilkyWay'
-import { isPrime, MeteorShowerCard, TargetsTable } from './report/Targets'
+import { isPrime, MeteorShowerCard, TargetsTable, MeteorAlertBanner, meteorShowerAlert } from './report/Targets'
 import { NearbyResults } from './report/Nearby'
 import { LightDomePanel } from './report/LightDomePanel'
 
@@ -330,6 +330,7 @@ export default function ReportCard({
   }).format(new Date(r.date + 'T00:00:00'))
 
   const verdict = nightVerdict(r)
+  const meteorAlert = meteorShowerAlert(r)
 
   // Collapsed-summary one-liners (hidden while a section is open — see .sum-brief)
   const planningBrief = calendarState.phase === 'done' && calendarState.data.ranked[0]?.score != null
@@ -451,7 +452,9 @@ export default function ReportCard({
         </nav>
       )}
 
-      <div className={`overall band-${scoreBand(r.score)}`}>
+      <div className={`overall-group${meteorAlert ? ` state-${meteorAlert.state}` : ''}`}>
+      {meteorAlert && <MeteorAlertBanner alert={meteorAlert} />}
+      <div className={`overall band-${scoreBand(r.score)} ${meteorAlert ? 'overall--has-alert' : ''}`}>
         <div className="overall-left">
         <div className="overall-score-block">
           <div className="overall-score-header">
@@ -493,13 +496,6 @@ export default function ReportCard({
           />
         )}
 
-        {(r.active_showers?.length ?? 0) > 0 && (
-          <MetaRow
-            k="Meteor Showers"
-            v={r.active_showers.map(s => `${s.name}  ·  ${s.note}  ·  ZHR ${s.zhr}`).join(',  ')}
-            tip={<>ZHR — zenithal hourly rate: meteors per hour for a single observer under a perfectly dark sky with the radiant overhead. Field counts run well below it; it's a comparison index, not a promise.</>}
-          />
-        )}
         <MetaRow
           k="Clear Dark Sky"
           v={darkStrCard}
@@ -526,6 +522,7 @@ export default function ReportCard({
         </div>
         </div>
         {r.light_dome && <LightDomePanel summary={r.light_dome} imperial={imperial} />}
+      </div>
       </div>
 
 

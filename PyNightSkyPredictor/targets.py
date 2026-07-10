@@ -3,10 +3,12 @@
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from skyfield.api import Loader, Star, load, wgs84
@@ -73,9 +75,11 @@ class TargetWindow:
     effective_start: "datetime | None" = None  # MCVI lower bound; UI binds displayed window here
     effective_end: "datetime | None" = None    # MCVI upper bound; condition-gated window end
     best_time: "datetime | None" = None        # recommended observation moment within effective window
-    blockers: list = field(default_factory=list)  # ["cloud","transparency","light_dome","moon_washout"]
+    blockers: list = field(default_factory=list)  # ["cloud","transparency","light_dome","moon_washout","low_radiant"]
     weather_score_at_best: "int | None" = None    # rate_conditions() score at best_time
     dome_glow_at_peak: "float | None" = None      # glow_toward() at (peak_az_deg, peak_alt_deg)
+    local_rate_at_peak: "float | None" = None     # meteor showers only: zhr_effective × sin(radiant_alt);
+                                                    # set by predictor._apply_condition_vectors; None for non-shower targets
 
 
 @dataclass
@@ -87,6 +91,8 @@ class VisibleTarget:
     viability: str = "ok"  # "ok" | "degraded" | "blocked" — set by _apply_condition_vectors
     angular_size_arcmin: "float | None" = None   # from catalog; None for planets/meteors/MW
     landscape_suitability: str = "prominent"     # "prominent" | "diffuse" | "too_small"
+    zhr_effective: "float | None" = None         # meteor showers only: day-decayed peak ZHR (IMO log-linear decay);
+                                                   # set by _compute_target; None for non-shower types
 
 
 def _landscape_suitability(
@@ -221,6 +227,123 @@ def _moon_interferes(sep_deg, moon_alt_deg, moon_dist_km, window_indices: list,
     return False
 
 
+_ZHR_DECAY_FLOOR = 2.0  # meteors/hr — below this, indistinguishable from sporadic background
+
+
+def _resolve_peak_year_offset(entry: dict, night_date) -> "tuple[int, int] | None":
+    """Find the year_offset in (0, -1, 1) whose calendar peak date is nearest
+    night_date (handles year-boundary showers: Quadrantids, Ursids). Returns
+    (year_offset, delta_days), or None if peak_month/peak_day never form a
+    valid date across all three offsets.
+
+    The single source of truth for "which year's peak is this night closest
+    to" — _days_from_peak() and _peak_datetime() both call this so they can
+    never disagree about which peak instance a given night belongs to.
+    """
+    from datetime import date as _date
+
+    peak_month = entry["peak_month"]
+    peak_day   = entry["peak_day"]
+    best = None  # (year_offset, delta)
+    for year_offset in (0, -1, 1):
+        try:
+            peak  = _date(night_date.year + year_offset, peak_month, peak_day)
+            delta = (night_date - peak).days
+            if best is None or abs(delta) < abs(best[1]):
+                best = (year_offset, delta)
+        except ValueError:
+            continue
+    return best
+
+
+def _days_from_peak(entry: dict, night_date) -> "float | None":
+    """Signed day-delta from night_date to the nearest instance of this
+    shower's peak. Extracted so decay math and note-text share one
+    peak-finding implementation.
+    """
+    resolved = _resolve_peak_year_offset(entry, night_date)
+    return resolved[1] if resolved else None
+
+
+def _peak_datetime(entry: dict, night_date) -> "datetime | None":
+    """UTC datetime of this shower's peak, for whichever year
+    _resolve_peak_year_offset() picked for night_date — guaranteed
+    consistent with _days_from_peak()'s choice of year for the same
+    night_date. Returns None if the catalog entry has no peak_hour_utc yet
+    (not all showers have been sourced with a peak time-of-day); callers
+    should render a date-only peak in that case, not a fabricated time.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    if entry.get("peak_hour_utc") is None:
+        return None
+    resolved = _resolve_peak_year_offset(entry, night_date)
+    if resolved is None:
+        return None
+    year_offset, _delta = resolved
+    peak_month = entry["peak_month"]
+    peak_day   = entry["peak_day"]
+    return (
+        _dt(night_date.year + year_offset, peak_month, peak_day, tzinfo=_tz.utc)
+        + _td(hours=entry["peak_hour_utc"])
+    )
+
+
+def effective_zhr(peak_zhr: float, days_from_peak: float, b_rise: float, b_decline: float) -> float:
+    """IMO/NASA-MEO-style asymmetric log-linear decay: ZHR(t) = peak_zhr * 10^(-B*|t|).
+
+    b_rise applies before peak (t < 0), b_decline at/after peak (t >= 0) — real
+    showers commonly rise faster approaching peak than they decline afterward.
+
+    CAVEAT: the canonical IMO/meteor-science formulation uses solar longitude
+    (λ☉) as the time axis, not calendar days. This module already keys every
+    shower's peak off peak_month/peak_day (see _resolve_peak_year_offset), so
+    using calendar-day offset here is a deliberate simplification consistent
+    with the rest of the module. Solar longitude advances ~0.9856°/day on
+    average, so B values (per degree of solar longitude) carry over to
+    per-day within ~1.5% error most of the year — except near perihelion
+    (early January), where Earth moves ~3.4% faster than the mean rate,
+    relevant to Quadrantids (peak Jan 3) and marginally Ursids (peak Dec 22).
+    """
+    if peak_zhr <= 0:
+        return 0.0
+    b = b_rise if days_from_peak < 0 else b_decline
+    return peak_zhr * (10 ** (-b * abs(days_from_peak)))
+
+
+def meaningful_activity_half_window(peak_zhr: float, b_rise: float, b_decline: float,
+                                     floor: float = _ZHR_DECAY_FLOOR) -> float:
+    """Day-offset beyond which decayed ZHR drops below `floor` on either side —
+    solves peak_zhr * 10^(-B*t) = floor for t, using min(b_rise, b_decline)
+    (the shallower/slower-decaying side) so the window is generous in both
+    directions. This is a pre-filter half-window, not a display value.
+    """
+    b_min = min(b_rise, b_decline)
+    if peak_zhr <= floor or b_min <= 0:
+        return 0.0
+    return math.log10(peak_zhr / floor) / b_min
+
+
+def _gate_half_window_days(entry: dict) -> float:
+    """Cheap gate deciding whether a shower is worth computing tonight at all —
+    used by both the fast path (active_meteor_showers) and the slow/geometry
+    path (_compute_target's early exit via _meteor_shower_note).
+
+    Takes MAX(curated active_window_days/2, decay-derived half-window) — not
+    min() — because this is a performance pre-filter where a false negative
+    (wrongly dropping a still-active shower) is worse than a false positive
+    (computing geometry for a negligible one; cheap either way). Concretely:
+    Taurids are hand-curated to 50-60 day windows because their activity is
+    genuinely broad and low-ZHR; an imperfect b_rise/b_decline value should
+    never be able to silently shrink that below the curated floor.
+    """
+    b_rise    = entry.get("b_rise", 0.0)
+    b_decline = entry.get("b_decline", 0.0)
+    half_curated = entry["active_window_days"] / 2
+    half_decay   = meaningful_activity_half_window(entry.get("peak_zhr", 0), b_rise, b_decline)
+    return max(half_curated, half_decay)
+
+
 def _meteor_shower_note(entry: dict, night_date) -> str | None:
     """
     Return a proximity string (e.g. '3 days before peak') or None if the
@@ -229,21 +352,8 @@ def _meteor_shower_note(entry: dict, night_date) -> str | None:
     Handles year-boundary showers (e.g. Quadrantids: peak Jan 3, active Dec–Jan)
     by trying adjacent years and picking the closest peak.
     """
-    from datetime import date as _date
-
-    peak_month = entry["peak_month"]
-    peak_day   = entry["peak_day"]
-    half       = entry["active_window_days"] // 2
-
-    best_delta = None
-    for year_offset in (0, -1, 1):
-        try:
-            peak  = _date(night_date.year + year_offset, peak_month, peak_day)
-            delta = (night_date - peak).days
-            if best_delta is None or abs(delta) < abs(best_delta):
-                best_delta = delta
-        except ValueError:
-            continue
+    half = _gate_half_window_days(entry)
+    best_delta = _days_from_peak(entry, night_date)
 
     if best_delta is None or abs(best_delta) > half:
         return None
@@ -270,10 +380,18 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     min_elev = entry.get("min_elevation", min_elevation)
 
     note = None
+    zhr_eff = None
     if ttype == "meteor_shower":
         note = _meteor_shower_note(entry, night_date)
         if note is None:
             return None  # outside active window
+        delta = _days_from_peak(entry, night_date)
+        if delta is not None:
+            zhr_eff = round(
+                effective_zhr(entry.get("peak_zhr", 0), delta,
+                              entry.get("b_rise", 0.0), entry.get("b_decline", 0.0)),
+                1,
+            )
 
     try:
         if ttype == "planet":
@@ -459,6 +577,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         name=name, type=ttype, windows=windows, note=note,
         angular_size_arcmin=angular_size,
         landscape_suitability=land_suit,
+        zhr_effective=zhr_eff,
     )
 
 
@@ -484,7 +603,9 @@ def active_meteor_showers(target_date) -> list:
 
     Does not compute sky positions — fast date-arithmetic only.
 
-    Returns a list of dicts: [{"name": str, "note": str, "zhr": int}, ...]
+    Returns a list of dicts:
+        [{"name": str, "note": str, "zhr": int,
+          "zhr_effective": float | None, "peak_time_utc": str | None}, ...]
     Showers outside their active window are excluded.
     """
     results = []
@@ -493,10 +614,19 @@ def active_meteor_showers(target_date) -> list:
             continue
         note = _meteor_shower_note(entry, target_date)
         if note is not None:
+            delta = _days_from_peak(entry, target_date)
+            zhr_eff = (
+                round(effective_zhr(entry.get("peak_zhr", 0), delta,
+                                     entry.get("b_rise", 0.0), entry.get("b_decline", 0.0)), 1)
+                if delta is not None else None
+            )
+            peak_dt = _peak_datetime(entry, target_date)
             results.append({
                 "name": entry["name"],
                 "note": note,
                 "zhr":  entry.get("peak_zhr", 0),
+                "zhr_effective": zhr_eff,
+                "peak_time_utc": peak_dt.isoformat() if peak_dt is not None else None,
             })
     return results
 
@@ -511,6 +641,7 @@ def visible_targets(
     night_end: datetime | None   = None,
     min_elevation: float = DEFAULT_MIN_ELEVATION,
     sky_sqm: float | None = None,
+    tz: "ZoneInfo | None" = None,
 ) -> list:
     """
     Return targets visible during the night.
@@ -551,7 +682,11 @@ def visible_targets(
     moon_alt_v, _, _ = moon_astr.apparent().altaz()
     moon_alt_deg_all = moon_alt_v.degrees          # ndarray, one value per sample
     moon_dist_km_all = moon_astr.distance().km     # ndarray, Earth-Moon distance per sample
-    night_date = sunset.date()
+    # sunset is UTC-aware; its raw .date() is the UTC calendar date, which for
+    # evening sunsets west of UTC (most of the Americas/Europe) is frequently
+    # one day ahead of the observer's local calendar date — meteor shower
+    # peak-proximity text/decay math needs the LOCAL date the night belongs to.
+    night_date = sunset.astimezone(tz).date() if tz is not None else sunset.date()
 
     # Use provided SQM or fall back to the K&S natural-sky baseline (Bortle 2).
     _sky_sqm = sky_sqm if sky_sqm is not None else _ml.KS_NATURAL_SKY
