@@ -164,16 +164,6 @@ html.red-mode .submit {
   color: #e00000;
   box-shadow: none;
 }
-html.red-mode .nearby-radius-select {
-  background: #5a0000;
-  color: #e00000;
-}
-html.red-mode .nearby-radius-select:hover {
-  background: #6e0000;
-}
-html.red-mode .nearby-radius-select-chevron {
-  color: #e00000;
-}
 html.red-mode .submit:hover:not(:disabled) {
   background: #6e0000;
   box-shadow: none;

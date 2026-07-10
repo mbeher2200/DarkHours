@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { ChevronDown } from 'lucide-react'
 import type { NightReport, NearbyResult, CalendarResult } from './types'
 import { formatTime, formatHm, tzAbbr, tzTitle, fmtDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
 import { MoonPhaseSvg, InfoTip } from './shared'
@@ -539,18 +538,14 @@ export default function ReportCard({
             <div className="nearby-body">
               {nearbyState.phase === 'idle' && (
                 <div className="nearby-radius-control">
-                  <label className="nearby-radius-label" htmlFor="nearby-radius-select">Radius</label>
-                  <div className="nearby-radius-select-wrap">
-                    <select
-                      id="nearby-radius-select"
-                      className="nearby-radius-select"
-                      value={draftRadius}
-                      onChange={e => setDraftRadius(Number(e.target.value) as 60 | 120)}
-                    >
-                      <option value={60}>{fmtDist(60 * 1.60934, imperial)}</option>
-                      <option value={120}>{fmtDist(120 * 1.60934, imperial)}</option>
-                    </select>
-                    <ChevronDown size={13} strokeWidth={2} className="nearby-radius-select-chevron" />
+                  <span className="nearby-radius-label">Radius</span>
+                  <div className="units-toggle" role="group" aria-label="Search radius">
+                    <button type="button" className={draftRadius === 60 ? 'active' : ''} onClick={() => setDraftRadius(60)}>
+                      {fmtDist(60 * 1.60934, imperial)}
+                    </button>
+                    <button type="button" className={draftRadius === 120 ? 'active' : ''} onClick={() => setDraftRadius(120)}>
+                      {fmtDist(120 * 1.60934, imperial)}
+                    </button>
                   </div>
                   <button className="submit nearby-search-btn" onClick={() => handleFindNearby(draftRadius)}>Search Nearby</button>
                 </div>

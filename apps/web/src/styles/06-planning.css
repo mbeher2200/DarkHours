@@ -37,41 +37,12 @@
   font-weight: 600;
   color: var(--text-dim);
 }
-.nearby-radius-select-wrap {
-  position: relative;
+.nearby-radius-control .units-toggle {
   width: 100%;
+  margin-left: 0;
 }
-.nearby-radius-select {
-  width: 100%;
-  appearance: none;
-  -webkit-appearance: none;
-  background: var(--accent);
-  border: 0;
-  border-radius: 2px;
-  color: var(--on-accent);
-  font: inherit;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  cursor: pointer;
-  padding: 13px 32px 13px 13px;
-  transition: background 0.15s ease;
-}
-.nearby-radius-select:hover {
-  background: #5C73B8;
-}
-.nearby-radius-select:focus {
-  outline: 2px solid var(--text-h);
-  outline-offset: 2px;
-}
-.nearby-radius-select-chevron {
-  position: absolute;
-  top: 50%;
-  right: 13px;
-  transform: translateY(-50%);
-  pointer-events: none;
-  color: var(--on-accent);
+.nearby-radius-control .units-toggle button {
+  flex: 1;
 }
 .nearby-search-btn {
   width: 100%;
