@@ -413,9 +413,17 @@ export function nightVerdict(r: NightReport): string | null {
 // Weather forecast (14-day) and satellite TLE accuracy ([0,10]-day) horizons —
 // mirrors apps/api's fetch limits. Shared by App.tsx's form-level gating and
 // ReportCard's per-date "View Details" gating so the two never drift.
-export function availabilityFor(dateIso: string): { wxUnavail: boolean; satUnavail: boolean } {
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const d = new Date(dateIso + 'T00:00:00')
-  const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
-  return { wxUnavail: days > 14, satUnavail: days < 0 || days > 10 }
+//
+// Uses UTC calendar dates for both operands (never the device's local timezone):
+// dateIso is a calendar night at the *queried location*, which may be in a
+// different timezone than the viewer's device, so comparing against the
+// device's local "today" can flip a still-in-progress night to "past" early.
+// The -1 grace on satUnavail mirrors predictor.py's _sat_stale boundary.
+export function availabilityFor(dateIso: string): { wxUnavail: boolean; satUnavail: boolean; days: number } {
+  const now = new Date()
+  const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const [y, m, d] = dateIso.split('-').map(Number)
+  const targetUtcMs = Date.UTC(y, m - 1, d)
+  const days = Math.round((targetUtcMs - todayUtcMs) / 86_400_000)
+  return { wxUnavail: days > 14, satUnavail: days < -1 || days > 10, days }
 }

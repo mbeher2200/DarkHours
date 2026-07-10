@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useId } from 'react'
 import { InfoTip } from '../shared'
 
 // ── WMO weather code icons ───────────────────────────────────────────────────
@@ -31,29 +31,47 @@ export const WI_PATHS: Record<string, string> = {
   "thunderstorm": "M4.63,16.91c0,1.11,0.33,2.1,0.99,2.97s1.52,1.47,2.58,1.79l-0.66,1.68c-0.03,0.14,0.02,0.22,0.14,0.22h2.13l-0.98,4.3h0.28 l3.92-5.75c0.04-0.04,0.04-0.09,0.01-0.14c-0.03-0.05-0.08-0.07-0.15-0.07h-2.18l2.48-4.64c0.07-0.14,0.02-0.22-0.14-0.22h-2.94 c-0.09,0-0.17,0.05-0.23,0.15l-1.07,2.87c-0.71-0.18-1.3-0.57-1.77-1.16c-0.47-0.59-0.7-1.26-0.7-2.01c0-0.83,0.28-1.55,0.85-2.17 c0.57-0.61,1.27-0.97,2.1-1.07l0.53-0.07c0.13,0,0.2-0.06,0.2-0.18l0.07-0.51c0.11-1.08,0.56-1.99,1.37-2.72 c0.81-0.73,1.76-1.1,2.85-1.1c1.09,0,2.04,0.37,2.85,1.1c0.82,0.73,1.28,1.64,1.4,2.72l0.07,0.58c0,0.11,0.06,0.17,0.18,0.17h1.6 c0.91,0,1.68,0.32,2.32,0.95c0.64,0.63,0.97,1.4,0.97,2.28c0,0.85-0.3,1.59-0.89,2.21c-0.59,0.62-1.33,0.97-2.2,1.04 c-0.13,0-0.2,0.06-0.2,0.18v1.37c0,0.11,0.07,0.17,0.2,0.17c1.33-0.04,2.46-0.55,3.39-1.51s1.39-2.11,1.39-3.45 c0-0.9-0.22-1.73-0.67-2.49c-0.44-0.76-1.05-1.36-1.81-1.8c-0.77-0.44-1.6-0.66-2.5-0.66H20.1c-0.33-1.33-1.04-2.42-2.11-3.26 s-2.3-1.27-3.68-1.27c-1.41,0-2.67,0.44-3.76,1.31s-1.79,1.99-2.1,3.36c-1.11,0.26-2.02,0.83-2.74,1.73S4.63,15.76,4.63,16.91z M12.77,26.62c0,0.39,0.19,0.65,0.58,0.77c0.01,0,0.05,0,0.11,0.01c0.06,0.01,0.11,0.01,0.14,0.01c0.17,0,0.33-0.05,0.49-0.15 c0.16-0.1,0.27-0.26,0.32-0.48l2.25-8.69c0.06-0.24,0.04-0.45-0.07-0.65c-0.11-0.19-0.27-0.32-0.5-0.39 c-0.17-0.02-0.26-0.03-0.26-0.03c-0.16,0-0.32,0.05-0.47,0.15c-0.15,0.1-0.26,0.25-0.31,0.45l-2.26,8.72 C12.78,26.44,12.77,26.53,12.77,26.62z M16.93,23.56c0,0.13,0.03,0.26,0.1,0.38c0.14,0.22,0.31,0.37,0.51,0.44 c0.11,0.03,0.21,0.05,0.3,0.05s0.2-0.02,0.32-0.08c0.21-0.09,0.35-0.28,0.42-0.57l1.44-5.67c0.03-0.14,0.05-0.23,0.05-0.27 c0-0.15-0.05-0.3-0.16-0.45s-0.26-0.26-0.46-0.32c-0.17-0.02-0.26-0.03-0.26-0.03c-0.17,0-0.33,0.05-0.47,0.15 c-0.14,0.1-0.24,0.25-0.3,0.45l-1.46,5.7c0,0.02,0,0.05-0.01,0.11C16.93,23.5,16.93,23.53,16.93,23.56z",
   "wind-deg": "M3.74,14.5c0-2.04,0.51-3.93,1.52-5.66s2.38-3.1,4.11-4.11s3.61-1.51,5.64-1.51c1.52,0,2.98,0.3,4.37,0.89 s2.58,1.4,3.59,2.4s1.81,2.2,2.4,3.6s0.89,2.85,0.89,4.39c0,1.52-0.3,2.98-0.89,4.37s-1.4,2.59-2.4,3.59s-2.2,1.8-3.59,2.39 s-2.84,0.89-4.37,0.89c-1.53,0-3-0.3-4.39-0.89s-2.59-1.4-3.6-2.4s-1.8-2.2-2.4-3.58S3.74,16.03,3.74,14.5z M6.22,14.5 c0,2.37,0.86,4.43,2.59,6.18c1.73,1.73,3.79,2.59,6.2,2.59c1.58,0,3.05-0.39,4.39-1.18s2.42-1.85,3.21-3.2s1.19-2.81,1.19-4.39 s-0.4-3.05-1.19-4.4s-1.86-2.42-3.21-3.21s-2.81-1.18-4.39-1.18s-3.05,0.39-4.39,1.18S8.2,8.75,7.4,10.1S6.22,12.92,6.22,14.5z M11.11,20.35l3.75-13.11c0.01-0.1,0.06-0.15,0.15-0.15s0.14,0.05,0.15,0.15l3.74,13.11c0.04,0.11,0.03,0.19-0.02,0.25 s-0.13,0.06-0.24,0l-3.47-1.3c-0.1-0.04-0.2-0.04-0.29,0l-3.5,1.3c-0.1,0.06-0.17,0.06-0.21,0S11.09,20.45,11.11,20.35z",
   "windy": "M4.65,15.5c0-0.22,0.08-0.41,0.23-0.56c0.16-0.15,0.35-0.22,0.57-0.22h12.08c0.22,0,0.4,0.07,0.54,0.22 c0.14,0.15,0.22,0.34,0.22,0.57c0,0.22-0.07,0.4-0.22,0.54c-0.14,0.14-0.32,0.22-0.54,0.22H5.45c-0.22,0-0.42-0.07-0.57-0.22 C4.72,15.9,4.65,15.72,4.65,15.5z M7.06,12.6c0-0.22,0.08-0.4,0.23-0.55c0.15-0.15,0.34-0.23,0.56-0.23h12.09 c0.21,0,0.39,0.08,0.54,0.23c0.15,0.15,0.22,0.33,0.22,0.55c0,0.22-0.07,0.4-0.22,0.56c-0.15,0.15-0.33,0.23-0.54,0.23H7.86 c-0.22,0-0.41-0.08-0.56-0.23S7.06,12.82,7.06,12.6z M8.68,18.34c0-0.21,0.08-0.39,0.24-0.54c0.14-0.14,0.32-0.22,0.54-0.22h12.1 c0.22,0,0.41,0.07,0.56,0.22c0.15,0.14,0.22,0.32,0.22,0.54s-0.08,0.41-0.23,0.56s-0.34,0.23-0.56,0.23H9.46 c-0.22,0-0.4-0.08-0.56-0.23S8.68,18.56,8.68,18.34z M19.26,15.5c0-0.23,0.07-0.42,0.22-0.57c0.15-0.15,0.34-0.22,0.57-0.22h4.52 c0.23,0,0.42,0.07,0.57,0.22c0.15,0.15,0.22,0.34,0.22,0.56c0,0.22-0.07,0.4-0.22,0.54c-0.15,0.14-0.34,0.22-0.56,0.22h-4.52 c-0.23,0-0.42-0.07-0.57-0.22C19.33,15.9,19.26,15.72,19.26,15.5z",
+
+  // wi-moon-* — the 28-glyph lunation set (erikflowers/weather-icons), vendored the same
+  // way as the rest of WI_PATHS. Order follows the lunation itself (new → waxing crescent
+  // 1-6 → first quarter → waxing gibbous 1-6 → full → waning gibbous 1-6 → third quarter →
+  // waning crescent 1-6) so moonPhaseIconName's stepping is easy to follow against it.
+  // Note "wi-moon-waxing-6" (not "-crescent-6") for the last waxing-crescent glyph — that's
+  // the upstream set's own naming, not a typo here.
+  "wi-moon-new": "M3.74,14.44c0-1.53,0.3-3,0.89-4.39s1.4-2.59,2.4-3.6s2.2-1.81,3.6-2.4s2.85-0.89,4.37-0.89c1.53,0,3,0.3,4.39,0.89 s2.59,1.4,3.6,2.4s1.81,2.2,2.4,3.6s0.89,2.85,0.89,4.39c0,1.52-0.3,2.98-0.89,4.37s-1.4,2.59-2.4,3.6s-2.2,1.81-3.6,2.4 s-2.85,0.89-4.39,0.89c-1.52,0-2.98-0.3-4.37-0.89s-2.59-1.4-3.6-2.4s-1.81-2.2-2.4-3.6S3.74,15.97,3.74,14.44z M4.94,14.44 c0,1.36,0.27,2.66,0.8,3.9s1.25,2.32,2.15,3.22s1.97,1.61,3.22,2.15s2.55,0.8,3.9,0.8c1.37,0,2.67-0.27,3.91-0.8 s2.31-1.25,3.22-2.15s1.62-1.97,2.15-3.22s0.8-2.55,0.8-3.9c0-1.82-0.45-3.5-1.35-5.05s-2.13-2.77-3.68-3.68s-3.23-1.35-5.05-1.35 c-1.36,0-2.66,0.27-3.9,0.8S8.79,6.41,7.89,7.32s-1.61,1.98-2.15,3.22S4.94,13.08,4.94,14.44z",
+  "wi-moon-waxing-crescent-1": "M15.01,25.71c2.04,0,3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09 s-3.61-1.51-5.65-1.51c1.32,0.52,2.48,1.2,3.47,2.06s1.78,1.79,2.35,2.82s0.99,2.07,1.27,3.13s0.41,2.14,0.41,3.24 c0,0.64-0.02,1.26-0.07,1.84c-0.05,0.58-0.15,1.2-0.29,1.87s-0.33,1.28-0.56,1.86s-0.54,1.15-0.92,1.74s-0.83,1.11-1.35,1.58 s-1.14,0.92-1.87,1.33S15.9,25.42,15.01,25.71z",
+  "wi-moon-waxing-crescent-2": "M15.01,25.71c2.04,0,3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09 s-3.61-1.51-5.65-1.51c1.1,0.59,2.07,1.32,2.89,2.19s1.47,1.82,1.95,2.83s0.83,2.03,1.05,3.07s0.34,2.09,0.34,3.16 c0,0.91-0.04,1.76-0.13,2.54s-0.27,1.63-0.53,2.53s-0.62,1.71-1.06,2.43s-1.04,1.42-1.82,2.09S16.03,25.26,15.01,25.71z",
+  "wi-moon-waxing-crescent-3": "M15.01,25.71c2.04,0,3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09 s-3.61-1.51-5.65-1.51c1.71,1.26,2.97,2.9,3.78,4.91S20,12.24,20,14.44c0,0.9-0.03,1.73-0.1,2.5s-0.21,1.59-0.43,2.47 s-0.51,1.68-0.86,2.4s-0.83,1.42-1.45,2.12S15.83,25.21,15.01,25.71z",
+  "wi-moon-waxing-crescent-4": "M15.01,25.71c2.04,0,3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09 s-3.61-1.51-5.65-1.51c1.29,1.39,2.24,3.07,2.84,5.05s0.91,4.05,0.91,6.2c0,0.88-0.03,1.69-0.08,2.44s-0.16,1.55-0.32,2.41 s-0.38,1.65-0.64,2.37s-0.63,1.43-1.09,2.15S15.62,25.15,15.01,25.71z",
+  "wi-moon-waxing-crescent-5": "M14.99,25.71c2.04,0,3.93-0.5,5.65-1.51s3.1-2.37,4.1-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.1-4.09 s-3.61-1.51-5.65-1.51c1.67,2.9,2.5,6.65,2.5,11.25c0,2.33-0.17,4.43-0.52,6.3S15.97,24.26,14.99,25.71z",
+  "wi-moon-waxing-6": "M14.99,25.71c2.04,0,3.93-0.5,5.65-1.51s3.1-2.37,4.1-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.1-4.09 s-3.61-1.51-5.65-1.51c1.67,2.9,2.5,6.65,2.5,11.25c0,2.33-0.17,4.43-0.52,6.3S15.97,24.26,14.99,25.71z",
+  "wi-moon-first-quarter": "M15.01,25.71c2.04,0,3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09 s-3.61-1.51-5.65-1.51V25.71z",
+  "wi-moon-waxing-gibbous-1": "M13.93,14.44c-0.02,4.53,0.33,8.29,1.04,11.27c2.04,0.01,3.93-0.49,5.65-1.49s3.1-2.36,4.11-4.08s1.52-3.61,1.53-5.65 c0.01-2.04-0.49-3.93-1.49-5.65c-1-1.73-2.36-3.1-4.08-4.11s-3.6-1.52-5.64-1.53C14.32,6.91,13.94,10.66,13.93,14.44z",
+  "wi-moon-waxing-gibbous-2": "M12.85,14.44c0,4.77,0.71,8.52,2.14,11.26c2.04,0,3.93-0.5,5.65-1.51s3.1-2.37,4.1-4.1s1.51-3.61,1.51-5.65 s-0.5-3.92-1.51-5.65s-2.37-3.09-4.1-4.09s-3.61-1.51-5.65-1.51C13.57,6.61,12.85,10.36,12.85,14.44z",
+  "wi-moon-waxing-gibbous-3": "M11.8,14.43c0,2.39,0.24,4.52,0.71,6.39s1.31,3.5,2.51,4.89c1.52,0,2.98-0.3,4.37-0.89s2.59-1.4,3.6-2.4s1.81-2.2,2.4-3.6 s0.89-2.85,0.89-4.39s-0.3-2.99-0.89-4.38s-1.4-2.58-2.4-3.59s-2.2-1.81-3.6-2.4s-2.85-0.89-4.37-0.89 c-1.02,1.46-1.81,3.16-2.37,5.13S11.8,12.3,11.8,14.43z",
+  "wi-moon-waxing-gibbous-4": "M10.73,14.43c0,1.19,0.07,2.29,0.2,3.3s0.35,2,0.67,2.99s0.76,1.9,1.33,2.75s1.27,1.59,2.09,2.25c1.53,0,2.99-0.3,4.38-0.89 s2.58-1.4,3.59-2.4s1.81-2.2,2.4-3.6s0.89-2.85,0.89-4.39c0-2.04-0.5-3.93-1.51-5.65s-2.37-3.1-4.1-4.1s-3.61-1.51-5.65-1.51 c-1.35,1.3-2.4,2.94-3.16,4.93S10.73,12.19,10.73,14.43z",
+  "wi-moon-waxing-gibbous-5": "M9.65,14.43c0,1.24,0.08,2.38,0.25,3.41s0.44,2.05,0.83,3.04s0.95,1.89,1.67,2.71s1.6,1.52,2.62,2.12 c1.52,0,2.98-0.3,4.37-0.89s2.59-1.4,3.6-2.4s1.81-2.2,2.4-3.6s0.89-2.85,0.89-4.39s-0.3-2.99-0.89-4.38s-1.4-2.58-2.4-3.59 s-2.2-1.81-3.6-2.4s-2.85-0.89-4.37-0.89c-1.67,1.14-2.98,2.72-3.94,4.74S9.65,12.09,9.65,14.43z",
+  "wi-moon-waxing-gibbous-6": "M8.58,14.43c0,1.03,0.06,1.97,0.18,2.83s0.32,1.73,0.62,2.59s0.69,1.65,1.16,2.34s1.1,1.35,1.85,1.96s1.63,1.12,2.63,1.55 c1.53,0,2.99-0.3,4.38-0.89s2.58-1.4,3.59-2.4s1.81-2.2,2.4-3.6s0.89-2.85,0.89-4.39c0-2.04-0.5-3.93-1.51-5.65s-2.37-3.1-4.1-4.1 s-3.61-1.51-5.65-1.51c-1.99,1-3.56,2.51-4.72,4.55S8.58,11.99,8.58,14.43z",
+  "wi-moon-full": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.1,4.1s3.61,1.51,5.65,1.51s3.92-0.5,5.65-1.51s3.09-2.37,4.09-4.1 s1.51-3.61,1.51-5.65s-0.5-3.92-1.51-5.65s-2.37-3.09-4.09-4.09s-3.61-1.51-5.65-1.51S11.08,3.7,9.35,4.7s-3.1,2.37-4.1,4.09 S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-gibbous-1": "M3.74,14.49c0,1.22,0.19,2.4,0.56,3.54s0.91,2.17,1.6,3.09s1.5,1.72,2.42,2.42s1.95,1.23,3.09,1.6s2.32,0.56,3.54,0.56 c5.03-1.4,7.54-5.14,7.54-11.22c0-1.18-0.14-2.3-0.42-3.37s-0.65-2.01-1.13-2.83s-1.04-1.57-1.68-2.24s-1.34-1.24-2.06-1.68 s-1.47-0.81-2.26-1.07c-1.52,0-2.98,0.3-4.37,0.89S8.02,5.57,7.02,6.57s-1.8,2.19-2.39,3.57S3.74,12.97,3.74,14.49z",
+  "wi-moon-waning-gibbous-2": "M3.74,14.49c0,1.22,0.19,2.4,0.56,3.54s0.91,2.17,1.6,3.09s1.5,1.72,2.42,2.42s1.95,1.23,3.09,1.6s2.32,0.56,3.54,0.56 c4.33-1.73,6.49-5.47,6.49-11.22c0-1.39-0.18-2.7-0.54-3.93s-0.85-2.31-1.47-3.23s-1.31-1.71-2.06-2.39s-1.56-1.23-2.42-1.66 c-2.03,0-3.91,0.5-5.63,1.5S6.25,7.14,5.24,8.86S3.74,12.46,3.74,14.49z",
+  "wi-moon-waning-gibbous-3": "M3.74,14.49c0,1.22,0.19,2.4,0.56,3.54s0.91,2.17,1.6,3.09s1.5,1.72,2.42,2.42s1.95,1.23,3.09,1.6s2.32,0.56,3.54,0.56 c3.61-2.07,5.42-5.81,5.42-11.22c0-1.31-0.15-2.56-0.45-3.74s-0.71-2.24-1.23-3.17s-1.1-1.75-1.72-2.46s-1.3-1.33-2.02-1.86 c-1.52,0-2.98,0.3-4.37,0.89s-2.58,1.39-3.58,2.4s-1.8,2.2-2.39,3.59S3.74,12.96,3.74,14.49z",
+  "wi-moon-waning-gibbous-4": "M3.74,14.47c0,1.52,0.3,2.98,0.89,4.37s1.39,2.58,2.4,3.59s2.2,1.8,3.59,2.4s2.84,0.89,4.37,0.89 c2.89-2.39,4.34-6.14,4.34-11.24c0-2.34-0.41-4.47-1.22-6.36s-1.85-3.52-3.11-4.87c-2.03,0-3.91,0.5-5.64,1.51S6.25,7.12,5.24,8.84 S3.74,12.44,3.74,14.47z",
+  "wi-moon-waning-gibbous-5": "M3.74,14.47c0,2.03,0.5,3.91,1.51,5.63s2.37,3.09,4.09,4.09s3.6,1.51,5.63,1.51c2.17-2.75,3.25-6.5,3.25-11.24 c0-3.96-1.08-7.71-3.25-11.24c-2.03,0-3.91,0.5-5.63,1.5S6.26,7.1,5.25,8.83S3.74,12.44,3.74,14.47z",
+  "wi-moon-waning-gibbous-6": "M3.74,14.46c0,2.04,0.5,3.92,1.51,5.65s2.37,3.09,4.09,4.09s3.61,1.51,5.65,1.51c1.44-3.08,2.15-6.83,2.15-11.25 c0-3.46-0.72-7.2-2.15-11.24c-1.52,0-2.98,0.3-4.37,0.89S8.03,5.5,7.03,6.5s-1.8,2.2-2.4,3.59S3.74,12.93,3.74,14.46z",
+  "wi-moon-third-quarter": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.09,4.1s3.61,1.51,5.65,1.51V3.19c-2.04,0-3.92,0.5-5.65,1.51 S6.26,7.07,5.25,8.8S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-1": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.09,4.1s3.61,1.51,5.65,1.51c-1-3.14-1.49-6.9-1.49-11.26 c0-3.43,0.5-7.18,1.49-11.25c-2.04,0-3.92,0.5-5.65,1.51S6.26,7.07,5.25,8.8S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-2": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.1,4.1s3.61,1.51,5.65,1.51c-2.01-2.74-3.02-6.5-3.02-11.26 c0-3.98,1.01-7.73,3.02-11.25c-2.04,0-3.93,0.5-5.65,1.51s-3.1,2.37-4.1,4.09S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-3": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.09,4.1s3.61,1.51,5.65,1.51c-2.99-2.33-4.48-6.09-4.48-11.26 c0-2.32,0.42-4.46,1.25-6.4s1.91-3.56,3.23-4.85c-2.04,0-3.92,0.5-5.65,1.51S6.26,7.07,5.25,8.8S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-4": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.1,4.1s3.61,1.51,5.65,1.51c-2.07-1.01-3.59-2.45-4.56-4.33 S9,17.19,9,14.44c0-2.53,0.56-4.78,1.69-6.75s2.57-3.47,4.31-4.5c-2.04,0-3.93,0.5-5.65,1.51s-3.1,2.37-4.1,4.09 S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-5": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.09,4.1s3.61,1.51,5.65,1.51c-2.59-0.79-4.48-2.13-5.69-4.02 s-1.81-4.3-1.81-7.24c0-1.39,0.2-2.7,0.6-3.95c0.4-1.25,0.94-2.34,1.63-3.27s1.48-1.75,2.37-2.44s1.86-1.22,2.89-1.59 c-2.04,0-3.92,0.5-5.65,1.51S6.26,7.07,5.25,8.8S3.74,12.4,3.74,14.44z",
+  "wi-moon-waning-crescent-6": "M3.74,14.44c0,2.04,0.5,3.93,1.51,5.65s2.37,3.1,4.09,4.1s3.61,1.51,5.65,1.51c-1.46-0.56-2.72-1.18-3.79-1.88 s-1.93-1.39-2.57-2.1s-1.15-1.49-1.53-2.34s-0.64-1.66-0.77-2.42s-0.2-1.6-0.2-2.52c0-0.65,0.03-1.26,0.08-1.81s0.16-1.14,0.32-1.77 s0.38-1.21,0.64-1.75s0.63-1.09,1.08-1.66s0.98-1.1,1.59-1.57s1.34-0.95,2.21-1.42s1.85-0.89,2.93-1.27c-2.04,0-3.92,0.5-5.65,1.51 S6.26,7.07,5.25,8.8S3.74,12.4,3.74,14.44z",
 }
 
 // wi-night-alt-cloudy — moon tucked behind the cloud (occluded part cut in the
 // path data, same as the vendored glyphs above). Kept out of WI_PATHS's
 // alphabetical block only to sit next to its composed star-sky counterpart.
 WI_PATHS['night-alt-cloudy'] = "M4.14,16.9c0-1.16,0.35-2.18,1.06-3.08s1.62-1.47,2.74-1.72c0.23-1.03,0.7-1.93,1.4-2.7c0.7-0.77,1.55-1.32,2.53-1.65 c0.62-0.21,1.26-0.32,1.93-0.32c0.81,0,1.6,0.16,2.35,0.48c0.28-0.47,0.61-0.88,0.99-1.22c0.38-0.34,0.77-0.61,1.17-0.79 c0.4-0.18,0.8-0.32,1.18-0.41s0.76-0.13,1.12-0.13c0.38,0,0.79,0.05,1.23,0.16l0.82,0.25c0.14,0.06,0.18,0.13,0.14,0.22l-0.14,0.6 c-0.07,0.31-0.1,0.6-0.1,0.86c0,0.31,0.05,0.63,0.15,0.95c0.1,0.32,0.24,0.63,0.44,0.94c0.19,0.31,0.46,0.58,0.8,0.83 c0.34,0.25,0.72,0.44,1.15,0.57l0.62,0.22c0.1,0.03,0.15,0.08,0.15,0.16c0,0.02-0.01,0.04-0.02,0.07l-0.18,0.67 c-0.27,1.08-0.78,1.93-1.5,2.57c0.4,0.7,0.62,1.45,0.65,2.24c0.01,0.05,0.01,0.12,0.01,0.23c0,0.89-0.22,1.72-0.67,2.48 c-0.44,0.76-1.05,1.36-1.8,1.8c-0.76,0.44-1.59,0.67-2.48,0.67H9.07c-0.89,0-1.72-0.22-2.48-0.67s-1.35-1.05-1.79-1.8 S4.14,17.8,4.14,16.9z M5.85,16.9c0,0.89,0.32,1.66,0.96,2.31c0.64,0.65,1.39,0.98,2.26,0.98h10.81c0.89,0,1.65-0.32,2.28-0.97 s0.95-1.42,0.95-2.32c0-0.88-0.32-1.63-0.96-2.26c-0.64-0.63-1.4-0.95-2.28-0.95h-1.78l-0.1-0.75c-0.1-1.01-0.52-1.88-1.26-2.59 s-1.62-1.11-2.63-1.2c-0.03,0-0.08,0-0.15-0.01c-0.07-0.01-0.11-0.01-0.15-0.01c-0.51,0-1.02,0.1-1.54,0.29V9.4 c-0.73,0.28-1.35,0.74-1.84,1.37c-0.5,0.63-0.8,1.35-0.9,2.17l-0.07,0.72l-0.68,0.03c-0.84,0.1-1.54,0.45-2.1,1.06 S5.85,16.07,5.85,16.9z M17.6,8.79c1.06,0.91,1.72,1.97,1.97,3.18h0.32c1.24,0,2.3,0.39,3.17,1.18c0.33-0.31,0.58-0.67,0.76-1.07 c-0.91-0.43-1.63-1.09-2.16-1.97c-0.52-0.88-0.79-1.81-0.79-2.78V7.09c-0.05-0.01-0.13-0.01-0.24-0.01 c-0.58-0.01-1.15,0.13-1.7,0.44C18.38,7.82,17.93,8.24,17.6,8.79z"
-
-// One four-point twinkle lifted from the `stars` glyph (its first subpath,
-// centred ~(7.7, 16.2)) — repositioned into clear sky by CloudStarIcon below.
-const STAR_SPARKLE = "M5.37,16.18c0.65-0.03,1.2-0.28,1.65-0.75c0.45-0.47,0.68-1.03,0.68-1.68c0,0.65,0.22,1.21,0.67,1.68 c0.45,0.47,1,0.72,1.65,0.75c-0.65,0.03-1.2,0.28-1.65,0.75c-0.45,0.47-0.67,1.03-0.67,1.68c0-0.65-0.22-1.21-0.68-1.68 C6.57,16.46,6.02,16.21,5.37,16.18z"
-
-// Cloud with a star in the clear sky above it — the moon-down counterpart of
-// wi-night-alt-cloudy (no stock weather-icons glyph pairs a star with a cloud;
-// composed from vendored subpaths, mirroring the old lucide CloudStar).
-export function CloudStarIcon({ size = 19, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 30 30" fill="currentColor" style={{ flexShrink: 0, ...style }}>
-      <path d={WI_PATHS['cloud']} />
-      {/* sparkle moved from (7.7, 16.2) to the upper-right sky, clear of the cloud outline */}
-      <path d={STAR_SPARKLE} transform="translate(15.6, -10.4)" />
-    </svg>
-  )
-}
 
 export function WiIcon({ name, size = 19, style }: { name: string; size?: number; style?: React.CSSProperties }) {
   const d = WI_PATHS[name]
@@ -65,18 +83,196 @@ export function WiIcon({ name, size = 19, style }: { name: string; size?: number
   )
 }
 
+// phase_name (one of the 8 principal/intermediate names from sky_events.phase_name_from_angle)
+// + illumination_pct → one of the 28 wi-moon-* glyphs above. The backend only exposes those
+// two fields (not the raw 0-360° elongation angle), so the angle is reconstructed from
+// illumination = (1-cos(angle))/2*100: within a half-lunation (0-180° waxing, 180-360°
+// waning) illum is monotonic, so acos inverts it cleanly; phase_name's waxing/waning word
+// picks the half and its crescent/gibbous word picks the quadrant. Verified by sweeping
+// angle 0-360° and checking the 28 glyphs come out in lunation order with no gaps/repeats.
+export function moonPhaseIconName(phaseName: string, illuminationPct: number): string {
+  const p = phaseName.toLowerCase()
+  if (p.includes('new')) return 'wi-moon-new'
+  if (p === 'first quarter') return 'wi-moon-first-quarter'
+  if (p.includes('full')) return 'wi-moon-full'
+  if (p === 'third quarter') return 'wi-moon-third-quarter'
+
+  const illum = Math.min(100, Math.max(0, illuminationPct))
+  const mirrorAngle = Math.acos(1 - 2 * illum / 100) * 180 / Math.PI // principal value, 0-180°
+  const waning = p.includes('waning')
+  const absoluteAngle = waning ? 360 - mirrorAngle : mirrorAngle
+  const base = absoluteAngle < 90 ? 0 : absoluteAngle < 180 ? 90 : absoluteAngle < 270 ? 180 : 270
+  const relative = absoluteAngle - base // within (6.1°, 83.9°) — the intermediate-name band width
+  const bandWidth = (83.9 - 6.1) / 6
+  const bucket = Math.min(5, Math.max(0, Math.floor((relative - 6.1) / bandWidth))) + 1 // 1-6
+
+  const isCrescent = p.includes('crescent')
+  if (!waning && isCrescent && bucket === 6) return 'wi-moon-waxing-6' // upstream's own naming quirk
+  return `wi-moon-${waning ? 'waning' : 'waxing'}-${isCrescent ? 'crescent' : 'gibbous'}-${bucket}`
+}
+
+// Clear-sky moon phase glyph — same outline/inverted-fill treatment as MoonPhaseCloudyIcon
+// below, minus the cloud: New is solid dark (currentColor), Full is solid light (var(--card),
+// the theme's card/page surface rather than a hardcoded #fff so it still reads correctly in
+// red-mode/dark-mode), everything in between is stroke-only with a transparent middle. No scale
+// transform here (unlike the cloudy variant, this renders at native/full size), so strokeWidth
+// is set directly in the 30-unit viewBox space rather than needing to account for a shrink.
+export function MoonPhaseIcon({ phaseName, illuminationPct, size = 19, style }: {
+  phaseName: string; illuminationPct: number; size?: number; style?: React.CSSProperties
+}) {
+  const moonIconName = moonPhaseIconName(phaseName, illuminationPct)
+  const isNew = moonIconName === 'wi-moon-new'
+  const isFull = moonIconName === 'wi-moon-full'
+  const moonD = WI_PATHS[isNew || isFull ? 'wi-moon-full' : moonIconName]
+  const fill = isNew ? 'currentColor' : isFull ? 'var(--card)' : 'none'
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 30 30" fill="currentColor" style={{ flexShrink: 0, ...style }}>
+      <path d={moonD} fill={fill} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+// Moon-up, partly-cloudy composite: the phase-specific wi-moon-* glyph (full size, same
+// coordinate space as WiIcon) with the same 'cloud' glyph CloudStarIcon/'cloudy' use layered
+// in front, shrunk 20% and shifted down so the cloud deck sits low while the phase shape stays
+// legible above it — same idea as the old single-glyph night-alt-cloudy, but phase-accurate.
+// The transform was tuned by eye: translate(3,7) kept the phase silhouette readable across all
+// 28 phases without the cloud shrinking so much it looked detached from the moon.
+// Moon shrunk to 60% and re-centered higher (circle center (14.44,14.44) r=11.25 -> center
+// (14.44,9) r=6.75), then nudged back down 25% of that raise and shrunk another 10% on top
+// (-> center (14.44,10.36) r=6.08, spanning roughly y 4.28-16.44) so it sits a bit lower and
+// smaller against the cloud below it. Cloud enlarged to 115% and re-centered lower (top edge
+// ~y=13) so it's the visually dominant shape, overlapping roughly the bottom quarter of the
+// moon — enough for the occlusion to read as "behind a cloud," not so much that the phase
+// silhouette stops being legible. Both tuned by eye against this same geometry; see
+// MoonPhaseCloudyIcon.
+const MOON_OVERLAY_TRANSFORM = 'translate(6.34,2.56) scale(0.54)'
+const CLOUD_OVERLAY_TRANSFORM = 'translate(-2.25,4.5) scale(1.15)'
+
+// Same treatment for the moon-down partly-cloudy case: WI_PATHS['stars'] (all four twinkles,
+// bbox center (11.84,14.97)) shrunk to the same 54% and re-centered on the same (14.44,10.36)
+// target the moon uses, so both variants place their "sky content" in the same window above
+// CLOUD_OVERLAY_TRANSFORM's cloud. At that scale only the lowest twinkle's tip grazes the
+// cloud's top edge — intentionally lighter contact than the moon gets, since occluding an
+// entire twinkle would just delete one of the four rather than read as partial occlusion.
+const STAR_OVERLAY_TRANSFORM = 'translate(8.04,2.28) scale(0.54)'
+
+// 'cloud' is drawn as a hollow outline (outer boundary + inset inner boundary, same nonzero-ring
+// trick as wi-moon-new), not a solid blob — see WI_PATHS['cloud']'s two subpaths. That outer
+// boundary alone, taken by itself, is the shape used below to cut a solid cloud-sized hole out of
+// the moon; the full two-subpath glyph is still what actually gets drawn on screen.
+const CLOUD_OUTER_PATH = "M4.61,16.88c0-1.15,0.36-2.17,1.08-3.07c0.72-0.9,1.63-1.48,2.74-1.73c0.31-1.37,1.02-2.49,2.11-3.37s2.35-1.32,3.76-1.32 c1.38,0,2.61,0.43,3.69,1.28s1.78,1.95,2.1,3.29h0.33c0.9,0,1.73,0.22,2.49,0.65s1.37,1.03,1.81,1.79c0.44,0.76,0.67,1.58,0.67,2.48 c0,0.88-0.21,1.7-0.63,2.45s-1,1.35-1.73,1.8c-0.73,0.45-1.54,0.69-2.41,0.72H9.41c-1.34-0.06-2.47-0.57-3.4-1.53 C5.08,19.37,4.61,18.22,4.61,16.88z"
+
+// Big enough that CLOUD_OVERLAY_TRANSFORM's scale/translate still leaves it covering the full
+// 0-30 viewBox — values tuned to that transform, not the viewBox itself.
+const CLOUD_CUTOUT_D = `M-1000,-1000 H1000 V1000 H-1000 Z ${CLOUD_OUTER_PATH}`
+
+export function MoonPhaseCloudyIcon({ phaseName, illuminationPct, size = 19, style }: {
+  phaseName: string; illuminationPct: number; size?: number; style?: React.CSSProperties
+}) {
+  const moonIconName = moonPhaseIconName(phaseName, illuminationPct)
+  const isNew = moonIconName === 'wi-moon-new'
+  const isFull = moonIconName === 'wi-moon-full'
+  // New/Full aren't "line art" like the crescent/gibbous/quarter phases in between — the moon is
+  // either entirely dark or entirely lit, so both render as a solid disc instead of an outline
+  // with a see-through middle. wi-moon-new's own path is a hollow ring (two boundaries, meant to
+  // read as a thin outline by itself), which is the wrong shape to fill solid, so both extremes
+  // reuse wi-moon-full's plain single-boundary disc and differ only in fill color.
+  const moonD = WI_PATHS[isNew || isFull ? 'wi-moon-full' : moonIconName]
+  // currentColor for New ("totally dark" — the ink color, matching the rest of the icon set);
+  // var(--card) for Full ("all white" — the theme's card/page surface, so it stays a light disc
+  // in light mode and doesn't hardcode a literal #fff that would look wrong against red-mode's
+  // dark surfaces). Everything in between stays fill="none" (see below).
+  const moonFill = isNew ? 'currentColor' : isFull ? 'var(--card)' : 'none'
+  // Same fill color for both shapes means paint order alone can't make the cloud read as "in
+  // front" — a plain union just adds the cloud's bumps onto the moon's silhouette. So the cloud's
+  // footprint is cut out of the moon first, then the full cloud is drawn over that hole — genuine
+  // occlusion, not just overlap.
+  //
+  // The cutout MUST be a single <path> with two subpaths (a big rect + the cloud's outer
+  // boundary) under evenodd — a <clipPath> with two separate sibling <path> children instead
+  // would just union them (per SVG spec, clipPath ORs its children's silhouettes; clip-rule only
+  // governs each child's own self-intersection winding), which is a no-op here since the rect
+  // already covers the cloud. That silently produced an unclipped moon in every earlier version
+  // of this icon — the "occlusion" then was only the cloud's own opaque outline strokes sitting
+  // on top, with the moon still fully intact and showing straight through its hollow center.
+  //
+  // clipId must be unique per instance (many render at once in the weather table).
+  //
+  // clip-path sits on a plain, untransformed <g> — NOT on the moon <path> itself. When
+  // clip-path and transform are on the same element, the clip's userSpaceOnUse geometry is
+  // evaluated inside that element's own (already-transformed) coordinate system, so it would
+  // ride along with MOON_OVERLAY_TRANSFORM a second time and land somewhere other than where
+  // the visible cloud actually is. Keeping the <g> untransformed means its clip region is
+  // defined in the same raw 0-30 space CLOUD_OVERLAY_TRANSFORM already targets (matching the
+  // visible cloud drawn below), and MOON_OVERLAY_TRANSFORM only ever moves the moon geometry
+  // being stenciled through that fixed mask, not the mask itself.
+  const clipId = useId()
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 30 30" fill="currentColor" style={{ flexShrink: 0, ...style }}>
+      <defs>
+        <clipPath id={clipId}>
+          <path d={CLOUD_CUTOUT_D} transform={CLOUD_OVERLAY_TRANSFORM} clipRule="evenodd" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        {/* fill="none" + stroke instead of a solid fill: a solid dark disc sitting next to the
+            cloud's own hollow-outline style (fill ring, transparent center) read as two different
+            icon languages colliding. Outlining the moon the same way makes both shapes "line art."
+            strokeWidth is in the path's own pre-transform units, so it's divided by
+            MOON_OVERLAY_TRANSFORM's 0.54 scale to land close to the cloud's rendered line weight
+            (~1.6 final units) rather than 3x thinner than it once scales down. */}
+        <path d={moonD} transform={MOON_OVERLAY_TRANSFORM} fill={moonFill} stroke="currentColor" strokeWidth={3} strokeLinejoin="round" />
+      </g>
+      <path d={WI_PATHS['cloud']} transform={CLOUD_OVERLAY_TRANSFORM} />
+    </svg>
+  )
+}
+
+// Moon-down, partly-cloudy counterpart of MoonPhaseCloudyIcon above — same enlarged cloud
+// (CLOUD_OVERLAY_TRANSFORM) and same clip-on-an-untransformed-<g> occlusion technique, just with
+// WI_PATHS['stars'] shrunk/raised (STAR_OVERLAY_TRANSFORM) behind it instead of a moon phase.
+// Replaces the old single-sparkle-in-clear-sky version (no stock weather-icons glyph pairs a
+// star field with a cloud; still composed from vendored subpaths, just the full 'stars' glyph
+// now instead of one lifted twinkle).
+export function CloudStarIcon({ size = 19, style }: { size?: number; style?: React.CSSProperties }) {
+  const clipId = useId()
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 30 30" fill="currentColor" style={{ flexShrink: 0, ...style }}>
+      <defs>
+        <clipPath id={clipId}>
+          <path d={CLOUD_CUTOUT_D} transform={CLOUD_OVERLAY_TRANSFORM} clipRule="evenodd" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        <path d={WI_PATHS['stars']} transform={STAR_OVERLAY_TRANSFORM} />
+      </g>
+      <path d={WI_PATHS['cloud']} transform={CLOUD_OVERLAY_TRANSFORM} />
+    </svg>
+  )
+}
+
 // Sky-state icon from cloud cover % alone — shared by the WMO-code path (codes 0-3, where
 // cloud_cover_pct is more precise than the coarse API code) and the no-code fallback path
 // (providers, like 7Timer, that never supply a WMO code at all). Clear and partly-cloudy
 // tiers both distinguish moon state: moon up shows the moon (clear crescent / behind the
 // cloud), moon down shows stars — partly cloudy still leaves sky visible, so the icon
 // should say what's in it. Only overcast drops the distinction.
-export function skyIconFromCloudCover(cloudCover: number, moonUp: boolean, size: number) {
-  if (cloudCover <= 25) return <WiIcon name={moonUp ? 'night-clear' : 'stars'} size={size} />
+// moonPhase (that evening's phase_name/illumination_pct) swaps the generic clear-sky moon
+// glyph for the matching wi-moon-* phase icon; omitted/null falls back to the plain crescent.
+export function skyIconFromCloudCover(cloudCover: number, moonUp: boolean, size: number, moonPhase?: { phaseName: string; illuminationPct: number } | null) {
+  if (cloudCover <= 25) {
+    if (!moonUp) return <WiIcon name="stars" size={size} />
+    // The wi-moon-* phase glyphs read visually larger than night-clear's plain crescent at
+    // the same nominal size (finer terminator detail, less padding baked into the outline),
+    // so they're rendered 15% smaller to sit visually even with the rest of the icon set.
+    if (moonPhase) return <MoonPhaseIcon phaseName={moonPhase.phaseName} illuminationPct={moonPhase.illuminationPct} size={size * 0.85} />
+    return <WiIcon name="night-clear" size={size} />
+  }
   if (cloudCover <= 65) {
-    return moonUp
-      ? <WiIcon name="night-alt-cloudy" size={size} />
-      : <CloudStarIcon size={size} />
+    if (!moonUp) return <CloudStarIcon size={size} />
+    if (moonPhase) return <MoonPhaseCloudyIcon phaseName={moonPhase.phaseName} illuminationPct={moonPhase.illuminationPct} size={size} />
+    return <WiIcon name="night-alt-cloudy" size={size} />
   }
   return <WiIcon name="cloudy" size={size} />
 }
@@ -233,11 +429,13 @@ export function SkyCover({ low, mid, high, imperial = true }: {
   )
 }
 
-export function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25, visibilityM, precipType, windSpeedMs, windGustMs, transparency }: {
-  code: number | null; cloudCover?: number | null; moonUp?: boolean; size?: number
+export function WmoIcon({ code, cloudCover, moonUp = false, moonPhaseName = null, moonIlluminationPct = null, size = 32, aod, pm25, visibilityM, precipType, windSpeedMs, windGustMs, transparency }: {
+  code: number | null; cloudCover?: number | null; moonUp?: boolean
+  moonPhaseName?: string | null; moonIlluminationPct?: number | null; size?: number
   aod?: number | null; pm25?: number | null; visibilityM?: number | null; precipType?: string | null
   windSpeedMs?: number | null; windGustMs?: number | null; transparency?: string | null
 }) {
+  const moonPhase = moonPhaseName != null && moonIlluminationPct != null ? { phaseName: moonPhaseName, illuminationPct: moonIlluminationPct } : null
   // Fog and haze render as bold text, not an icon — both are visibility hazards easy to
   // misjudge from a small glyph at a glance; the word is unambiguous.
   if (precipType === 'fog') return <span className="wx-cond-word">Fog</span>
@@ -306,7 +504,7 @@ export function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25
 
   if (code != null) {
     // For pure sky-state codes (0–3), cloud cover % is more precise than the API code
-    if (code <= 3 && cloudCover != null) return skyIconFromCloudCover(cloudCover, moonUp, size)
+    if (code <= 3 && cloudCover != null) return skyIconFromCloudCover(cloudCover, moonUp, size, moonPhase)
     const name = WMO_ICON_NAMES[code]
     if (name) return <WiIcon name={name} size={size} />
   }
@@ -318,7 +516,7 @@ export function WmoIcon({ code, cloudCover, moonUp = false, size = 32, aod, pm25
     const name = PRECIP_TYPE_ICON_NAMES[precipType!]
     if (name) return <WiIcon name={name} size={size} />
   }
-  if (cloudCover != null) return skyIconFromCloudCover(cloudCover, moonUp, size)
+  if (cloudCover != null) return skyIconFromCloudCover(cloudCover, moonUp, size, moonPhase)
   return null
 }
 
