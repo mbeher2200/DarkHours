@@ -2,6 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react'
 import type { CalendarNight, CalendarResult } from './types'
 import { scoreBand, scoreLabel, tonightIso } from './format'
 import { ScoreBar } from './shared'
+import { MoonPhaseIcon, WiIcon, WI_METEOR_VIEWBOX } from './report/icons'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DOW_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -115,9 +116,17 @@ export default function OutlookTelemetryRibbon({
                     style={n.score != null ? ({ '--cell-alpha': cellAlpha(n.score) } as CSSProperties) : undefined}
                     onClick={() => setSelectedDate(n.date)}
                     aria-pressed={isSelected}
-                    title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''}`}
-                    aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}${isBest ? ', best night' : ''}${isSelected ? ', currently selected' : ''}`}
+                    title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''} · ${n.phase_name}${n.meteor_shower ? ` · ${n.meteor_shower.name} meteor shower (${n.meteor_shower.note})` : ''}`}
+                    aria-label={`${dow} ${mmdd}, score ${n.score != null ? n.score.toFixed(1) : 'unavailable'}${isBest ? ', best night' : ''}${isSelected ? ', currently selected' : ''}, ${n.phase_name} moon${n.meteor_shower ? `, ${n.meteor_shower.name} meteor shower active, ${n.meteor_shower.note}` : ''}`}
                   >
+                    <span className="hm-moon">
+                      <MoonPhaseIcon phaseName={n.phase_name} illuminationPct={n.illumination_pct} size={11} />
+                    </span>
+                    {n.meteor_shower && (
+                      <span className="hm-meteor">
+                        <WiIcon name="wi-meteor" size={11} viewBox={WI_METEOR_VIEWBOX} />
+                      </span>
+                    )}
                     <span className="hm-day">{dayNum}</span>
                     <span className="hm-score">{n.score != null ? n.score.toFixed(1) : '—'}</span>
                   </button>
