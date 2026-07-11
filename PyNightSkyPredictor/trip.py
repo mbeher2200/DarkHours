@@ -26,6 +26,13 @@ _ASTRO_TTL      = 24 * 3600   # 24 hours — stable for astronomical data
 _WEATHER_TTL    =      3600   # 1 hour   — weather forecast changes
 _FORECAST_DAYS  = 14          # Open-Meteo forecast window (days from today)
 
+# Display-only floor for the calendar's meteor icon — separate from targets.py's
+# _ZHR_DECAY_FLOOR (2.0, a sporadic-background computation cutoff). Because
+# active_meteor_showers()'s gate takes max(curated, decay-derived) window width,
+# curated showers (e.g. Taurids) can stay "active" for weeks at low ZHR; this keeps
+# the calendar icon confined to the meaningfully productive nights around peak.
+_METEOR_ICON_ZHR_MIN = 10.0
+
 
 @dataclass
 class NightSummary:
@@ -47,6 +54,7 @@ class NightSummary:
     weather_informed: bool          # True if weather data was included in score
     wx_pending:       bool
     wx_no_data:       bool
+    meteor_shower:    dict | None = None  # single best active shower (ActiveShower shape), or None
 
 
 @dataclass
@@ -84,6 +92,15 @@ def _eclipses_from_json(raw: list) -> list:
     return result
 
 
+def _best_shower(showers: list) -> dict | None:
+    """Pick the single highest-zhr_effective active shower for calendar display,
+    or None if none clears _METEOR_ICON_ZHR_MIN."""
+    candidates = [s for s in showers if (s.get("zhr_effective") or 0) >= _METEOR_ICON_ZHR_MIN]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda s: s["zhr_effective"])
+
+
 def _to_dict(s: NightSummary) -> dict:
     return {
         "date":             s.date.isoformat(),
@@ -103,6 +120,7 @@ def _to_dict(s: NightSummary) -> dict:
         "weather_informed": s.weather_informed,
         "wx_pending":       s.wx_pending,
         "wx_no_data":       s.wx_no_data,
+        "meteor_shower":    s.meteor_shower,
     }
 
 
@@ -125,6 +143,7 @@ def _from_dict(d: dict) -> NightSummary:
         weather_informed = d["weather_informed"],
         wx_pending       = d.get("wx_pending", False),
         wx_no_data       = d.get("wx_no_data", False),
+        meteor_shower    = d.get("meteor_shower"),
     )
 
 
@@ -133,8 +152,8 @@ def _from_dict(d: dict) -> NightSummary:
 # ---------------------------------------------------------------------------
 
 def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
-    # v3: added moon_special and moon_eclipses fields to NightSummary
-    return f"night_v3:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
+    # v4: added meteor_shower field to NightSummary
+    return f"night_v4:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
 
 
 def _within_forecast_window(d: date, horizon_days: int = _FORECAST_DAYS) -> bool:
@@ -202,6 +221,7 @@ def fetch_night(
         weather_informed = weather_informed,
         wx_pending       = report.wx_pending,
         wx_no_data       = report.wx_no_data,
+        meteor_shower    = _best_shower(report.active_showers),
     )
 
     ttl = _WEATHER_TTL if weather_informed else _ASTRO_TTL
