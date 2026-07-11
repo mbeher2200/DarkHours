@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from zoneinfo import ZoneInfo
 
+from . import aurora as _aur
 from . import darksky as _ds
 from . import light_dome as _ld
 from . import moon_events as _me
@@ -136,6 +137,10 @@ class NightReport:
 
     # Active meteor showers tonight (always populated)
     active_showers: list  = field(default_factory=list)
+
+    # Aurora outlook (nightly_aurora shape) — None below the photographic tier,
+    # outside the Kp forecast horizon, or when the night has no true darkness
+    aurora: dict | None = None
 
     # ISS (and other satellite) passes (populated when fetch_satellites=True)
     sat_passes:               list = field(default_factory=list)
@@ -439,6 +444,7 @@ def assemble_night(
     fetch_weather: bool = True,
     fetch_targets: bool = False,
     fetch_satellites: bool = False,
+    fetch_aurora: bool = True,
     use_cycle_window: bool = False,
 ) -> NightReport:
     """
@@ -476,13 +482,38 @@ def assemble_night(
     _sat_stale        = False
     _sat_days_offset  = (target - (datetime.now(timezone.utc).date() - timedelta(days=1))).days
 
-    _max_workers = 3
+    _max_workers = 4
     if fetch_satellites and _sat_days_offset >= 0:
-        # 3 individual TLE fetches + 1 Starlink group fetch on top of ds + wx
-        _max_workers = 8
+        # 3 individual TLE fetches + 1 Starlink group fetch on top of ds + wx + aurora
+        _max_workers = 9
 
     with _futures.ThreadPoolExecutor(max_workers=_max_workers) as _pool:
         _ds_future = _pool.submit(_ds.lookup, lat, lon)
+
+        # Aurora forecast — global SWPC products (cached, single-flight): the
+        # 3-day Kp forecast within its horizon, the 27-day outlook beyond it
+        # (so the report agrees with the calendar icon the outlook produced).
+        # The gate uses _now (UTC), never a local-time date: SWPC time_tags are
+        # naive-UTC, and a local date would prematurely block the fetch for
+        # Pacific evenings where "tonight" is already tomorrow in UTC (the −1
+        # day end mirrors the weather heuristic below). Past/far-future dates
+        # skip the fetch entirely, keeping those paths offline.
+        _aurora_future: _futures.Future | None = None
+        _aurora_days_ahead = (target - _now.date()).days
+        if fetch_aurora and -1 <= _aurora_days_ahead <= _aur.OUTLOOK_HORIZON_DAYS:
+            def _aurora_io(_days=_aurora_days_ahead):
+                rows, r_stale = (
+                    _aur.fetch_kp_forecast()
+                    if _days <= _aur.KP_FORECAST_HORIZON_DAYS + 1 else ([], False)
+                )
+                # Prefetch the outlook whenever the Kp bins might not span the
+                # whole night (the boundary nights and everything beyond).
+                if _days >= _aur.KP_FORECAST_HORIZON_DAYS or not rows:
+                    outlook, o_stale = _aur.fetch_27day_outlook()
+                else:
+                    outlook, o_stale = None, False
+                return rows, r_stale, outlook, o_stale
+            _aurora_future = _pool.submit(_aurora_io)
 
         # Heuristic: start weather for tonight-or-future dates without waiting for
         # sunrise. "Tonight" may be yesterday in UTC when the night spans midnight
@@ -820,6 +851,24 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
+    # --- Aurora outlook (fetches already resolved off-thread; per-location math
+    # is cheap). On the use_cycle_window path night_start/night_end come from
+    # the fixed-twilight-offset approximation — minutes-scale error against the
+    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
+    aurora_info = None
+    if _aurora_future is not None and night_start and night_end:
+        try:
+            _kp_rows, _kp_stale, _kp_outlook, _outlook_stale = _aurora_future.result()
+            aurora_info = _aur.aurora_for_night(
+                lat, lon, target, night_start, night_end,
+                kp_rows=_kp_rows, kp_stale=_kp_stale,
+                outlook=_kp_outlook, outlook_stale=_outlook_stale,
+                weather_points=night_points,
+                light_dome=light_dome_info,
+            )
+        except Exception as _ae:
+            log.debug("aurora computation failed (non-fatal): %s", _ae)
+
     # --- Moon altitude track (used for best-time scoring across all target types) ---
     # Sampled sunset→sunrise at 15-min resolution.  Requires de421.bsp; falls back
     # gracefully (moon_alts=None) when the ephemeris is absent (e.g. unit tests).
@@ -915,6 +964,7 @@ def assemble_night(
         visible_targets=target_list,
         mw_summary=mw_summary,
         active_showers=active_showers,
+        aurora=aurora_info,
         sat_passes=sat_pass_list,
         sat_stale=_sat_stale,
         sat_future_stale=sat_future_stale,

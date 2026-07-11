@@ -1,6 +1,26 @@
 """
 Shared pytest configuration.
 
-Markers are registered in pytest.ini; this file exists for any future
-session-scoped fixtures (e.g. caching ephemeris across test modules).
+Markers are registered in pytest.ini; session-scoped fixtures live here.
 """
+import pytest
+
+# Test modules that exercise the SWPC fetchers themselves and must NOT have
+# them stubbed (they mock the HTTP/cache layer underneath instead).
+_AURORA_OPT_OUT = {"test_aurora_provider", "test_provider_smoke"}
+
+
+@pytest.fixture(autouse=True)
+def _offline_aurora(request, monkeypatch):
+    """Keep the default test run offline: assemble_night()/fetch_night() gained a
+    default-on SWPC fetch whose date gate doesn't protect tests that use today's
+    date. Stub both fetchers to empty results (aurora → None) everywhere except
+    the provider tests, which re-mock the layers they need.
+    """
+    if request.module.__name__.rpartition(".")[2] in _AURORA_OPT_OUT:
+        yield
+        return
+    from PyNightSkyPredictor import aurora as _aurora
+    monkeypatch.setattr(_aurora, "fetch_kp_forecast", lambda: ([], False))
+    monkeypatch.setattr(_aurora, "fetch_27day_outlook", lambda: ({}, False))
+    yield
