@@ -1,6 +1,6 @@
 geopy==2.4.1
 skyfield==1.54
 timezonefinder==8.2.4
-boto3==1.43.40
+boto3==1.43.46
 global-land-mask>=1.0
 h3>=4.5.0
