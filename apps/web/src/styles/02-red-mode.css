@@ -158,6 +158,13 @@ html.red-mode .band-poor {
 html.red-mode .meteor-alert-banner {
   background: rgba(255, 0, 0, 0.05);
 }
+/* Outlook calendar cell icons — explicit red-mode ink to match hm-day/hm-score. */
+html.red-mode .hm-moon {
+  color: var(--text-h);
+}
+html.red-mode .hm-meteor {
+  color: var(--accent);
+}
 /* Links (incl. visited): otherwise they fall back to the browser's blue/purple. */
 html.red-mode a:link,
 html.red-mode a:visited {

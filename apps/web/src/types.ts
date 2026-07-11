@@ -310,6 +310,7 @@ export interface CalendarNight {
   weather_informed: boolean
   wx_pending: boolean
   wx_no_data: boolean
+  meteor_shower: ActiveShower | null
 }
 
 export interface CalendarResult {
