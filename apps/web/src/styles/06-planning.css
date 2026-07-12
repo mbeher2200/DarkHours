@@ -522,3 +522,27 @@ html.red-mode .heatmap-cell.hm-excellent .hm-score {
   white-space: nowrap;
 }
 .poi-maplink:hover { text-decoration: underline; }
+.poi-warning {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  color: var(--fair);
+  background: color-mix(in oklab, var(--fair) 14%, transparent);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.poi-unroutable {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--poor);
+  white-space: nowrap;
+}

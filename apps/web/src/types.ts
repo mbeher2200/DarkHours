@@ -308,6 +308,9 @@ export interface NearbyPlace {
   is_poi?: boolean
   poi_type?: PoiType | null
   area_name?: string | null
+  // Non-fatal routing avoidance violations (e.g. "Dirt roads") the API's best-effort
+  // Avoid preferences couldn't route around. Empty/absent when the leg was clean.
+  warnings?: string[]
 }
 
 export interface NearbyResult {
