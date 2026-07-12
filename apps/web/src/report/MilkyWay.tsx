@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import type { NightReport, VisibleTarget, MilkyWaySummary, Direction } from '../types'
-import { formatTime, cardinal, rateConditions, scoreBand, scoreLabel, moonWashSeverity } from '../format'
+import { formatTime, cardinal, rateConditions, scoreBand, scoreLabel, resolveMoonSeverity, showAodAmplifyTip, AOD_AMPLIFY_TIP_COPY } from '../format'
 import { ScoreBar, InfoTip } from '../shared'
 import { WmoIcon } from './icons'
 import { fmtPos } from './common'
@@ -79,7 +79,7 @@ export function WaypointsAccordion({ waypoints, summary, report }: {
               const sky = skyCondition(
                 bestT, report.dark_intervals, report.night_start, report.night_end,
                 report.illumination_pct, report.moonrise, report.moonset,
-                w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+                w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg, w.moon_wash_severity,
               )
               const moonBadge = sky.startsWith('Moon')
                 ? <span className={`tg-sky-inline ${skyClass(sky)}`}>{' '}{sky}</span>
@@ -127,11 +127,11 @@ export function WaypointsAccordion({ waypoints, summary, report }: {
   )
 }
 
-export function MoonBadge({ type, severity }: { type: 'penalty' | 'limited'; severity?: string | null }) {
+export function MoonBadge({ type, severity, aodTip }: { type: 'penalty' | 'limited'; severity?: string | null; aodTip?: boolean }) {
   const base = type === 'penalty' ? 'Moon interference' : 'Moon limited'
   const text = severity ? `${base}: ${severity}` : base
   return (
-    <InfoTip tip={<>Moon wash — scattered moonlight brightening the sky along this line of sight (Krisciunas &amp; Schaefer 1991). Severity comes from phase, moon altitude, and angular separation, not illumination % alone.</>}>
+    <InfoTip tip={<>Moon wash — scattered moonlight brightening the sky along this line of sight (Krisciunas &amp; Schaefer 1991; Winkler 2022). Severity comes from phase, moon altitude, angular separation, and aerosols, not illumination % alone.{aodTip ? <> {AOD_AMPLIFY_TIP_COPY}</> : null}</>}>
       <span className="mw-moon-badge">{text}</span>
     </InfoTip>
   )
@@ -741,11 +741,13 @@ export function MilkyWayCard({ summary, waypoints, report }: {
   const bestLabel = 'Best time'
   const bestTime  = s.best_viewing_time ?? (s.core_peak_in_window ? s.core_peak_time : s.arch_end)
 
-  const moonSeverity = moonWashSeverity(
+  const moonSeverity = resolveMoonSeverity(
+    s.core_moon_severity,
     report.illumination_pct,
     s.core_moon_sep_deg ?? null,
     s.core_moon_alt_deg ?? null,
   )
+  const moonAodTip = showAodAmplifyTip(moonSeverity, report.night_aod)
 
       return (
     <div className="mw-card">
@@ -767,7 +769,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
           <span className="meta-v">
             {formatTime(s.arch_start, tz)} – {formatTime(s.arch_end, tz)}
             {'  ·  '}{Math.floor(s.arch_hours)}h {Math.round((s.arch_hours % 1) * 60).toString().padStart(2,'0')}m
-            {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} />}
+            {s.moon_limited && !s.arch_moon_washout && <MoonBadge type="limited" severity={moonSeverity} aodTip={moonAodTip} />}
             {s.weather_limited && !s.weather_blocked && <span className="mw-moon-badge">{`${s.clear_arch_hours.toFixed(1)}h clear`}</span>}
           </span>
         </div>
@@ -797,7 +799,7 @@ export function MilkyWayCard({ summary, waypoints, report }: {
         </div>
 
         <div className="mw-notes-container">
-          {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} />}
+          {s.moon_penalised && !s.arch_moon_washout && <MoonBadge type="penalty" severity={moonSeverity} aodTip={moonAodTip} />}
           {s.arch_moon_washout && <span className="mw-moon-badge">Moon washout</span>}
           {domeSections.length > 0 && (() => {
             const maxGlow  = Math.max(...domeSections.map(ds => ds.glow))

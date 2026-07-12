@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import type { NightReport, TargetWindow, VisibleTarget, WeatherPoint } from '../types'
-import { formatTime, formatDayTime, cardinal, rateConditions, scoreBand, moonWashSeverity, moonUpAt } from '../format'
+import { formatTime, formatDayTime, cardinal, rateConditions, scoreBand, resolveMoonSeverity, moonUpAt, showAodAmplifyTip, AOD_AMPLIFY_TIP_COPY } from '../format'
 import { InfoTip } from '../shared'
 import { WmoIcon } from './icons'
 import { fmtPos } from './common'
@@ -52,6 +52,7 @@ export function skyCondition(
   moonset:  string | null,
   moonSepAtPeak:  number | null,
   moonAltAtPeak:  number | null,
+  serializedSeverity?: string | null,
 ): string {
   const pt = new Date(peakIso).getTime()
 
@@ -65,7 +66,7 @@ export function skyCondition(
   }
 
   if (moonUpAt(peakIso, moonrise, moonset)) {
-    const sev = moonWashSeverity(illuminationPct, moonSepAtPeak, moonAltAtPeak)
+    const sev = resolveMoonSeverity(serializedSeverity, illuminationPct, moonSepAtPeak, moonAltAtPeak)
     if (sev) return `Moon wash: ${sev}`
   }
   return base
@@ -133,10 +134,15 @@ export function MeteorShowerCard({ target, zhr, report }: {
     ? skyCondition(
         w.peak_time, report.dark_intervals, report.night_start, report.night_end,
         report.illumination_pct, report.moonrise, report.moonset,
-        w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+        w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg, w.moon_wash_severity,
       )
     : null
   const skyCls = sky ? skyClass(sky) : ''
+  const aodTip = showAodAmplifyTip(
+    resolveMoonSeverity(w.moon_wash_severity, report.illumination_pct,
+                        w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg),
+    report.night_aod,
+  )
 
   return (
     <div className="ms-card">
@@ -172,7 +178,13 @@ export function MeteorShowerCard({ target, zhr, report }: {
           {sky && (
             <div className="mw-row">
               <span className="mw-label">Sky</span>
-              <span className={`tg-sky ${skyCls}`}>{sky}</span>
+              {aodTip ? (
+                <InfoTip tip={<>{AOD_AMPLIFY_TIP_COPY}</>}>
+                  <span className={`tg-sky ${skyCls}`}>{sky}</span>
+                </InfoTip>
+              ) : (
+                <span className={`tg-sky ${skyCls}`}>{sky}</span>
+              )}
             </div>
           )}
           {(w.blockers?.length ?? 0) > 0 && (
@@ -454,7 +466,7 @@ export function TargetsTable({ targets, report }: { targets: VisibleTarget[]; re
         ? skyCondition(
             peakForSky, report.dark_intervals, report.night_start, report.night_end,
             report.illumination_pct, report.moonrise, report.moonset,
-            w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg,
+            w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg, w.moon_wash_severity,
           )
         : '—'
       const skyCls = skyClass(sky)
@@ -466,6 +478,11 @@ export function TargetsTable({ targets, report }: { targets: VisibleTarget[]; re
         ? (moonIsUpAtPeak ? ' · moon wash minimal' : ' · pre-moonrise')
         : null
       const showSkyBadge = sky !== 'Dark sky' && sky !== '—'
+      const aodTip = showAodAmplifyTip(
+        resolveMoonSeverity(w.moon_wash_severity, report.illumination_pct,
+                            w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg),
+        report.night_aod,
+      )
 
       peakJsx = (
         <>
@@ -473,9 +490,17 @@ export function TargetsTable({ targets, report }: { targets: VisibleTarget[]; re
           <span className="tg-p"> · Alt </span><Alt deg={effectiveBestAlt} />
           <span className="tg-p"> Az </span><Az az={w.peak_az_deg} /><span className="tg-p"> </span><Dir az={w.peak_az_deg} />
           {showSkyBadge && (
-            <span className={`tg-sky-inline ${skyCls}`}>
-              {' '}{sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
-            </span>
+            aodTip ? (
+              <InfoTip tip={<>{AOD_AMPLIFY_TIP_COPY}</>}>
+                <span className={`tg-sky-inline ${skyCls}`}>
+                  {' '}{sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
+                </span>
+              </InfoTip>
+            ) : (
+              <span className={`tg-sky-inline ${skyCls}`}>
+                {' '}{sky}{moonNoteText ? <span className="tg-moon-note">{moonNoteText}</span> : null}
+              </span>
+            )
           )}
           {!showSkyBadge && moonNoteText && (
             <span className="tg-moon-note">{' '}{moonNoteText}</span>

@@ -262,15 +262,17 @@ def moon_wash_severity(
     moon_alt_deg: float | None = None,
     aod: float | None = None,
     target_alt_deg: float = 45.0,
+    sky_sqm: float = KS_NATURAL_SKY,
+    moon_earth_dist_km: float = _KS_MEAN_DIST_KM,
 ) -> str | None:
     """
     Classify moon interference as None, 'minor', 'moderate', or 'severe'.
 
     Uses ks_delta_mag internally; sep_deg and moon_alt_deg default to 45°
-    when not provided (conservative mid-sky estimate).  aod / target_alt_deg
-    pass through to the scattering model.
+    when not provided (conservative mid-sky estimate).  aod, target_alt_deg,
+    sky_sqm and moon_earth_dist_km pass through to the scattering model.
 
-    Severity thresholds (Δ mag/arcsec² relative to a Bortle-2 dark sky):
+    Severity thresholds (Δ mag/arcsec² relative to the site's own sky):
       None       < 0.10  — negligible
       'minor'   0.10–0.50 — slight brightening
       'moderate' 0.50–1.50 — noticeable; low-SB targets impacted
@@ -280,6 +282,8 @@ def moon_wash_severity(
         illumination_pct,
         sep_deg      if sep_deg      is not None else 45.0,
         moon_alt_deg if moon_alt_deg is not None else 45.0,
+        sky_sqm,
+        moon_earth_dist_km,
         aod=aod,
         target_alt_deg=target_alt_deg,
     )

@@ -67,6 +67,8 @@ class TargetWindow:
     arch_angle_deg: float | None = None        # milky_way only: plane angle from horizon
     moon_sep_at_peak_deg: float | None = None  # angular separation from moon at peak time
     moon_alt_at_peak_deg: float | None = None  # moon altitude at peak time (for K&S model)
+    moon_wash_severity: "str | None" = None    # 'none'|'minor'|'moderate'|'severe' at peak (site SQM +
+                                                 # AOD + slant path); None = peak geometry unavailable
     photo_cutoff: "datetime | None" = None     # last sample where astrophotography is viable
     visual_cutoff: "datetime | None" = None    # last sample where visual observation is viable
     photo_start: "datetime | None" = None      # first viable sample (set when moon delays window start)
@@ -477,6 +479,20 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
             peak_obs_idx = obs_dts.index(window.peak_time)
             window.moon_sep_at_peak_deg = float(obs_sep[peak_obs_idx])
             window.moon_alt_at_peak_deg = float(obs_moon_alt[peak_obs_idx])
+            # Serialized severity at peak — the single source of truth for the
+            # UI and CLI (site SQM, AOD, distance and slant path included,
+            # unlike the legacy frontend mirror).  'none' = computed and
+            # negligible; None (field default) = peak geometry unavailable.
+            sev = _ml.moon_wash_severity(
+                illumination_pct,
+                window.moon_sep_at_peak_deg,
+                window.moon_alt_at_peak_deg,
+                aod=aod,
+                target_alt_deg=window.peak_alt_deg,
+                sky_sqm=_sqm,
+                moon_earth_dist_km=float(obs_moon_dist[peak_obs_idx]),
+            )
+            window.moon_wash_severity = sev if sev is not None else "none"
         except Exception as e:
             log.debug("Moon sep/alt at peak failed for %r: %s", name, e)
 
