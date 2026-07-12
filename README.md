@@ -472,7 +472,7 @@ The repository includes an optional cloud-native deployment that exposes the eng
 **Stack:**
 - **Compute** — FastAPI on AWS Lambda (container image) fronted by CloudFront with WAFv2 rate limiting
 - **Storage** — DynamoDB for cache and geocode store; S3 for the VIIRS/Falchi rasters as Cloud-Optimized GeoTIFFs
-- **Routing & geocoding** — Amazon Location **GeoRoutes** (`CalculateRouteMatrix`, traffic-aware via `DepartNow`) computes drive time + road distance to each reachable POI in `find_nearby`; AWS Location place index handles reverse-geocoding. Per-leg results are cached briefly (live-traffic ETAs)
+- **Routing & geocoding** — Amazon Location **GeoRoutes** (`CalculateRoutes`, historical traffic for cache-consistent ETAs) computes drive time + road distance to each reachable POI in `find_nearby`, and flags ferry-only/unpaved-road legs; AWS Location place index handles reverse-geocoding. Per-leg results are cached for 24h
 - **Frontend** — React/TypeScript SPA (Vite) served from S3 via CloudFront. The nearby-results view orders sites by drive time, shows road distance, and links Google Maps driving directions (origin → site) for each
 - **Resilience** — scheduled Lambda warmer for satellite TLEs; SQS + worker Lambda for async calendar/trip jobs (the worker also runs `find_nearby` and ships the PAD-US + OSM POI indexes)
 - **Observability** — structured JSON logs, X-Ray tracing, CloudWatch metric alarms

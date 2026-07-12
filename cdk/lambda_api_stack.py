@@ -224,11 +224,13 @@ class LambdaApiStack(Stack):
         fn.add_to_role_policy(geo_policy)
         fn.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
 
-        # Drive times use Amazon Location GeoRoutes (CalculateRouteMatrix) — the modern,
-        # resource-less routing API (no route calculator to create), with DepartNow
-        # traffic-aware ETAs. The action takes no resource ARN, so it's scoped to "*".
+        # Drive times use Amazon Location GeoRoutes CalculateRoutes (point-to-point) — the
+        # resource-less routing API (no route calculator to create). NOT the batched
+        # CalculateRouteMatrix: that endpoint's response has no Notices/Legs, so it can't
+        # detect a ferry-bridged or unpaved-road route (see darksky._aws_route_one). The
+        # action takes no resource ARN, so it's scoped to "*".
         route_policy = iam.PolicyStatement(
-            actions=["geo-routes:CalculateRouteMatrix"],
+            actions=["geo-routes:CalculateRoutes"],
             resources=["*"],
         )
         fn.add_to_role_policy(route_policy)
