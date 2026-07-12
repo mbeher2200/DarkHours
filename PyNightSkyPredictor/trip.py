@@ -55,6 +55,7 @@ class NightSummary:
     wx_pending:       bool
     wx_no_data:       bool
     meteor_shower:    dict | None = None  # single best active shower (ActiveShower shape), or None
+    aurora:           dict | None = None  # {kp_max, tier, noaa_scale, source}, or None
 
 
 @dataclass
@@ -121,6 +122,7 @@ def _to_dict(s: NightSummary) -> dict:
         "wx_pending":       s.wx_pending,
         "wx_no_data":       s.wx_no_data,
         "meteor_shower":    s.meteor_shower,
+        "aurora":           s.aurora,
     }
 
 
@@ -144,6 +146,7 @@ def _from_dict(d: dict) -> NightSummary:
         wx_pending       = d.get("wx_pending", False),
         wx_no_data       = d.get("wx_no_data", False),
         meteor_shower    = d.get("meteor_shower"),
+        aurora           = d.get("aurora"),
     )
 
 
@@ -152,8 +155,9 @@ def _from_dict(d: dict) -> NightSummary:
 # ---------------------------------------------------------------------------
 
 def _cache_key(lat: float, lon: float, d: date, with_weather: bool) -> str:
-    # v4: added meteor_shower field to NightSummary
-    return f"night_v4:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
+    # v6: aurora now sourced from report.aurora (aurora_for_night — Kp bins when
+    # they span the night, else 27-day outlook), so icon and detail view agree
+    return f"night_v6:{lat:.4f},{lon:.4f},{d.isoformat()},wx={int(with_weather)}"
 
 
 def _within_forecast_window(d: date, horizon_days: int = _FORECAST_DAYS) -> bool:
@@ -203,6 +207,19 @@ def fetch_night(
         and not report.wx_pending
     )
 
+    # Aurora: report.aurora is authoritative for every horizon — assemble_night
+    # already picks the 3-day Kp product or the 27-day outlook (kp_source
+    # "outlook"), so the calendar icon can never disagree with the full report
+    # a click on the date loads. Compact to the CalendarAurora shape.
+    if report.aurora is not None:
+        aurora = {"kp_max": report.aurora["kp_max"],
+                  "tier": report.aurora["tier"],
+                  "noaa_scale": report.aurora["noaa_scale"],
+                  "source": ("27day" if report.aurora["kp_source"] == "outlook"
+                             else "kp3day")}
+    else:
+        aurora = None
+
     summary = NightSummary(
         date             = report.date,
         display_name     = report.display_name,
@@ -222,6 +239,7 @@ def fetch_night(
         wx_pending       = report.wx_pending,
         wx_no_data       = report.wx_no_data,
         meteor_shower    = _best_shower(report.active_showers),
+        aurora           = aurora,
     )
 
     ttl = _WEATHER_TTL if weather_informed else _ASTRO_TTL
