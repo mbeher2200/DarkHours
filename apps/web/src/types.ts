@@ -41,6 +41,10 @@ export interface TargetWindow {
   moon_interference: boolean
   moon_sep_at_peak_deg: number | null
   moon_alt_at_peak_deg: number | null
+  // Backend severity at peak (site SQM + AOD + slant path aware); 'none' =
+  // computed and negligible; null/absent = geometry unavailable or pre-field
+  // cached report (fall back to the local mirror via resolveMoonSeverity).
+  moon_wash_severity?: 'none' | 'minor' | 'moderate' | 'severe' | null
   photo_cutoff: string | null   // last moment viable for astrophotography
   visual_cutoff: string | null  // last moment viable for visual observation
   // Phase 1: Condition Vectors
@@ -50,7 +54,9 @@ export interface TargetWindow {
   blockers: string[]                // e.g. ["cloud", "transparency", "light_dome", "moon_washout", "low_radiant"]
   weather_score_at_best: number | null  // rate_conditions() score (1–10) at best_time
   dome_glow_at_peak: number | null  // glow_toward() value at peak az/alt; null outside CONUS
-  local_rate_at_peak: number | null // meteor showers only: zhr_effective × sin(radiant_alt)
+  local_rate_at_peak: number | null // meteor showers only: zhr_effective × sin(radiant_alt) × lm_factor
+  // meteor showers only: r^(lm − 6.5) limiting-magnitude degradation (1 = pristine)
+  lm_factor_at_peak?: number | null
 }
 
 export interface VisibleTarget {
@@ -121,6 +127,9 @@ export interface AuroraForecast {
   look_direction: string               // 16-wind label, e.g. 'NNW'
   blockers: string[]
   light_dome_caution: boolean
+  // Moonlight raises the emission-source background; tier-scaled, degrades only.
+  // Optional: absent on reports cached before this field shipped.
+  moonlight_caution?: boolean
   viability: 'ok' | 'degraded' | 'blocked'
   stale: boolean
 }
@@ -193,6 +202,8 @@ export interface MilkyWaySummary {
   core_max_alt_deg:     number
   core_moon_sep_deg:    number | null   // moon angular separation from galactic core at peak
   core_moon_alt_deg:    number | null   // moon altitude at core peak (K&S input)
+  // Backend severity at core peak; 'none' = negligible, absent = pre-field report
+  core_moon_severity?:  'none' | 'minor' | 'moderate' | 'severe' | null
 }
 
 // ── Light dome (horizon glow) ─────────────────────────────────────────────────
@@ -254,6 +265,9 @@ export interface NightReport {
   wx_pending: boolean
   wx_no_data: boolean
   wx_error: string | null
+  // Night-median aerosol optical depth (moonlight model input); null when
+  // unavailable, absent on pre-field cached reports
+  night_aod?: number | null
   score: number
   score_components: ScoreComponents
   visible_targets: VisibleTarget[]

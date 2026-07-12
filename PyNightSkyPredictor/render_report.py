@@ -380,12 +380,17 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
                                    report.night_end)
         _peak_moonup = _moon_up_at(window.peak_time)
         if _peak_moonup:
-            sev = moon_wash_severity(
-                report.illumination_pct,
-                window.moon_sep_at_peak_deg,
-                window.moon_alt_at_peak_deg,
-            )
-            if sev is not None:
+            # Prefer the severity serialized by targets.py (site SQM + AOD +
+            # slant path); recompute at defaults only when it's missing
+            # ('none' = computed and negligible → no label).
+            sev = window.moon_wash_severity
+            if sev is None:
+                sev = moon_wash_severity(
+                    report.illumination_pct,
+                    window.moon_sep_at_peak_deg,
+                    window.moon_alt_at_peak_deg,
+                )
+            if sev is not None and sev != "none":
                 condition = f"Moon wash · {sev}"
         flags = []
         if window.moon_interference:

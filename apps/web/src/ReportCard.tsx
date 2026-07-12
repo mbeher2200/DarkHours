@@ -541,7 +541,7 @@ export default function ReportCard({
         <MetaRow k="Lunar Conditions" v={moonStrCard}
           icon={<MoonPhaseSvg phaseName={r.phase_name} illuminationPct={r.illumination_pct} size={20} />}
           score={r.score_components.moon}
-          scoreTip={<>25% of the composite — Krisciunas &amp; Schaefer scattered-moonlight model: phase, moon altitude, and hours above the horizon, distance-corrected. A bright moon that sets early can still score well.</>}
+          scoreTip={<>25% of the composite — scattered-moonlight model: phase, moon altitude, and hours above the horizon, distance-corrected. A bright moon that sets early can still score well.</>}
         />
         </div>
         </div>

@@ -29,7 +29,7 @@ from .milky_way import (
     BT_K_MOON as _BT_K_MOON,
     BT_STEP_MIN as _BT_STEP_MIN,
 )
-from .moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
+from .moonlight import ks_moon_credit, ks_delta_mag, nelm_from_sqm, KS_CRESCENT_EXEMPTION_PCT
 from . import weather as wx
 
 log = logging.getLogger(__name__)
@@ -127,6 +127,10 @@ class NightReport:
     # Overall
     score: float | None
     score_components: dict  # {moon, dark, weather, bortle}
+
+    # Night-median aerosol optical depth (moonlight scattering input); None when
+    # unavailable (past dates, AQ fetch failure, beyond the 7-day AQ horizon).
+    night_aod: float | None = None
 
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
@@ -241,6 +245,8 @@ def _apply_condition_vectors(
     light_dome_info: "dict | None",
     illumination_pct: float,
     moon_alts: "list | None" = None,
+    sky_sqm: "float | None" = None,
+    night_aod: "float | None" = None,
 ) -> None:
     """Post-process VisibleTarget list with atmospheric, dome, and lunar viability vectors.
 
@@ -384,10 +390,34 @@ def _apply_condition_vectors(
             if target.type == "meteor_shower":
                 zhr_eff = target.zhr_effective
                 if zhr_eff is not None and window.peak_alt_deg is not None:
-                    window.local_rate_at_peak = (
-                        round(zhr_eff * math.sin(math.radians(window.peak_alt_deg)), 1)
+                    base_rate = (
+                        zhr_eff * math.sin(math.radians(window.peak_alt_deg))
                         if window.peak_alt_deg > 0 else 0.0
                     )
+                    # Limiting-magnitude degradation (IMO convention): the rate a
+                    # visual observer sees scales as r^(lm − 6.5), where lm is the
+                    # naked-eye limiting magnitude under the moon-brightened site
+                    # sky and r the shower's magnitude-distribution index. A full
+                    # moon or a bright site kills faint-meteor-rich showers
+                    # (high r) far harder than fireball-rich ones.
+                    lm_factor = 1.0
+                    r = target.population_index
+                    if r is not None and sky_sqm is not None and window.peak_alt_deg > 0:
+                        delta = 0.0
+                        if (window.moon_sep_at_peak_deg is not None
+                                and window.moon_alt_at_peak_deg is not None):
+                            delta = ks_delta_mag(
+                                illumination_pct,
+                                window.moon_sep_at_peak_deg,
+                                window.moon_alt_at_peak_deg,
+                                sky_sqm,
+                                aod=night_aod,
+                                target_alt_deg=window.peak_alt_deg,
+                            )
+                        lm = nelm_from_sqm(sky_sqm - delta)
+                        lm_factor = min(1.0, r ** (lm - 6.5))
+                        window.lm_factor_at_peak = round(lm_factor, 3)
+                    window.local_rate_at_peak = round(base_rate * lm_factor, 1)
                     if window.peak_alt_deg < _LOW_RADIANT_ALT_DEG:
                         blockers.append("low_radiant")
                 else:
@@ -689,6 +719,22 @@ def assemble_night(
                 except RuntimeError as _e:
                     _wx_exc = _e
 
+        # Deserialize once, here, so the night's AOD is available to the
+        # visible_targets moonlight model below (the weather block later in
+        # this function reuses these instead of re-deserializing).  The
+        # .result() above already blocked, so this adds pure CPU only.
+        _wx_points_early = None
+        _wx_src_early    = None
+        _wx_fetch_early  = None
+        if _wx_cached is not None:
+            _wx_points_early, _wx_src_early, _wx_fetch_early = _wx_deserialize(_wx_cached)
+        elif _wx_fetched is not None:
+            _wx_points_early, _wx_src_early, _wx_fetch_early = _wx_fetched
+        _night_aod = (
+            wx.night_aod(_wx_points_early, sunset, sunrise)
+            if _wx_points_early else None
+        )
+
         _t["io_wait_ms"] = round((time.monotonic() - _tc) * 1000)
 
         # --- Phase 2: satellite passes + visible_targets in parallel ---
@@ -736,6 +782,7 @@ def assemble_night(
             _vt_future = _pool.submit(
                 _tgt.visible_targets, lat, lon, sunset, sunrise, illumination,
                 night_start=night_start, night_end=night_end, sky_sqm=_site_sqm, tz=tz,
+                aod=_night_aod,
             )
 
         # Collect satellite passes
@@ -816,10 +863,11 @@ def assemble_night(
                 # Future date: use cached or concurrently-fetched result
                 if _wx_exc is not None:
                     raise _wx_exc
-                if _wx_cached is not None:
-                    points, wx_source, wx_fetched_at = _wx_deserialize(_wx_cached)
-                elif _wx_fetched is not None:
-                    points, wx_source, wx_fetched_at = _wx_fetched
+                if _wx_points_early is not None:
+                    # Deserialized once in the io_wait block above.
+                    points, wx_source, wx_fetched_at = (
+                        _wx_points_early, _wx_src_early, _wx_fetch_early
+                    )
                 else:
                     # Pass target string parameters into the provider to bypass the 7-day programmatic limitation
                     points, wx_source, wx_fetched_at = wx.forecast(lat, lon)
@@ -851,25 +899,8 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
-    # --- Aurora outlook (fetches already resolved off-thread; per-location math
-    # is cheap). On the use_cycle_window path night_start/night_end come from
-    # the fixed-twilight-offset approximation — minutes-scale error against the
-    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
-    aurora_info = None
-    if _aurora_future is not None and night_start and night_end:
-        try:
-            _kp_rows, _kp_stale, _kp_outlook, _outlook_stale = _aurora_future.result()
-            aurora_info = _aur.aurora_for_night(
-                lat, lon, target, night_start, night_end,
-                kp_rows=_kp_rows, kp_stale=_kp_stale,
-                outlook=_kp_outlook, outlook_stale=_outlook_stale,
-                weather_points=night_points,
-                light_dome=light_dome_info,
-            )
-        except Exception as _ae:
-            log.debug("aurora computation failed (non-fatal): %s", _ae)
-
-    # --- Moon altitude track (used for best-time scoring across all target types) ---
+    # --- Moon altitude track (used for best-time scoring across all target types,
+    # and for the aurora moonlight factor below) ---
     # Sampled sunset→sunrise at 15-min resolution.  Requires de421.bsp; falls back
     # gracefully (moon_alts=None) when the ephemeris is absent (e.g. unit tests).
     _moon_alts: list | None = None
@@ -885,6 +916,26 @@ def assemble_night(
             _moon_alts     = list(zip(_sample_times, _moon_alt_vals))
         except Exception as _mae:
             log.debug("moon_altitude_track failed (non-fatal): %s", _mae)
+
+    # --- Aurora outlook (fetches already resolved off-thread; per-location math
+    # is cheap). On the use_cycle_window path night_start/night_end come from
+    # the fixed-twilight-offset approximation — minutes-scale error against the
+    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
+    aurora_info = None
+    if _aurora_future is not None and night_start and night_end:
+        try:
+            _kp_rows, _kp_stale, _kp_outlook, _outlook_stale = _aurora_future.result()
+            aurora_info = _aur.aurora_for_night(
+                lat, lon, target, night_start, night_end,
+                kp_rows=_kp_rows, kp_stale=_kp_stale,
+                outlook=_kp_outlook, outlook_stale=_outlook_stale,
+                weather_points=night_points,
+                light_dome=light_dome_info,
+                moon_illum_pct=illumination,
+                moon_alts=_moon_alts,
+            )
+        except Exception as _ae:
+            log.debug("aurora computation failed (non-fatal): %s", _ae)
 
     # --- Milky Way arch summary (needs weather + moon_alts for best-viewing-time) ---
     if fetch_targets:
@@ -906,7 +957,8 @@ def assemble_night(
 
     # --- Phase 1: Condition Vectors — apply after weather + moon_alts resolved ---
     if fetch_targets and target_list:
-        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination, _moon_alts)
+        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination, _moon_alts,
+                                 sky_sqm=_site_sqm, night_aod=_night_aod)
 
     # --- Overall rating ---
     _tc = time.monotonic()
@@ -959,6 +1011,7 @@ def assemble_night(
         wx_no_data=wx_no_data,
         wx_archive_error=wx_archive_error,
         wx_error=wx_error,
+        night_aod=_night_aod,
         score=rating["score"],
         score_components=rating["components"],
         visible_targets=target_list,
