@@ -81,8 +81,14 @@ export function WaypointsAccordion({ waypoints, summary, report }: {
                 report.illumination_pct, report.moonrise, report.moonset,
                 w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg, w.moon_wash_severity,
               )
+              const wpAodTip = showAodAmplifyTip(
+                resolveMoonSeverity(w.moon_wash_severity, report.illumination_pct,
+                                    w.moon_sep_at_peak_deg, w.moon_alt_at_peak_deg),
+                report.night_aod,
+              )
+              const moonBadgeSpan = <span className={`tg-sky-inline ${skyClass(sky)}`}>{' '}{sky}</span>
               const moonBadge = sky.startsWith('Moon')
-                ? <span className={`tg-sky-inline ${skyClass(sky)}`}>{' '}{sky}</span>
+                ? (wpAodTip ? <InfoTip tip={<>{AOD_AMPLIFY_TIP_COPY}</>}>{moonBadgeSpan}</InfoTip> : moonBadgeSpan)
                 : null
               return (
                 <tr key={t.name}>

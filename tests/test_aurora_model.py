@@ -352,3 +352,83 @@ class TestTripAurora:
         ))
         d.pop("aurora")
         assert trip._from_dict(d).aurora is None
+
+
+# ---------------------------------------------------------------------------
+# Moonlight factor (tier-scaled, degrades only)
+# ---------------------------------------------------------------------------
+
+class TestMoonlightFactor:
+    _WIN = (datetime(2026, 3, 1, 22, 0, tzinfo=_UTC),
+            datetime(2026, 3, 2, 2, 0, tzinfo=_UTC))
+
+    def _track(self, alt):
+        """Constant-altitude moon track covering the window."""
+        t0, t1 = self._WIN
+        out, t = [], t0
+        while t <= t1:
+            out.append((t, alt))
+            t += timedelta(minutes=30)
+        return out
+
+    def _cv(self, tier, illum, moon_alt=45.0, moon_alts=None):
+        return a._condition_vector(
+            *self._WIN, None, None, 0.0,
+            tier=tier, moon_illum_pct=illum,
+            moon_alts=self._track(moon_alt) if moon_alts is None else moon_alts,
+        )
+
+    def test_full_moon_degrades_photographic(self):
+        blockers, viability, _, moon_caution = self._cv("photographic", 100.0)
+        assert "moonlight" in blockers
+        assert viability == "degraded"
+        assert moon_caution is True
+
+    def test_gibbous_degrades_photographic_but_not_naked_eye(self):
+        """Δ ≈ 1.34 at 40% illumination: over the photographic threshold (0.50),
+        under the naked-eye one (1.50)."""
+        b_photo, v_photo, _, c_photo = self._cv("photographic", 40.0)
+        b_naked, v_naked, _, c_naked = self._cv("naked_eye", 40.0)
+        assert c_photo and "moonlight" in b_photo and v_photo == "degraded"
+        assert not c_naked and "moonlight" not in b_naked and v_naked == "ok"
+
+    def test_full_moon_degrades_naked_eye(self):
+        blockers, viability, _, moon_caution = self._cv("naked_eye", 100.0)
+        assert moon_caution and "moonlight" in blockers and viability == "degraded"
+
+    def test_overhead_tier_punches_through_any_moon(self):
+        blockers, viability, _, moon_caution = self._cv("overhead", 100.0)
+        assert not moon_caution and "moonlight" not in blockers and viability == "ok"
+
+    def test_crescent_degrades_nothing(self):
+        blockers, viability, _, moon_caution = self._cv("photographic", 15.0)
+        assert not moon_caution and blockers == [] and viability == "ok"
+
+    def test_moon_below_horizon_no_caution(self):
+        blockers, viability, _, moon_caution = self._cv("photographic", 100.0, moon_alt=-10.0)
+        assert not moon_caution and blockers == [] and viability == "ok"
+
+    def test_fail_open_without_track(self):
+        """moon_alts=None (no ephemeris) → fail-open like missing weather."""
+        blockers, viability, _, moon_caution = a._condition_vector(
+            *self._WIN, None, None, 0.0,
+            tier="photographic", moon_illum_pct=100.0, moon_alts=None)
+        assert not moon_caution and blockers == [] and viability == "ok"
+
+    def test_moonlight_caution_in_result_dict(self):
+        rows = _rows(("2026-03-01 21:00:00", 7.0), ("2026-03-02 00:00:00", 7.0),
+                     ("2026-03-02 03:00:00", 7.0))
+        out = a.nightly_aurora(_MINNEAPOLIS[0], _MINNEAPOLIS[1],
+                               *self._WIN, kp_rows=rows,
+                               moon_illum_pct=100.0, moon_alts=self._track(45.0))
+        assert out is not None
+        assert "moonlight_caution" in out
+        assert isinstance(out["moonlight_caution"], bool)
+
+    def test_result_dict_defaults_false_without_moon_data(self):
+        rows = _rows(("2026-03-01 21:00:00", 7.0), ("2026-03-02 00:00:00", 7.0),
+                     ("2026-03-02 03:00:00", 7.0))
+        out = a.nightly_aurora(_MINNEAPOLIS[0], _MINNEAPOLIS[1],
+                               *self._WIN, kp_rows=rows)
+        assert out is not None
+        assert out["moonlight_caution"] is False

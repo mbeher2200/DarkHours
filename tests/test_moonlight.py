@@ -163,3 +163,73 @@ class TestMoonWashSeverity:
         """Moon altitude ≤ 0 → ks_delta_mag returns 0 → severity None."""
         assert moon_wash_severity(100, 45.0, 0.0) is None
         assert moon_wash_severity(100, 45.0, -20.0) is None
+
+
+# ---------------------------------------------------------------------------
+# Winkler (2022) hybrid model: AOD, slant path, normalisation anchor
+# ---------------------------------------------------------------------------
+
+class TestWinklerModel:
+    def test_aod_none_equals_reference_aod(self):
+        """aod=None must be exactly the reference clear sky (_AOD_REF)."""
+        from PyNightSkyPredictor.moonlight import _AOD_REF
+        for illum, sep, alt in [(30, 45, 20), (80, 10, 60), (100, 120, 45)]:
+            assert ks_delta_mag(illum, sep, alt) == ks_delta_mag(illum, sep, alt, aod=_AOD_REF)
+
+    def test_norm_anchors_to_legacy_at_credit_geometry(self):
+        """_KS_NORM pins the new kernel to the legacy K&S intensity at the
+        ks_moon_credit proxy geometry, keeping the credit curve bit-identical."""
+        import math
+        legacy_ratio = 10 ** 5.36 * 1.06 * 10 ** (-0.4 * 0.172 * 2.0)  # sep 90°, moon alt 30°
+        for illum in (5, 25, 50, 75, 100):
+            alpha  = math.degrees(math.acos(max(-1.0, min(1.0, 2.0 * illum / 100.0 - 1.0))))
+            v_moon = -12.73 + 0.026 * alpha + 4e-9 * alpha ** 4
+            i_moon = 10 ** (-0.4 * (v_moon + 16.57))
+            i_sky  = 10 ** ((27.78 - 21.6) / 2.5)
+            legacy_delta = 2.5 * math.log10(1.0 + legacy_ratio * i_moon / i_sky)
+            assert ks_delta_mag(illum, 90.0, 30.0) == pytest.approx(legacy_delta, abs=1e-12)
+
+    def test_high_aod_amplifies_aureole_near_moon(self):
+        """Smoke brightens the sky near the moon (Mie forward scattering)."""
+        assert ks_delta_mag(80, 10.0, 45.0, aod=0.8) > ks_delta_mag(80, 10.0, 45.0)
+
+    def test_high_aod_dims_far_sky(self):
+        """Smoke dims the sky far from the moon (beam extinction dominates)."""
+        assert ks_delta_mag(80, 120.0, 45.0, aod=0.8) < ks_delta_mag(80, 120.0, 45.0)
+
+    def test_aod_capped(self):
+        """AOD beyond the single-scatter validity cap is clamped."""
+        assert ks_delta_mag(80, 45.0, 45.0, aod=50.0) == ks_delta_mag(80, 45.0, 45.0, aod=3.0)
+
+    def test_negative_aod_clamped_to_zero(self):
+        assert ks_delta_mag(80, 45.0, 45.0, aod=-1.0) == ks_delta_mag(80, 45.0, 45.0, aod=0.0)
+
+    def test_degenerate_airmass_continuous(self):
+        """moon alt == target alt hits the analytic kernel limit; it must be
+        finite and continuous with the neighbouring geometry."""
+        same  = ks_delta_mag(80, 45.0, 45.0, target_alt_deg=45.0)
+        near  = ks_delta_mag(80, 45.0, 45.001, target_alt_deg=45.0)
+        assert same > 0
+        assert same == pytest.approx(near, rel=1e-3)
+
+    def test_low_target_altitude_brighter(self):
+        """Longer slant path at low target altitude scatters more moonlight."""
+        low  = ks_delta_mag(80, 90.0, 30.0, target_alt_deg=20.0)
+        high = ks_delta_mag(80, 90.0, 30.0, target_alt_deg=70.0)
+        assert low > high
+
+
+class TestHelpers:
+    def test_k_ext_from_aod_reference(self):
+        from PyNightSkyPredictor.moonlight import k_ext_from_aod
+        assert k_ext_from_aod(None) == pytest.approx(0.172, abs=1e-12)
+
+    def test_k_ext_from_aod_monotonic(self):
+        from PyNightSkyPredictor.moonlight import k_ext_from_aod
+        assert k_ext_from_aod(0.5) > k_ext_from_aod(0.1) > k_ext_from_aod(0.0)
+
+    def test_nelm_known_points(self):
+        from PyNightSkyPredictor.moonlight import nelm_from_sqm
+        assert nelm_from_sqm(22.0) == pytest.approx(6.62, abs=0.02)   # pristine sky
+        assert nelm_from_sqm(18.0) == pytest.approx(3.97, abs=0.02)   # Bortle 8
+        assert nelm_from_sqm(22.0) > nelm_from_sqm(20.0) > nelm_from_sqm(18.0)
