@@ -6,7 +6,7 @@ Public API:
     print_nearby(result, ctx)
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from . import config as _cfg
 from . import weather as wx
@@ -86,6 +86,33 @@ def _transparency_score(label: str) -> int:
 
 
 
+# Tier phrases shared (in wording) with the web alert copy in report/Aurora.tsx.
+_AURORA_TIER_PHRASE = {
+    "overhead":     "sky-filling display overhead",
+    "naked_eye":    "naked-eye low on the {dir} horizon",
+    "photographic": "camera-only glow on the {dir} horizon",
+}
+
+
+def _aurora_line(aur: dict, ctx: FormatCtx) -> str:
+    """One-line aurora summary: Kp, tier phrase, local peak window, caveats."""
+    kp_str = f"Kp {aur['kp_max']:.1f}" + (f" ({aur['noaa_scale']})" if aur["noaa_scale"] else "")
+    phrase = _AURORA_TIER_PHRASE[aur["tier"]].format(dir=aur["look_direction"])
+    parts  = [kp_str, phrase]
+    if aur.get("peak_start_utc") and aur.get("peak_end_utc"):
+        ps = datetime.fromisoformat(aur["peak_start_utc"])
+        pe = datetime.fromisoformat(aur["peak_end_utc"])
+        tz_label = ctx.local(ps).strftime("%Z")
+        parts.append(f"peak {ctx.fmt_time(ps)} – {ctx.fmt_time(pe)} {tz_label}")
+    if aur["kp_source"] == "outlook":
+        parts.append("27-day outlook")
+    if "cloud" in aur.get("blockers", []):
+        parts.append("clouded out" if aur["viability"] == "blocked" else "partly cloudy")
+    if aur.get("light_dome_caution"):
+        parts.append(f"light dome toward {aur['look_direction']}")
+    return " · ".join(parts)
+
+
 def _sky_condition(peak_time, dark_intervals, night_start, night_end) -> str:
     """Classify peak_time as 'Dark sky', 'Astro night', or 'Twilight'."""
     for s, e in (dark_intervals or []):
@@ -161,6 +188,8 @@ def print_report(report: NightReport, ctx: FormatCtx, show_weather: bool) -> Non
         shower_parts = [f"{s['name']} · {s['note']} · ZHR {s['zhr']}"
                         for s in report.active_showers]
         print(f"Meteor Showers:     {',  '.join(shower_parts)}")
+    if report.aurora:
+        print(f"Aurora:             {_aurora_line(report.aurora, ctx)}")
     cycle     = report.dark_cycle
     cycle_str = f"avg {cycle['mean_hours']}h  ±{cycle['stdev_hours']}h over lunar cycle"
     print(f"Clear Dark Sky Hours:  {dark_str}  ·  {cycle_str}")

@@ -10,6 +10,7 @@ import { WeatherTable } from './report/NightTimeline'
 import { SatellitePasses } from './report/Satellites'
 import { MilkyWayAbsent, MilkyWayCard } from './report/MilkyWay'
 import { isPrime, MeteorShowerCard, TargetsTable, MeteorAlertBanner, meteorShowerAlert } from './report/Targets'
+import { auroraAlert, AuroraAlertBanner, AuroraCard } from './report/Aurora'
 import { NearbyResults } from './report/Nearby'
 import { LightDomePanel } from './report/LightDomePanel'
 
@@ -331,6 +332,29 @@ export default function ReportCard({
 
   const verdict = nightVerdict(r)
   const meteorAlert = meteorShowerAlert(r)
+  const aurAlert = auroraAlert(r)
+
+  // Stacked "PREDICTED SKY EVENT" banners, strongest event first. Aurora
+  // outranks a meteor shower when it's at least naked-eye at this location
+  // (overhead 3 > naked_eye 2 > meteor 1.5 > photographic-only aurora 1).
+  // The group border takes the TOP banner's state — it visually joins that
+  // banner, and a secondary event's blocked-red around an ok headline misreads.
+  const banners: { key: string; state: 'ok' | 'degraded' | 'blocked'; strength: number; node: React.ReactNode }[] = []
+  if (aurAlert) {
+    banners.push({
+      key: 'aurora', state: aurAlert.state,
+      strength: { overhead: 3, naked_eye: 2, photographic: 1 }[aurAlert.aurora.tier],
+      node: <AuroraAlertBanner key="aurora" alert={aurAlert} />,
+    })
+  }
+  if (meteorAlert) {
+    banners.push({
+      key: 'meteor', state: meteorAlert.state, strength: 1.5,
+      node: <MeteorAlertBanner key="meteor" alert={meteorAlert} />,
+    })
+  }
+  banners.sort((a, b) => b.strength - a.strength)
+  const groupState = banners[0]?.state
 
   // Collapsed-summary one-liners (hidden while a section is open — see .sum-brief)
   const planningBrief = calendarState.phase === 'done' && calendarState.data.ranked[0]?.score != null
@@ -452,9 +476,9 @@ export default function ReportCard({
         </nav>
       )}
 
-      <div className={`overall-group${meteorAlert ? ` state-${meteorAlert.state}` : ''}`}>
-      {meteorAlert && <MeteorAlertBanner alert={meteorAlert} />}
-      <div className={`overall band-${scoreBand(r.score)} ${meteorAlert ? 'overall--has-alert' : ''}`}>
+      <div className={`overall-group${groupState ? ` state-${groupState}` : ''}`}>
+      {banners.map(b => b.node)}
+      <div className={`overall band-${scoreBand(r.score)} ${banners.length ? 'overall--has-alert' : ''}`}>
         <div className="overall-left">
         <div className="overall-score-block">
           <div className="overall-score-header">
@@ -605,11 +629,12 @@ export default function ReportCard({
           .filter(t => t.type !== 'milky_way' && t.type !== 'meteor_shower')
           .filter(t => isPrime(t, r.dark_intervals))
           .filter(t => (t.landscape_suitability ?? 'prominent') === 'prominent')
-        const hasAnything    = r.visible_targets.length > 0
+        const hasAnything    = r.visible_targets.length > 0 || r.aurora != null
 
         const targetsBrief = (() => {
           const parts: string[] = []
           if (r.mw_summary && r.mw_summary.n_visible > 1) parts.push(`Milky Way ${r.mw_summary.local_score.toFixed(1)}/10`)
+          if (r.aurora) parts.push(`Aurora Kp ${r.aurora.kp_max.toFixed(0)}`)
           const viableN  = primeDSOs.filter(t => t.viability !== 'blocked').length
           const blockedN = primeDSOs.length - viableN
           if (viableN)  parts.push(`${viableN} target${viableN === 1 ? '' : 's'} viable`)
@@ -637,6 +662,14 @@ export default function ReportCard({
             : <MilkyWayAbsent report={r} />
           }
                 </div>
+                {r.aurora && (
+                  <div className="ms-section">
+                    <div className="mw-section-label">Aurora</div>
+                    <div className="ms-cards">
+                      <AuroraCard aurora={r.aurora} report={r} />
+                    </div>
+                  </div>
+                )}
                 {showerTargets.length > 0 && (
                   <div className="ms-section">
                     <div className="mw-section-label">
