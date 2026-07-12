@@ -521,4 +521,7 @@ def milky_way_arch_summary(
         "farthest_peak_az_deg":  round(farthest_w.peak_az_deg)  if farthest_w else None,
         "core_moon_sep_deg":     getattr(core_w, "moon_sep_at_peak_deg", None),
         "core_moon_alt_deg":     getattr(core_w, "moon_alt_at_peak_deg", None),
+        # Backend-computed severity at the core peak (site SQM + AOD aware);
+        # 'none' = negligible, None = geometry unavailable (frontend falls back).
+        "core_moon_severity":    getattr(core_w, "moon_wash_severity", None),
     }

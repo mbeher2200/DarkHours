@@ -52,6 +52,7 @@ from datetime import date, datetime, timedelta, timezone
 from . import cache as _cache
 from . import _http
 from . import light_dome as _ld
+from . import moonlight as _ml
 from . import provider_health as _ph
 
 log = logging.getLogger(__name__)
@@ -85,6 +86,16 @@ _CLOUD_BLOCK_PCT    = 70     # same threshold as predictor._CLOUD_BLOCK_PCT
 _WEATHER_GAP_SECS   = 5400   # 90-min nearest-neighbour tolerance, as elsewhere
 _DOME_CAUTION_SCORE = _ld.MINOR_DOME_THRESHOLD  # glow_toward ≥ this → caution
 _DOME_AIM_ALT_DEG   = 10.0   # aurora sits low — evaluate the dome at ~10° up
+
+# Moonlight: aurora is an EMISSION source — the moon raises the sky background
+# it must be seen against rather than washing the aurora itself, so moonlight
+# degrades (never blocks alone), and brighter tiers tolerate more of it.
+# Δ mag/arcsec² sky brightening at which each tier is degraded; overhead
+# storms punch through any moon and have no entry.
+_MOON_DELTA_DEGRADE = {
+    "photographic": _ml.KS_MODERATE_THRESH,  # 0.50 — faint-aurora photography is moon-sensitive
+    "naked_eye":    1.50,                    # the K&S 'severe' threshold
+}
 
 _KP_BIN_HOURS = 3
 
@@ -287,12 +298,18 @@ def _condition_vector(
     weather_points: "list | None",
     light_dome: "dict | None",
     bearing: float,
-) -> tuple[list, str, bool]:
-    """Photography blockers for an aurora window → (blockers, viability, dome_caution).
+    tier: str = "photographic",
+    moon_illum_pct: "float | None" = None,
+    moon_alts: "list | None" = None,
+) -> tuple[list, str, bool, bool]:
+    """Photography blockers for an aurora window
+    → (blockers, viability, dome_caution, moon_caution).
 
     Cloud: all in-window points > _CLOUD_BLOCK_PCT ⇒ blocked, some ⇒ degraded,
     no weather data ⇒ fail-open (ok), same as the target condition vectors.
     Light dome toward the look bearing is a caution — degrades, never blocks.
+    Moonlight (tier-scaled, see _MOON_DELTA_DEGRADE) likewise degrades, never
+    blocks; missing moon data (moon_alts=None) fails open like missing weather.
     """
     blockers: list[str] = []
     viability = "ok"
@@ -322,12 +339,29 @@ def _condition_vector(
             dome_caution = True
             if viability == "ok":
                 viability = "degraded"
-    return blockers, viability, dome_caution
+
+    moon_caution = False
+    degrade_at = _MOON_DELTA_DEGRADE.get(tier)
+    if degrade_at is not None and moon_illum_pct and moon_alts:
+        in_window = [alt for t, alt in moon_alts if win_start <= t <= win_end]
+        moon_alt_max = max(in_window) if in_window else None
+        if moon_alt_max is not None and moon_alt_max > 0:
+            # 90° separation = the darkest-accessible-sky proxy geometry
+            # (same convention as ks_moon_credit); aurora sits low, so the
+            # background is evaluated at the dome aim altitude.
+            delta = _ml.ks_delta_mag(moon_illum_pct, 90.0, moon_alt_max,
+                                     target_alt_deg=_DOME_AIM_ALT_DEG)
+            if delta >= degrade_at:
+                moon_caution = True
+                blockers.append("moonlight")
+                if viability == "ok":
+                    viability = "degraded"
+    return blockers, viability, dome_caution, moon_caution
 
 
 def _result_dict(lat, lon, kp_max, kp_source, noaa_scale, tier, margin,
                  peak_start, peak_end, blockers, viability, dome_caution,
-                 stale) -> dict:
+                 moon_caution, stale) -> dict:
     """The NightReport.aurora JSON contract (ISO strings only, so the dict
     survives both the dataclasses.asdict serializer and json.dumps in the
     trip night cache)."""
@@ -346,6 +380,7 @@ def _result_dict(lat, lon, kp_max, kp_source, noaa_scale, tier, margin,
         "look_direction":      _wind16(bearing),
         "blockers":            blockers,
         "light_dome_caution":  dome_caution,
+        "moonlight_caution":   moon_caution,
         "viability":           viability,
         "stale":               stale,
     }
@@ -360,6 +395,8 @@ def nightly_aurora(
     weather_points: "list | None" = None,
     light_dome: "dict | None" = None,
     stale: bool = False,
+    moon_illum_pct: "float | None" = None,
+    moon_alts: "list | None" = None,
 ) -> "dict | None":
     """Aurora outlook for one night from the 3-day Kp product, or None when
     there is nothing to report (no astronomical darkness, no forecast bins
@@ -406,14 +443,15 @@ def nightly_aurora(
     peak_end   = min(bins[hi][1], dark_end)
     peak_row   = bins[peak_i][2]
 
-    blockers, viability, dome_caution = _condition_vector(
-        peak_start, peak_end, weather_points, light_dome, look_bearing(lat, lon))
+    blockers, viability, dome_caution, moon_caution = _condition_vector(
+        peak_start, peak_end, weather_points, light_dome, look_bearing(lat, lon),
+        tier=tier, moon_illum_pct=moon_illum_pct, moon_alts=moon_alts)
 
     return _result_dict(
         lat, lon, kp_max, peak_row["observed"],
         peak_row.get("noaa_scale") or kp_to_g_scale(kp_max),
         tier, margin, peak_start, peak_end,
-        blockers, viability, dome_caution, stale)
+        blockers, viability, dome_caution, moon_caution, stale)
 
 
 def outlook_nightly_aurora(
@@ -426,6 +464,8 @@ def outlook_nightly_aurora(
     weather_points: "list | None" = None,
     light_dome: "dict | None" = None,
     stale: bool = False,
+    moon_illum_pct: "float | None" = None,
+    moon_alts: "list | None" = None,
 ) -> "dict | None":
     """Outlook-grade aurora for one night from the 27-day daily-largest-Kp
     product, in the same JSON shape as nightly_aurora but with kp_source
@@ -445,13 +485,14 @@ def outlook_nightly_aurora(
     if tier == "none":
         return None
 
-    blockers, viability, dome_caution = _condition_vector(
-        dark_start, dark_end, weather_points, light_dome, look_bearing(lat, lon))
+    blockers, viability, dome_caution, moon_caution = _condition_vector(
+        dark_start, dark_end, weather_points, light_dome, look_bearing(lat, lon),
+        tier=tier, moon_illum_pct=moon_illum_pct, moon_alts=moon_alts)
 
     return _result_dict(
         lat, lon, kp, "outlook", kp_to_g_scale(kp),
         tier, margin, None, None,
-        blockers, viability, dome_caution, stale)
+        blockers, viability, dome_caution, moon_caution, stale)
 
 
 def aurora_for_night(
@@ -466,6 +507,8 @@ def aurora_for_night(
     outlook_stale: bool = False,
     weather_points: "list | None" = None,
     light_dome: "dict | None" = None,
+    moon_illum_pct: "float | None" = None,
+    moon_alts: "list | None" = None,
 ) -> "dict | None":
     """Unified nightly aurora: the 3-day Kp product when its bins cover the
     night's dark window, otherwise the 27-day outlook. This is what keeps the
@@ -488,8 +531,10 @@ def aurora_for_night(
         if first <= dark_start and last >= dark_end:
             return nightly_aurora(lat, lon, dark_start, dark_end,
                                   kp_rows=kp_rows, weather_points=weather_points,
-                                  light_dome=light_dome, stale=kp_stale)
+                                  light_dome=light_dome, stale=kp_stale,
+                                  moon_illum_pct=moon_illum_pct, moon_alts=moon_alts)
 
     return outlook_nightly_aurora(lat, lon, d, dark_start, dark_end,
                                   outlook=outlook, weather_points=weather_points,
-                                  light_dome=light_dome, stale=outlook_stale)
+                                  light_dome=light_dome, stale=outlook_stale,
+                                  moon_illum_pct=moon_illum_pct, moon_alts=moon_alts)

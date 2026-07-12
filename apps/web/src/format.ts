@@ -253,6 +253,8 @@ function ksDeltaMag(illuminationPct: number, sepDeg: number, moonAltDeg: number)
 }
 
 // None = negligible, 'minor', 'moderate', 'severe' (mirrors moon_wash_severity)
+// Legacy local approximation — kept only as the fallback for reports cached
+// before the backend started serializing severity (see resolveMoonSeverity).
 export function moonWashSeverity(
   illuminationPct: number,
   sepDeg: number | null,
@@ -263,6 +265,34 @@ export function moonWashSeverity(
   if (delta < 0.50) return 'minor'
   if (delta < 1.50) return 'moderate'
   return 'severe'
+}
+
+// Prefer the backend-serialized severity (site SQM + AOD + slant path aware;
+// 'none' = computed and negligible). Fall back to the local approximation
+// only when the report predates the field.
+export function resolveMoonSeverity(
+  serialized: string | null | undefined,
+  illuminationPct: number,
+  sepDeg: number | null,
+  moonAltDeg: number | null,
+): string | null {
+  if (serialized != null) return serialized === 'none' ? null : serialized
+  return moonWashSeverity(illuminationPct, sepDeg, moonAltDeg)
+}
+
+// Aerosol-amplification education tip: shown when the moonwash is significant
+// AND the night's aerosol load is high enough that smoke/haze is a real
+// contributor. 0.2 sits deliberately below the 0.3 haze-icon gate — Mie
+// forward-scattering amplifies moonlight before the sky reads as hazy.
+export const AOD_AMPLIFY_TIP_THRESH = 0.2
+export const AOD_AMPLIFY_TIP_COPY =
+  'High levels of atmospheric smoke/haze are actively catching and amplifying the moonlight across the sky.'
+export function showAodAmplifyTip(
+  severity: string | null,
+  nightAod: number | null | undefined,
+): boolean {
+  return (severity === 'moderate' || severity === 'severe')
+    && nightAod != null && nightAod > AOD_AMPLIFY_TIP_THRESH
 }
 
 // Is the moon above the horizon at the given ISO time?

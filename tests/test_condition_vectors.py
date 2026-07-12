@@ -53,10 +53,11 @@ def _make_target(window):
     return VisibleTarget(name="M42", type="nebula", windows=[window], note=None)
 
 
-def _make_shower_target(window, zhr_effective=100.0):
+def _make_shower_target(window, zhr_effective=100.0, population_index=None):
     return VisibleTarget(
         name="Perseids", type="meteor_shower", windows=[window], note="Peak night",
         zhr_effective=zhr_effective,
+        population_index=population_index,
     )
 
 
@@ -75,12 +76,15 @@ def _wx(offset_h, cloud=0, transparency="Excellent", humidity=50):
     )
 
 
-def _run(target, weather=None, light_dome=None, illumination=0.0):
+def _run(target, weather=None, light_dome=None, illumination=0.0,
+         sky_sqm=None, night_aod=None):
     _apply_condition_vectors(
         [target],
         weather or [],
         light_dome,
         illumination,
+        sky_sqm=sky_sqm,
+        night_aod=night_aod,
     )
 
 
@@ -429,3 +433,75 @@ def test_low_radiant_combines_with_other_blockers():
     assert "low_radiant" in w.blockers
     assert "cloud" in w.blockers
     assert t.viability == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# Meteor limiting-magnitude factor (r^(lm − 6.5))
+# ---------------------------------------------------------------------------
+
+import math as _math
+
+
+def test_lm_factor_skipped_without_sqm():
+    """No site SQM → factor not computed; geometric rate preserved."""
+    w = _make_window(peak_alt=60.0, moon_alt=-10.0)
+    t = _make_shower_target(w, zhr_effective=100.0, population_index=2.2)
+    _run(t)
+    assert w.lm_factor_at_peak is None
+    assert w.local_rate_at_peak == pytest.approx(
+        round(100.0 * _math.sin(_math.radians(60.0)), 1))
+
+
+def test_lm_factor_skipped_without_population_index():
+    """No catalog r → factor not computed even with SQM (pre-field entries)."""
+    w = _make_window(peak_alt=60.0, moon_alt=-10.0)
+    t = _make_shower_target(w, zhr_effective=100.0)
+    _run(t, sky_sqm=21.6)
+    assert w.lm_factor_at_peak is None
+
+
+def test_lm_factor_caps_at_one_pristine_moonless():
+    """SQM 22.0 moonless → lm > 6.5 → factor capped at exactly 1.0."""
+    w = _make_window(peak_alt=60.0, moon_alt=-10.0)
+    t = _make_shower_target(w, zhr_effective=100.0, population_index=2.2)
+    _run(t, sky_sqm=22.0)
+    assert w.lm_factor_at_peak == 1.0
+    assert w.local_rate_at_peak == pytest.approx(
+        round(100.0 * _math.sin(_math.radians(60.0)), 1))
+
+
+def test_lm_factor_reduces_rate_under_full_moon():
+    """Full moon at 45° alt / 60° sep collapses the visual rate."""
+    w = _make_window(peak_alt=60.0, moon_alt=45.0, moon_sep=60.0)
+    t = _make_shower_target(w, zhr_effective=100.0, population_index=2.2)
+    _run(t, illumination=100.0, sky_sqm=21.6)
+    geometric = 100.0 * _math.sin(_math.radians(60.0))
+    assert w.lm_factor_at_peak is not None and w.lm_factor_at_peak < 0.5
+    assert w.local_rate_at_peak < geometric * 0.5
+
+
+def test_higher_population_index_degrades_harder():
+    """Faint-meteor-rich showers (high r) lose more under the same moon."""
+    def rate_for(r):
+        w = _make_window(peak_alt=60.0, moon_alt=45.0, moon_sep=60.0)
+        t = _make_shower_target(w, zhr_effective=100.0, population_index=r)
+        _run(t, illumination=100.0, sky_sqm=21.6)
+        return w.lm_factor_at_peak
+    assert rate_for(3.2) < rate_for(2.2)
+
+
+def test_lm_factor_bright_site_degrades_moonless():
+    """Light pollution alone (Bortle 8, no moon) already suppresses the rate."""
+    w = _make_window(peak_alt=60.0, moon_alt=-10.0)
+    t = _make_shower_target(w, zhr_effective=100.0, population_index=2.2)
+    _run(t, sky_sqm=18.0)
+    assert w.lm_factor_at_peak is not None and w.lm_factor_at_peak < 0.2
+
+
+def test_non_shower_targets_untouched_by_lm():
+    """DSO windows never get a lm factor."""
+    w = _make_window()
+    t = _make_target(w)
+    _run(t, sky_sqm=21.6)
+    assert w.lm_factor_at_peak is None
+    assert w.local_rate_at_peak is None
