@@ -20,6 +20,12 @@ export function NearbyResults(
 ) {
   const { origin_bortle, origin_sqm, radius_miles, results, light_domes, best_available } = data
   const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(1)})` : ''
+  // Drive-time routing only runs on the AWS backend; on local it's never attempted and
+  // every place carries drive_minutes=null for that reason alone. Only treat a null as
+  // "routing tried and failed" (e.g. ferry-only crossing) when routing is active at all —
+  // otherwise every local-backend POI would wrongly lose its Maps directions link below.
+  const routingActive = [...results, ...light_domes, ...(best_available ? [best_available] : [])]
+    .some(p => p.drive_minutes != null)
 
   // Convert stored miles to the active unit system
   const fmtMi = (mi: number) => fmtDist(mi * 1.60934, imperial)
@@ -62,7 +68,14 @@ export function NearbyResults(
           {p.is_poi
             ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
             : <span className="poi-remote">Remote</span>}
-          <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
+          {p.warnings?.map((warn, idx) => (
+            <span key={idx} className="poi-warning">{warn}</span>
+          ))}
+          {routingActive && p.is_poi && p.drive_minutes == null ? (
+            <span className="poi-unroutable" title="No direct road access — routing avoided a ferry-only crossing">No road access</span>
+          ) : (
+            <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
+          )}
         </span>
       </>
     )
@@ -97,8 +110,6 @@ export function NearbyResults(
 
       {/* 3. Results table */}
       {results.length > 0 && (() => {
-        const hasDrive = results.some(p => p.drive_minutes != null)
-
         // New Tiered Drive-Time Sort
         const sortedByDriveTime = [...results].sort((a, b) => {
           const bothHaveDrive = a.drive_minutes != null && b.drive_minutes != null;
@@ -157,7 +168,7 @@ export function NearbyResults(
                     <th>Bortle</th>
                     <th>SQM</th>
                     <th>Dist</th>
-                    {hasDrive && <th>Drive</th>}
+                    {routingActive && <th>Drive</th>}
                     <th>Dir</th>
                   </tr>
                 </thead>
@@ -179,7 +190,7 @@ export function NearbyResults(
                         <td className={`wx-num nearby-bortle-col ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
                         <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
                         <td className="wx-num nearby-dist-col">{distOf(p)}</td>
-                        {hasDrive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
+                        {routingActive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
                         <td className="wx-num nearby-dir-col">{p.direction}</td>
                       </tr>
                     ))}

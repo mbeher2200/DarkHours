@@ -332,9 +332,12 @@ class TestAwsDriveTimes:
         assert [c["drive_miles"] for c in clusters] == [round(56000 / 1609.34),
                                                         round(88000 / 1609.34)]
         client.calculate_route_matrix.assert_called_once()
-        # both legs now cached as {minutes, road-miles}
+        # both legs now cached as {minutes, road-miles, warnings}
         assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == \
-            {"m": 56, "mi": round(56000 / 1609.34)}
+            {"m": 56, "mi": round(56000 / 1609.34), "w": []}
+        # best-effort avoidance is requested on every matrix call
+        _, kwargs = client.calculate_route_matrix.call_args
+        assert kwargs["Avoid"] == {"Ferries": True, "DirtRoads": True}
 
     def test_full_cache_hit_skips_api(self, monkeypatch, _mem_cache):
         import PyNightSkyPredictor.darksky as ds
@@ -371,3 +374,51 @@ class TestAwsDriveTimes:
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert clusters[0]["drive_minutes"] is None
         assert _mem_cache == {}  # transient failure must not poison the cache
+
+    def test_ferry_only_route_treated_as_unroutable(self, monkeypatch, _mem_cache):
+        """A best-effort Avoid=Ferries route that still has to cross a Ro-Ro ferry (e.g.
+        Juneau→Hoonah) comes back with a Duration AND a ViolatedAvoidFerry notice — that's
+        not a real drivable route, so it must collapse to the same "no route" state as an
+        outright routing failure, not silently report the deceptive ETA."""
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        client.calculate_route_matrix.return_value = {"RouteMatrix": [[
+            {"Duration": 228 * 60, "Distance": 90 * 1000,
+             "Notices": [{"Code": "ViolatedAvoidFerry"}]},
+        ]]}
+        monkeypatch.setattr(ds, "_georoutes", lambda: client)
+        clusters = [{"lat": 58.1, "lon": -135.3, "is_poi": True}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["drive_minutes"] is None
+        assert clusters[0]["drive_miles"] is None
+        assert clusters[0]["warnings"] == []
+        assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 58.1, -135.3)] == ds._DRIVE_NO_ROUTE
+
+    def test_dirt_road_violation_surfaces_as_warning(self, monkeypatch, _mem_cache):
+        """A non-fatal avoidance violation (unpaved road) still yields a real ETA, but the
+        caller gets a warning string to show the user rather than a silently-dropped flag."""
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        client.calculate_route_matrix.return_value = {"RouteMatrix": [[
+            {"Duration": 45 * 60, "Distance": 20 * 1000,
+             "Notices": [{"Code": "ViolatedAvoidDirtRoad"}]},
+        ]]}
+        monkeypatch.setattr(ds, "_georoutes", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["drive_minutes"] == 45
+        assert clusters[0]["warnings"] == ["Dirt roads"]
+        assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == \
+            {"m": 45, "mi": round(20000 / 1609.34), "w": ["Dirt roads"]}
+
+    def test_cached_warnings_round_trip(self, monkeypatch, _mem_cache):
+        """A dict cache entry with a 'w' warnings list is unpacked back onto the cluster."""
+        import PyNightSkyPredictor.darksky as ds
+        _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = \
+            {"m": 45, "mi": 12, "w": ["Dirt roads"]}
+        client = MagicMock()
+        monkeypatch.setattr(ds, "_georoutes", lambda: client)
+        clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["warnings"] == ["Dirt roads"]
+        client.calculate_route_matrix.assert_not_called()

@@ -663,9 +663,17 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     the route-matrix call; only the cache-missing legs are sent to AWS.
 
     Uses Amazon Location GeoRoutes CalculateRouteMatrix (the modern, resource-less API)
-    with historical traffic (no DepartNow) for cache-consistent ETAs.
+    with historical traffic (no DepartNow) for cache-consistent ETAs. Requests best-effort
+    avoidance of ferries (ferry-only "roads" produce a plausible-looking ETA for a route
+    with no actual drivable path — e.g. Juneau→Hoonah, AK) and dirt roads (rough on
+    optical gear / 2WD vehicles). GeoRoutes still routes through them if unavoidable,
+    flagging the leg via `Notices` instead of failing outright, so we inspect notice
+    codes rather than trust Duration/Distance alone.
 
-    Annotates drive_minutes (int | None) and drive_miles (road distance, int | None).
+    Annotates drive_minutes (int | None), drive_miles (road distance, int | None), and
+    warnings (list[str]): non-fatal avoidance violations (currently just dirt roads) the
+    frontend can surface as a caveat. A ferry-only route is treated the same as "no route"
+    (drive_minutes=drive_miles=None) since it isn't actually driveable.
 
     Routes ONLY is_poi candidates: raw backcountry fallbacks have no established road
     access, so routing them wastes the API on an unreachable point. They get
@@ -674,24 +682,27 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     if not clusters:
         return
     # 1. Serve cached legs from a single batched route-matrix call's worth of history;
-    #    collect the misses. The cached value is {"m":min,"mi":road_miles} or the
-    #    _DRIVE_NO_ROUTE sentinel ("computed, no route" ≠ miss). Legacy int = minutes only.
+    #    collect the misses. The cached value is {"m":min,"mi":road_miles,"w":warnings} or
+    #    the _DRIVE_NO_ROUTE sentinel ("computed, no route" ≠ miss). Legacy int = minutes only.
     misses = []
     for c in clusters:
         if not c.get("is_poi"):
             c["drive_minutes"] = None      # never route a non-routable fallback pixel
             c["drive_miles"] = None
+            c["warnings"] = []
             continue
         cached = cache.get(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]))
         if cached is not None:
             if cached == _DRIVE_NO_ROUTE:
-                c["drive_minutes"], c["drive_miles"] = None, None
+                c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []
             elif isinstance(cached, dict):
-                c["drive_minutes"], c["drive_miles"] = cached.get("m"), cached.get("mi")
+                c["drive_minutes"] = cached.get("m")
+                c["drive_miles"] = cached.get("mi")
+                c["warnings"] = cached.get("w", [])
             else:                          # legacy int cache entry: minutes only
-                c["drive_minutes"], c["drive_miles"] = cached, None
+                c["drive_minutes"], c["drive_miles"], c["warnings"] = cached, None, []
         else:
-            c["drive_minutes"], c["drive_miles"] = None, None   # default until filled below
+            c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []  # until filled below
             misses.append(c)
     if not misses:
         return
@@ -704,17 +715,30 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             Destinations=[{"Position": [c["lon"], c["lat"]]} for c in misses],
             RoutingBoundary={"Unbounded": True},
             TravelMode="Car",
+            Avoid={"Ferries": True, "DirtRoads": True},
         )
         row = resp.get("RouteMatrix", [[]])[0]
         for i, c in enumerate(misses):
-            entry  = row[i] if i < len(row) else {}
-            secs   = entry.get("Duration") if entry else None   # GeoRoutes: seconds
-            meters = entry.get("Distance") if entry else None    # GeoRoutes: metres
+            entry = row[i] if i < len(row) else {}
+            notice_codes = [n.get("Code") for n in entry.get("Notices", []) if "Code" in n]
+
+            # Ferry-only "roads" aren't actually driveable — treat like no route at all,
+            # regardless of whether GeoRoutes also reported a Duration for the leg.
+            if entry.get("Error") or "ViolatedAvoidFerry" in notice_codes:
+                c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []
+                cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
+                          _DRIVE_NO_ROUTE, ttl_seconds=_DRIVE_CACHE_TTL)
+                continue
+
+            secs   = entry.get("Duration")   # GeoRoutes: seconds
+            meters = entry.get("Distance")   # GeoRoutes: metres
             mins  = round(secs / 60) if secs is not None else None
             miles = round(meters / 1609.34) if meters is not None else None
-            c["drive_minutes"], c["drive_miles"] = mins, miles
+            warnings = ["Dirt roads"] if "ViolatedAvoidDirtRoad" in notice_codes else []
+
+            c["drive_minutes"], c["drive_miles"], c["warnings"] = mins, miles, warnings
             cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
-                      {"m": mins, "mi": miles} if mins is not None else _DRIVE_NO_ROUTE,
+                      {"m": mins, "mi": miles, "w": warnings} if mins is not None else _DRIVE_NO_ROUTE,
                       ttl_seconds=_DRIVE_CACHE_TTL)
     except Exception as e:
         log.debug("GeoRoutes route matrix failed: %s", e)
@@ -2412,6 +2436,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             for c in needs_drive:
                 c["drive_minutes"] = None
                 c["drive_miles"] = None
+                c["warnings"] = []
 
     _funnel["results_final"] = len(dark_clusters)
     _funnel["best_available"] = best_available is not None
