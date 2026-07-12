@@ -137,7 +137,7 @@ export function MoonBadge({ type, severity, aodTip }: { type: 'penalty' | 'limit
   const base = type === 'penalty' ? 'Moon interference' : 'Moon limited'
   const text = severity ? `${base}: ${severity}` : base
   return (
-    <InfoTip tip={<>Moon wash — scattered moonlight brightening the sky along this line of sight (Krisciunas &amp; Schaefer 1991; Winkler 2022). Severity comes from phase, moon altitude, angular separation, and aerosols, not illumination % alone.{aodTip ? <> {AOD_AMPLIFY_TIP_COPY}</> : null}</>}>
+    <InfoTip tip={<>Moon wash — scattered moonlight brightening the sky along this line of sight. Severity comes from phase, moon altitude, angular separation, and aerosols, not illumination % alone.{aodTip ? <> {AOD_AMPLIFY_TIP_COPY}</> : null}</>}>
       <span className="mw-moon-badge">{text}</span>
     </InfoTip>
   )
