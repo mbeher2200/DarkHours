@@ -899,25 +899,8 @@ def assemble_night(
     # --- Active meteor showers (always computed — fast date check only) ---
     active_showers = _tgt.active_meteor_showers(target)
 
-    # --- Aurora outlook (fetches already resolved off-thread; per-location math
-    # is cheap). On the use_cycle_window path night_start/night_end come from
-    # the fixed-twilight-offset approximation — minutes-scale error against the
-    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
-    aurora_info = None
-    if _aurora_future is not None and night_start and night_end:
-        try:
-            _kp_rows, _kp_stale, _kp_outlook, _outlook_stale = _aurora_future.result()
-            aurora_info = _aur.aurora_for_night(
-                lat, lon, target, night_start, night_end,
-                kp_rows=_kp_rows, kp_stale=_kp_stale,
-                outlook=_kp_outlook, outlook_stale=_outlook_stale,
-                weather_points=night_points,
-                light_dome=light_dome_info,
-            )
-        except Exception as _ae:
-            log.debug("aurora computation failed (non-fatal): %s", _ae)
-
-    # --- Moon altitude track (used for best-time scoring across all target types) ---
+    # --- Moon altitude track (used for best-time scoring across all target types,
+    # and for the aurora moonlight factor below) ---
     # Sampled sunset→sunrise at 15-min resolution.  Requires de421.bsp; falls back
     # gracefully (moon_alts=None) when the ephemeris is absent (e.g. unit tests).
     _moon_alts: list | None = None
@@ -933,6 +916,26 @@ def assemble_night(
             _moon_alts     = list(zip(_sample_times, _moon_alt_vals))
         except Exception as _mae:
             log.debug("moon_altitude_track failed (non-fatal): %s", _mae)
+
+    # --- Aurora outlook (fetches already resolved off-thread; per-location math
+    # is cheap). On the use_cycle_window path night_start/night_end come from
+    # the fixed-twilight-offset approximation — minutes-scale error against the
+    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
+    aurora_info = None
+    if _aurora_future is not None and night_start and night_end:
+        try:
+            _kp_rows, _kp_stale, _kp_outlook, _outlook_stale = _aurora_future.result()
+            aurora_info = _aur.aurora_for_night(
+                lat, lon, target, night_start, night_end,
+                kp_rows=_kp_rows, kp_stale=_kp_stale,
+                outlook=_kp_outlook, outlook_stale=_outlook_stale,
+                weather_points=night_points,
+                light_dome=light_dome_info,
+                moon_illum_pct=illumination,
+                moon_alts=_moon_alts,
+            )
+        except Exception as _ae:
+            log.debug("aurora computation failed (non-fatal): %s", _ae)
 
     # --- Milky Way arch summary (needs weather + moon_alts for best-viewing-time) ---
     if fetch_targets:

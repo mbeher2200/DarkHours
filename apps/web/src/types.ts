@@ -121,6 +121,9 @@ export interface AuroraForecast {
   look_direction: string               // 16-wind label, e.g. 'NNW'
   blockers: string[]
   light_dome_caution: boolean
+  // Moonlight raises the emission-source background; tier-scaled, degrades only.
+  // Optional: absent on reports cached before this field shipped.
+  moonlight_caution?: boolean
   viability: 'ok' | 'degraded' | 'blocked'
   stale: boolean
 }

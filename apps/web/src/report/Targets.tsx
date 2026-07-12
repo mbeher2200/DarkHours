@@ -196,6 +196,7 @@ const _BLOCKER_PRIORITY: [string, string, string][] = [
   ['cloud', 'Clouded out', 'weather'],
   ['transparency', 'Clouded out', 'weather'],
   ['moon_washout', 'Moon washout', 'moonwash'],
+  ['moonlight', 'Moon-brightened sky', 'moonwash'],
   ['light_dome', 'Lost in light dome', 'light pollution'],
   ['low_radiant', 'Radiant too low', 'low radiant'],
 ]

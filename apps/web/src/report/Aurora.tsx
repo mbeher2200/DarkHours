@@ -62,6 +62,7 @@ export function auroraAlert(r: NightReport): AuroraAlert | null {
     const factors: string[] = []
     if (a.blockers.includes('cloud')) factors.push('partial cloud cover during the aurora window')
     if (a.light_dome_caution) factors.push(`the light dome toward the ${a.look_direction}`)
+    if (a.moonlight_caution) factors.push('moonlight raising the sky background')
     return {
       aurora: a, state: 'degraded',
       prefix: lead + tierClause.replace(/\.$/, ''),
