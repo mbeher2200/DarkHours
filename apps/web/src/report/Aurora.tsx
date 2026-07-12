@@ -1,4 +1,3 @@
-import React from 'react'
 import type { AuroraForecast, NightReport } from '../types'
 import { formatTime } from '../format'
 import { InfoTip } from '../shared'
