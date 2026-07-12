@@ -209,12 +209,13 @@ def _find_windows(alt_deg, az_deg, sample_dts: list, min_elev: float) -> list:
     return result
 
 
-def _moon_interferes(sep_deg, moon_alt_deg, moon_dist_km, window_indices: list,
-                     illumination_pct: float) -> bool:
+def _moon_interferes(sep_deg, moon_alt_deg, moon_dist_km, target_alt_deg,
+                     window_indices: list, illumination_pct: float,
+                     aod: "float | None" = None) -> bool:
     """True if the moon produces ≥ moderate sky brightening (Δμ ≥ 0.50) at any window sample.
 
-    Uses the K&S model rather than a binary illumination/separation gate, so a
-    49%-illuminated moon is evaluated on the same physics as a 51% moon.
+    Uses the scattering model rather than a binary illumination/separation gate,
+    so a 49%-illuminated moon is evaluated on the same physics as a 51% moon.
     Returns False immediately for new moon or if the moon is always below the horizon.
     """
     if not window_indices or illumination_pct <= 0:
@@ -222,7 +223,9 @@ def _moon_interferes(sep_deg, moon_alt_deg, moon_dist_km, window_indices: list,
     for i in window_indices:
         if _ml.ks_delta_mag(illumination_pct, float(sep_deg[i]),
                             float(moon_alt_deg[i]),
-                            moon_earth_dist_km=float(moon_dist_km[i])) >= _ml.KS_MODERATE_THRESH:
+                            moon_earth_dist_km=float(moon_dist_km[i]),
+                            aod=aod,
+                            target_alt_deg=float(target_alt_deg[i])) >= _ml.KS_MODERATE_THRESH:
             return True
     return False
 
@@ -374,7 +377,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                     illumination_pct: float, night_date,
                     min_elevation: float,
                     obs_start: datetime, obs_end: datetime,
-                    sky_sqm: float | None = None) -> "VisibleTarget | None":
+                    sky_sqm: float | None = None,
+                    aod: float | None = None) -> "VisibleTarget | None":
     name     = entry["name"]
     ttype    = entry["type"]
     min_elev = entry.get("min_elevation", min_elevation)
@@ -461,7 +465,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     windows = []
     for window, indices in windows_with_idx:
         window.moon_interference = _moon_interferes(obs_sep, obs_moon_alt, obs_moon_dist,
-                                                    indices, illumination_pct)
+                                                    obs_alt, indices, illumination_pct,
+                                                    aod=aod)
 
         # Store moon separation and altitude at peak time for the K&S sky brightness model.
         try:
@@ -503,7 +508,8 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
                 sep      = float(obs_sep[i])
                 malt     = float(obs_moon_alt[i])
                 mdist    = float(obs_moon_dist[i])
-                delta    = _ml.ks_delta_mag(illumination_pct, sep, malt, _sqm, mdist)
+                delta    = _ml.ks_delta_mag(illumination_pct, sep, malt, _sqm, mdist,
+                                            aod=aod, target_alt_deg=float(obs_alt[i]))
                 sky_now  = _sqm - delta   # effective sky brightness this sample
 
                 if sb is not None:
@@ -642,6 +648,7 @@ def visible_targets(
     min_elevation: float = DEFAULT_MIN_ELEVATION,
     sky_sqm: float | None = None,
     tz: "ZoneInfo | None" = None,
+    aod: float | None = None,
 ) -> list:
     """
     Return targets visible during the night.
@@ -650,6 +657,9 @@ def visible_targets(
     (night_start–night_end). Planets use the full sunset–sunrise window
     since they are often worth observing during twilight.
     Falls back to sunset/sunrise for both if night bounds are unavailable.
+
+    aod — night-representative aerosol optical depth for the moonlight
+    scattering model; None means reference clear sky.
     """
     catalog = load_targets()
     if not catalog:
@@ -707,6 +717,7 @@ def visible_targets(
                 min_elevation,
                 obs_start, obs_end,
                 sky_sqm=_sky_sqm,
+                aod=aod,
             )
         except Exception as e:
             log.warning("Error computing target %r: %s", entry.get("name"), e)

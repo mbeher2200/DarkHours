@@ -128,6 +128,10 @@ class NightReport:
     score: float | None
     score_components: dict  # {moon, dark, weather, bortle}
 
+    # Night-median aerosol optical depth (moonlight scattering input); None when
+    # unavailable (past dates, AQ fetch failure, beyond the 7-day AQ horizon).
+    night_aod: float | None = None
+
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
     mw_summary:      dict | None = None   # milky_way_arch_summary output (MW targets only)
@@ -689,6 +693,22 @@ def assemble_night(
                 except RuntimeError as _e:
                     _wx_exc = _e
 
+        # Deserialize once, here, so the night's AOD is available to the
+        # visible_targets moonlight model below (the weather block later in
+        # this function reuses these instead of re-deserializing).  The
+        # .result() above already blocked, so this adds pure CPU only.
+        _wx_points_early = None
+        _wx_src_early    = None
+        _wx_fetch_early  = None
+        if _wx_cached is not None:
+            _wx_points_early, _wx_src_early, _wx_fetch_early = _wx_deserialize(_wx_cached)
+        elif _wx_fetched is not None:
+            _wx_points_early, _wx_src_early, _wx_fetch_early = _wx_fetched
+        _night_aod = (
+            wx.night_aod(_wx_points_early, sunset, sunrise)
+            if _wx_points_early else None
+        )
+
         _t["io_wait_ms"] = round((time.monotonic() - _tc) * 1000)
 
         # --- Phase 2: satellite passes + visible_targets in parallel ---
@@ -736,6 +756,7 @@ def assemble_night(
             _vt_future = _pool.submit(
                 _tgt.visible_targets, lat, lon, sunset, sunrise, illumination,
                 night_start=night_start, night_end=night_end, sky_sqm=_site_sqm, tz=tz,
+                aod=_night_aod,
             )
 
         # Collect satellite passes
@@ -816,10 +837,11 @@ def assemble_night(
                 # Future date: use cached or concurrently-fetched result
                 if _wx_exc is not None:
                     raise _wx_exc
-                if _wx_cached is not None:
-                    points, wx_source, wx_fetched_at = _wx_deserialize(_wx_cached)
-                elif _wx_fetched is not None:
-                    points, wx_source, wx_fetched_at = _wx_fetched
+                if _wx_points_early is not None:
+                    # Deserialized once in the io_wait block above.
+                    points, wx_source, wx_fetched_at = (
+                        _wx_points_early, _wx_src_early, _wx_fetch_early
+                    )
                 else:
                     # Pass target string parameters into the provider to bypass the 7-day programmatic limitation
                     points, wx_source, wx_fetched_at = wx.forecast(lat, lon)

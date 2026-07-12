@@ -432,6 +432,7 @@ _AQ_URL = (
     "https://air-quality-api.open-meteo.com/v1/air-quality"
     "?latitude={lat}&longitude={lon}"
     "&hourly=pm2_5,aerosol_optical_depth"
+    "&forecast_days=7"          # pin the horizon (API default is ~5 days)
     "&timezone=GMT"
 )
 
@@ -488,6 +489,29 @@ def _merge_air_quality(points: list, aq: list) -> list:
             p = _dc_replace(p, pm2_5=nearest[1], aerosol_optical_depth=nearest[2])
         result.append(p)
     return result
+
+
+def night_aod(points: list, start: datetime, end: datetime) -> "float | None":
+    """
+    Night-representative aerosol optical depth: the median AOD over the
+    WeatherPoints falling within [start, end] (typically sunset→sunrise).
+
+    Returns None when no point in the window carries AOD — past dates, air-
+    quality fetch failures, or nights beyond the 7-day air-quality horizon —
+    in which case the moonlight model falls back to its reference clear sky.
+    A single scalar is deliberate: CAMS hourly AOD is smooth, and intra-night
+    variation is well below the scattering model's own error.
+    """
+    vals = sorted(
+        p.aerosol_optical_depth for p in points
+        if p.aerosol_optical_depth is not None and start <= p.time <= end
+    )
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    if len(vals) % 2:
+        return float(vals[mid])
+    return float((vals[mid - 1] + vals[mid]) / 2.0)
 
 
 # ---------------------------------------------------------------------------
