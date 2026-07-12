@@ -165,6 +165,9 @@ html.red-mode .hm-moon {
 html.red-mode .hm-meteor {
   color: var(--accent);
 }
+html.red-mode .hm-aurora {
+  color: var(--accent);
+}
 /* Links (incl. visited): otherwise they fall back to the browser's blue/purple. */
 html.red-mode a:link,
 html.red-mode a:visited {

@@ -589,12 +589,14 @@ export default function App() {
               "fundamentals" line below rather than given tiles. */}
           <div className="es-caps">
             {([
-              ['Target Windows',    'Every shootable target with its peak time and window, and why others are blocked: clouds, moonwash, or light domes.'],
+              ['Target Windows',    'Every shootable target with its peak time and window, and why others are blocked due to clouds, moonwash, or light domes.'],
               ['Milky Way Planner', 'A 360° view of the galactic plane over your horizon—altitude, bearing, and the best minute to shoot.'],
-              ['Sky & Horizon Glow', 'A fisheye heat map of light domes around you. Know more than just the Bortle.'],
-              ['Nearby Dark Sky',   'Search for low bortle locations you can actually use: routing to facilities like parking, campgrounds, and viewpoints. Sorted by drive times.'],
-              ['30 Day Best Night', 'A 30 day outlook. Go straight to the best night.'],
+              ['Sky & Horizon Glow', 'A horizon map of light domes around you. Know more than just the Bortle.'],
+              ['Nearby Dark Sky',   'Search for low bortle locations you can actually reach, with routing to facilities like parking, campgrounds, and viewpoints. All sorted by drive times.'],
+              ['30 Day Best Night', 'A 30 day outlook. Compare conditions across multiple nights to identify the best windows.'],
               ['Smoke & Haze Forecast',  'Wildfire smoke and upper-air aerosol data from ground sensors, and satellites.'],
+              ['Meteor Shower Predictions', 'Know when the next meteor shower will peak, the estimated meteors per hour, and visibility from your location.'],
+              ['Tailored Weather Forecasts', 'A two week, hour by hour forecast for: cloud cover, temperature, wind and humidity cloud layers, and wind - updated twice an hour. Plus three day atmospheric seeing, and transparency provided by 7Timer.'],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} className="es-cap">
                 <span className="es-cap-k">{k}</span>

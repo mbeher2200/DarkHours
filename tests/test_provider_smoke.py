@@ -9,6 +9,7 @@ Covers every outbound data provider the engine depends on:
   * Open-Meteo            — primary weather forecast
   * 7Timer ASTRO         — seeing / transparency weather
   * Celestrak            — satellite TLEs
+  * NOAA SWPC            — Kp forecast + 27-day outlook (aurora)
   * Nominatim            — forward geocoding (local backend)
   * AWS Location         — forward geocoding (aws backend; additionally needs the
                            aws backend env + credentials, else skipped)
@@ -57,6 +58,23 @@ def test_celestrak_live():
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert any(ln.startswith("1 ") for ln in lines), "no TLE line 1 from Celestrak"
     assert any(ln.startswith("2 ") for ln in lines), "no TLE line 2 from Celestrak"
+
+
+# ── NOAA SWPC (aurora) ───────────────────────────────────────────────────────
+
+def test_swpc_kp_live():
+    from PyNightSkyPredictor import aurora
+    rows = aurora._parse_kp_json(aurora._fetch_url(aurora.KP_URL))
+    assert rows, "SWPC returned no Kp forecast rows"
+    assert all(isinstance(r["kp"], float) for r in rows)
+    assert any(r["observed"] == "predicted" for r in rows), "no predicted Kp bins"
+
+
+def test_swpc_27day_live():
+    from PyNightSkyPredictor import aurora
+    outlook = aurora._parse_27day_text(aurora._fetch_url(aurora.OUTLOOK_URL))
+    assert len(outlook) >= 20, f"27-day outlook parsed only {len(outlook)} dates"
+    assert all(0 <= kp <= 9 for kp in outlook.values())
 
 
 # ── Location providers ───────────────────────────────────────────────────────

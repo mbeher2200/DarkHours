@@ -184,7 +184,7 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                   </th>
                 )}
                 {(hasTemp || hasDew) && <th className="wx-temp-col wx-temp-hdr">TEMP/<br />DEW PT ({tempUnitLabel(imperial)})</th>}
-                <th className="wx-wind-col">Wind ({windUnitLabel(imperial)})</th>
+                <th className="wx-wind-col">Wind<br />/Gust({windUnitLabel(imperial)})</th>
               </tr>
             </thead>
           )}

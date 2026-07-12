@@ -103,6 +103,36 @@ export interface ActiveShower {
   peak_time_utc: string | null
 }
 
+// NightReport.aurora — nightly_aurora() output (aurora.py). Null below the
+// photographic tier, outside the Kp forecast horizon, or with no true darkness.
+export interface AuroraForecast {
+  kp_max: number
+  // 'outlook' = coarser 27-day daily-largest-Kp product (nights beyond the
+  // 3-day Kp forecast horizon); it has no intra-night peak window.
+  kp_source: 'observed' | 'estimated' | 'predicted' | 'outlook'
+  noaa_scale: string | null            // 'G1'..'G5' or null below storm level
+  peak_start_utc: string | null        // ISO 8601, max-Kp bins ∩ dark window
+  peak_end_utc: string | null
+  maglat_deg: number
+  viewline_maglat_deg: number
+  margin_deg: number
+  tier: 'overhead' | 'naked_eye' | 'photographic'
+  look_bearing_deg: number
+  look_direction: string               // 16-wind label, e.g. 'NNW'
+  blockers: string[]
+  light_dome_caution: boolean
+  viability: 'ok' | 'degraded' | 'blocked'
+  stale: boolean
+}
+
+// NightSummary.aurora — compact calendar shape (trip.py / outlook_aurora()).
+export interface CalendarAurora {
+  kp_max: number
+  tier: 'overhead' | 'naked_eye' | 'photographic'
+  noaa_scale: string | null
+  source: 'kp3day' | '27day'
+}
+
 export interface SatPass {
   satellite_name: string
   rise_time: string
@@ -229,6 +259,7 @@ export interface NightReport {
   visible_targets: VisibleTarget[]
   mw_summary: MilkyWaySummary | null
   active_showers: ActiveShower[]
+  aurora: AuroraForecast | null
   sat_passes: SatPass[]
   sat_stale: boolean
   sat_future_stale: boolean
@@ -311,6 +342,7 @@ export interface CalendarNight {
   wx_pending: boolean
   wx_no_data: boolean
   meteor_shower: ActiveShower | null
+  aurora: CalendarAurora | null
 }
 
 export interface CalendarResult {

@@ -365,6 +365,14 @@
   display: flex;
   color: var(--accent);
 }
+/* Bottom-left is the free corner: moon top-left, day top-right, meteor bottom-right. */
+.hm-aurora {
+  position: absolute;
+  bottom: 3px;
+  left: 4px;
+  display: flex;
+  color: var(--good);
+}
 html.red-mode .heatmap-cell.hm-good .hm-score {
   color: var(--good);
 }
