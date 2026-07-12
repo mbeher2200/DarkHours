@@ -71,6 +71,9 @@ export function NearbyResults(
           {p.warnings?.map((warn, idx) => (
             <span key={idx} className="poi-warning">{warn}</span>
           ))}
+          {p.tail_miles != null && (
+            <span className="poi-warning">Last {fmtMi(p.tail_miles)} not drivable</span>
+          )}
           {routingActive && p.is_poi && p.drive_minutes == null ? (
             <span className="poi-unroutable" title="No direct road access — routing avoided a ferry-only crossing">No road access</span>
           ) : (

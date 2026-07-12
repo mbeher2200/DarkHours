@@ -311,6 +311,11 @@ export interface NearbyPlace {
   // Non-fatal routing avoidance violations (e.g. "Dirt roads") the API's best-effort
   // Avoid preferences couldn't route around. Empty/absent when the leg was clean.
   warnings?: string[]
+  // Set when the route's actual arrival point is >1km from this place (e.g. an island
+  // reachable only by boat) — the API silently snapped to the nearest road instead of
+  // erroring. drive_minutes/drive_miles cover the real drivable portion; tail_miles is
+  // the remaining distance that isn't drivable.
+  tail_miles?: number | null
 }
 
 export interface NearbyResult {

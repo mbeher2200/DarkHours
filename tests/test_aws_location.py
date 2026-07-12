@@ -314,11 +314,16 @@ class TestAwsDriveTimes:
         return store
 
     @staticmethod
-    def _route_resp(minutes, meters, dirt_road=False):
-        """A GeoRoutes CalculateRoutes response for a single (successful) vehicle route."""
+    def _route_resp(minutes, meters, dirt_road=False, arrival_lat=None, arrival_lon=None):
+        """A GeoRoutes CalculateRoutes response for a single (successful) vehicle route.
+        arrival_lat/lon simulate GeoRoutes snapping the destination to the nearest road
+        (VehicleLegDetails.Arrival.Place.Position); omitted means "no gap to check"."""
         notices = [{"Code": "ViolatedAvoidDirtRoad"}] if dirt_road else []
+        vehicle_details = {"Notices": notices}
+        if arrival_lat is not None:
+            vehicle_details["Arrival"] = {"Place": {"Position": [arrival_lon, arrival_lat]}}
         return {"Routes": [{
-            "Legs": [{"Type": "Vehicle", "VehicleLegDetails": {"Notices": notices}}],
+            "Legs": [{"Type": "Vehicle", "VehicleLegDetails": vehicle_details}],
             "Summary": {"Duration": minutes * 60, "Distance": meters},
         }]}
 
@@ -344,9 +349,9 @@ class TestAwsDriveTimes:
         assert [c["drive_miles"] for c in clusters] == [round(56000 / 1609.34),
                                                         round(88000 / 1609.34)]
         assert client.calculate_routes.call_count == 2
-        # both legs now cached as {minutes, road-miles, warnings}
+        # both legs now cached as {minutes, road-miles, warnings, tail_miles}
         assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == \
-            {"m": 56, "mi": round(56000 / 1609.34), "w": []}
+            {"m": 56, "mi": round(56000 / 1609.34), "w": [], "t": None}
         # best-effort avoidance is requested on every call
         for call in client.calculate_routes.call_args_list:
             assert call.kwargs["Avoid"] == {"Ferries": True, "DirtRoads": True}
@@ -421,6 +426,7 @@ class TestAwsDriveTimes:
         assert clusters[0]["drive_minutes"] is None
         assert clusters[0]["drive_miles"] is None
         assert clusters[0]["warnings"] == []
+        assert clusters[0]["tail_miles"] is None
         assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 58.1, -135.3)] == ds._DRIVE_NO_ROUTE
 
     def test_dirt_road_violation_surfaces_as_warning(self, monkeypatch, _mem_cache):
@@ -436,10 +442,45 @@ class TestAwsDriveTimes:
         assert clusters[0]["drive_minutes"] == 45
         assert clusters[0]["warnings"] == ["Dirt roads"]
         assert _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] == \
-            {"m": 45, "mi": round(20000 / 1609.34), "w": ["Dirt roads"]}
+            {"m": 45, "mi": round(20000 / 1609.34), "w": ["Dirt roads"], "t": None}
+
+    def test_unreachable_destination_surfaces_tail_gap(self, monkeypatch, _mem_cache):
+        """GeoRoutes can't route to a destination with no nearby road (e.g. an island
+        lighthouse reachable only by boat — confirmed live against Sand Island Lighthouse,
+        WI), so it silently snaps the arrival to the nearest road and reports a normal
+        Duration/Distance for THAT point instead. The drivable portion is still real
+        (drive_minutes/drive_miles stay populated), but the gap between the requested
+        destination and the actual arrival point (>1km) must surface as tail_miles rather
+        than being silently dropped."""
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        # destination is the island; arrival snaps ~0.02 deg (~1.38 mi) south on the mainland
+        client.calculate_routes.return_value = self._route_resp(
+            180, 259000, arrival_lat=35.98, arrival_lon=-111.6)
+        monkeypatch.setattr(ds, "_georoutes", lambda: client)
+        clusters = [{"lat": 36.0, "lon": -111.6, "is_poi": True}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["drive_minutes"] == 180   # the drivable portion is still real
+        assert clusters[0]["tail_miles"] == pytest.approx(1.38, abs=0.05)
+        cached = _mem_cache[ds._drive_cache_key(35.2, -111.6, 36.0, -111.6)]
+        assert cached["t"] == pytest.approx(1.38, abs=0.05)
+
+    def test_normal_road_snap_does_not_trigger_tail_gap(self, monkeypatch, _mem_cache):
+        """A routine few-meters snap to the nearest driveway/road (every real destination
+        gets one) must NOT be mistaken for an unreachable-destination gap."""
+        import PyNightSkyPredictor.darksky as ds
+        client = MagicMock()
+        # ~0.0005 deg (~55m) south — well under the 1km threshold
+        client.calculate_routes.return_value = self._route_resp(
+            45, 20000, arrival_lat=35.9995, arrival_lon=-111.46)
+        monkeypatch.setattr(ds, "_georoutes", lambda: client)
+        clusters = [{"lat": 36.0, "lon": -111.46, "is_poi": True}]
+        ds._aws_drive_times(35.2, -111.6, clusters)
+        assert clusters[0]["tail_miles"] is None
 
     def test_cached_warnings_round_trip(self, monkeypatch, _mem_cache):
-        """A dict cache entry with a 'w' warnings list is unpacked back onto the cluster."""
+        """A dict cache entry with a 'w' warnings list and no 't' key (older cache
+        schema) is unpacked back onto the cluster without error."""
         import PyNightSkyPredictor.darksky as ds
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = \
             {"m": 45, "mi": 12, "w": ["Dirt roads"]}
@@ -448,4 +489,5 @@ class TestAwsDriveTimes:
         clusters = [{"lat": 35.41, "lon": -111.46, "is_poi": True}]
         ds._aws_drive_times(35.2, -111.6, clusters)
         assert clusters[0]["warnings"] == ["Dirt roads"]
+        assert clusters[0]["tail_miles"] is None
         client.calculate_routes.assert_not_called()
