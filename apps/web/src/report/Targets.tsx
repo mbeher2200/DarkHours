@@ -149,7 +149,7 @@ export function MeteorShowerCard({ target, zhr, report }: {
         </span>
         {w.local_rate_at_peak != null && (
           <span className="ms-local-rate">
-            <InfoTip tip={<>Peak ZHR adjusted for tonight's decay-from-peak and radiant altitude — the rate you'd actually observe, not the idealized zenith figure.</>}>
+            <InfoTip tip={<>Peak ZHR adjusted for tonight's decay-from-peak, radiant altitude, and the limiting magnitude under your moonlit local sky — the rate you'd actually observe, not the idealized zenith figure.</>}>
               ~{Math.round(w.local_rate_at_peak)}/hr locally
             </InfoTip>
           </span>

@@ -29,7 +29,7 @@ from .milky_way import (
     BT_K_MOON as _BT_K_MOON,
     BT_STEP_MIN as _BT_STEP_MIN,
 )
-from .moonlight import ks_moon_credit, KS_CRESCENT_EXEMPTION_PCT
+from .moonlight import ks_moon_credit, ks_delta_mag, nelm_from_sqm, KS_CRESCENT_EXEMPTION_PCT
 from . import weather as wx
 
 log = logging.getLogger(__name__)
@@ -245,6 +245,8 @@ def _apply_condition_vectors(
     light_dome_info: "dict | None",
     illumination_pct: float,
     moon_alts: "list | None" = None,
+    sky_sqm: "float | None" = None,
+    night_aod: "float | None" = None,
 ) -> None:
     """Post-process VisibleTarget list with atmospheric, dome, and lunar viability vectors.
 
@@ -388,10 +390,34 @@ def _apply_condition_vectors(
             if target.type == "meteor_shower":
                 zhr_eff = target.zhr_effective
                 if zhr_eff is not None and window.peak_alt_deg is not None:
-                    window.local_rate_at_peak = (
-                        round(zhr_eff * math.sin(math.radians(window.peak_alt_deg)), 1)
+                    base_rate = (
+                        zhr_eff * math.sin(math.radians(window.peak_alt_deg))
                         if window.peak_alt_deg > 0 else 0.0
                     )
+                    # Limiting-magnitude degradation (IMO convention): the rate a
+                    # visual observer sees scales as r^(lm − 6.5), where lm is the
+                    # naked-eye limiting magnitude under the moon-brightened site
+                    # sky and r the shower's magnitude-distribution index. A full
+                    # moon or a bright site kills faint-meteor-rich showers
+                    # (high r) far harder than fireball-rich ones.
+                    lm_factor = 1.0
+                    r = target.population_index
+                    if r is not None and sky_sqm is not None and window.peak_alt_deg > 0:
+                        delta = 0.0
+                        if (window.moon_sep_at_peak_deg is not None
+                                and window.moon_alt_at_peak_deg is not None):
+                            delta = ks_delta_mag(
+                                illumination_pct,
+                                window.moon_sep_at_peak_deg,
+                                window.moon_alt_at_peak_deg,
+                                sky_sqm,
+                                aod=night_aod,
+                                target_alt_deg=window.peak_alt_deg,
+                            )
+                        lm = nelm_from_sqm(sky_sqm - delta)
+                        lm_factor = min(1.0, r ** (lm - 6.5))
+                        window.lm_factor_at_peak = round(lm_factor, 3)
+                    window.local_rate_at_peak = round(base_rate * lm_factor, 1)
                     if window.peak_alt_deg < _LOW_RADIANT_ALT_DEG:
                         blockers.append("low_radiant")
                 else:
@@ -928,7 +954,8 @@ def assemble_night(
 
     # --- Phase 1: Condition Vectors — apply after weather + moon_alts resolved ---
     if fetch_targets and target_list:
-        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination, _moon_alts)
+        _apply_condition_vectors(target_list, night_points, light_dome_info, illumination, _moon_alts,
+                                 sky_sqm=_site_sqm, night_aod=_night_aod)
 
     # --- Overall rating ---
     _tc = time.monotonic()
@@ -981,6 +1008,7 @@ def assemble_night(
         wx_no_data=wx_no_data,
         wx_archive_error=wx_archive_error,
         wx_error=wx_error,
+        night_aod=_night_aod,
         score=rating["score"],
         score_components=rating["components"],
         visible_targets=target_list,

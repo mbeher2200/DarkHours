@@ -78,8 +78,10 @@ class TargetWindow:
     blockers: list = field(default_factory=list)  # ["cloud","transparency","light_dome","moon_washout","low_radiant"]
     weather_score_at_best: "int | None" = None    # rate_conditions() score at best_time
     dome_glow_at_peak: "float | None" = None      # glow_toward() at (peak_az_deg, peak_alt_deg)
-    local_rate_at_peak: "float | None" = None     # meteor showers only: zhr_effective × sin(radiant_alt);
+    local_rate_at_peak: "float | None" = None     # meteor showers only: zhr_effective × sin(radiant_alt) × lm_factor;
                                                     # set by predictor._apply_condition_vectors; None for non-shower targets
+    lm_factor_at_peak: "float | None" = None      # meteor showers only: r^(lm − 6.5) limiting-magnitude degradation
+                                                    # from the moon-brightened site sky; 1.0 = pristine, None = not computed
 
 
 @dataclass
@@ -93,6 +95,8 @@ class VisibleTarget:
     landscape_suitability: str = "prominent"     # "prominent" | "diffuse" | "too_small"
     zhr_effective: "float | None" = None         # meteor showers only: day-decayed peak ZHR (IMO log-linear decay);
                                                    # set by _compute_target; None for non-shower types
+    population_index: "float | None" = None      # meteor showers only: IMO magnitude-distribution index r;
+                                                   # from catalog; drives the limiting-magnitude rate degradation
 
 
 def _landscape_suitability(
@@ -584,6 +588,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         angular_size_arcmin=angular_size,
         landscape_suitability=land_suit,
         zhr_effective=zhr_eff,
+        population_index=entry.get("population_index") if ttype == "meteor_shower" else None,
     )
 
 
