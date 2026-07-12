@@ -286,3 +286,52 @@ the existing `/warmup` rule); the SQS worker was **not** kept warm and dominates
   legs hit `calculate_route_matrix`; failures aren't cached. The call was already a single
   batched matrix request (server-parallel), so the win is from skipping it on repeat areas,
   not from parallelising. Projected warm-warm 3.16 s → ~1.2 s.
+
+## 2026-07-12 — switched CalculateRouteMatrix → CalculateRoutes (ferry/dirt-road detection)
+
+**Why:** shipped a "warn on ferry-bridged / unpaved routes" feature (#107) built on a
+wrong assumption, and initially misdiagnosed why it didn't work. Two real, confirmed
+problems with `CalculateRouteMatrix`, verified with live authenticated AWS CLI calls
+against the exact Juneau, AK coordinates from the bug report (not just docs):
+
+1. `RouteMatrixEntry` is only `{Distance, Duration, Error}` — no `Notices`, no `Legs` — so
+   a ferry/dirt-road violation can't be read off it structurally. (First diagnosis: this
+   alone was treated as the whole story, which was incomplete.)
+2. **The actual primary cause of the prod symptom:** passing `Avoid` with `TravelMode=Car`
+   imposes an undocumented **60 km cap** between origin and each destination — exceeding
+   it raises `ValidationException` for the *entire batched request*, not just that leg.
+   Reproduced live: the same 3 Juneau-area destinations (78–145 km out) succeed fine
+   *without* `Avoid` (plain `Duration: 13653s` ≈ 3h48m, the exact deceptive-ETA number
+   from the original report) and fail outright *with* `Avoid={Ferries,DirtRoads}` — the
+   same config PR #107 shipped. At this app's 60/120mi search radii that's routine, so
+   the whole matrix call — and therefore every candidate's drive time in that search, not
+   just ferry detection — silently failed via `_aws_drive_times`'s blanket
+   `except Exception: log.debug(...)`. Combined with the frontend's `routingActive` gate
+   (needs ≥1 successful leg to show a warning), every place fell back to a plain,
+   unlabeled Maps link — exactly what was observed in prod.
+
+Also corrected a factual error from the first pass: `ViolatedAvoidFerry` **does** exist as
+a notice code — just under `Legs[].FerryLegDetails.Notices[]`, a shape that wasn't
+checked before concluding "no such code exists anywhere." The structural
+`Legs[].Type == "Ferry"` check (used below) catches it regardless and doesn't depend on
+notice-shape details, so it's kept as the primary signal.
+
+**Change:** `_aws_drive_times` now calls `CalculateRoutes` once per missing leg, in
+parallel (`ThreadPoolExecutor`, bounded by `_GEOCODE_MAX_WORKERS`, same pattern as the
+parallel geocode prefetch), instead of one batched `CalculateRouteMatrix` call.
+`CalculateRoutes` has no 60 km cap (confirmed: the same 77.8km Juneau leg with the same
+`Avoid` succeeds and correctly returns the `Ferry`-typed leg). The 24h per-leg cache is
+unchanged, so repeat-area searches still pay nothing for this phase.
+
+**Cost caveats (surfaced, not yet fully closed):**
+- *Monetary:* per AWS's routes-pricing docs, `CalculateRouteMatrix` already bills
+  per origin-destination pair (`Number of Routes = Origins × Destinations`), and
+  `CalculateRoutes` bills per request = 1 route. Both are "Core" bucket for `Car`/no-tolls,
+  so N matrix pairs and N point-to-point requests are likely billed at parity — but the
+  exact per-unit $ figures are behind AWS's JS-rendered pricing calculator and weren't
+  confirmed numerically here.
+- *Latency:* this phase was previously "one server-parallel batched call" (~2 s in-region
+  uncached, per the 2026-06-16 log above). It's now N client-parallel calls bounded to
+  ≤11/search (`_MAX_RESULTS=10` + `best_available`). Not yet re-profiled in-region after
+  this change — do that before trusting the phase-timing numbers above for first-visit
+  searches; repeat-area searches are unaffected (cache-served either way).

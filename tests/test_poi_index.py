@@ -168,19 +168,18 @@ def test_aws_drive_times_skips_non_poi():
     with patch.object(ds, "cache") as mock_cache, \
          patch.object(ds, "_georoutes") as mock_gr:
         mock_cache.get.return_value = None
-        mock_gr.return_value.calculate_route_matrix.return_value = {
-            "RouteMatrix": [[{"Duration": 1800, "Distance": 40000}]]
+        mock_gr.return_value.calculate_routes.return_value = {
+            "Routes": [{"Legs": [{"Type": "Vehicle"}], "Summary": {"Duration": 1800, "Distance": 40000}}]
         }
         ds._aws_drive_times(40.0, -121.0, [poi, raw])
 
     assert raw["drive_minutes"] is None
     assert poi["drive_minutes"] == 30
-    kwargs = mock_gr.return_value.calculate_route_matrix.call_args.kwargs
+    kwargs = mock_gr.return_value.calculate_routes.call_args.kwargs
     # Exactly one destination (the POI) was sent via GeoRoutes, no DepartNow flag.
-    assert kwargs["Destinations"] == [{"Position": [-120.1, 38.5]}]
-    assert kwargs["Origins"] == [{"Position": [-121.0, 40.0]}]
+    assert kwargs["Destination"] == [-120.1, 38.5]
+    assert kwargs["Origin"] == [-121.0, 40.0]
     assert "DepartNow" not in kwargs
-    assert kwargs["RoutingBoundary"] == {"Unbounded": True}
 
 
 def test_dark_threshold_relaxes_for_dark_origins():

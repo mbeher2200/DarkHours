@@ -621,11 +621,13 @@ def _location():
 
 
 def _georoutes():
-    """Return the process-wide Amazon Location GeoRoutes client (drive-time matrix).
+    """Return the process-wide Amazon Location GeoRoutes client (point-to-point drive times).
 
-    GeoRoutes is the modern, resource-less routing API (no route calculator to create);
-    it supports DepartNow traffic-aware ETAs. Separate from the legacy `location` client
-    (still used for place-index reverse-geocoding)."""
+    GeoRoutes is the modern, resource-less routing API (no route calculator to create).
+    `_aws_drive_times` fans out one CalculateRoutes call per leg concurrently
+    (bounded by `_GEOCODE_MAX_WORKERS`), so the pool is sized like `_location()`'s to
+    avoid connection queueing. Separate from the legacy `location` client (still used
+    for place-index reverse-geocoding)."""
     global _georoutes_client
     if _georoutes_client is None:
         with _georoutes_client_lock:
@@ -636,7 +638,10 @@ def _georoutes():
                 _georoutes_client = boto3.client(
                     "geo-routes",
                     region_name=region,
-                    config=Config(retries={"max_attempts": 5, "mode": "adaptive"}),
+                    config=Config(
+                        max_pool_connections=max(_GEOCODE_MAX_WORKERS + 2, 10),
+                        retries={"max_attempts": 5, "mode": "adaptive"},
+                    ),
                 )
     return _georoutes_client
 
@@ -653,22 +658,70 @@ def _drive_cache_key(olat: float, olon: float, dlat: float, dlon: float) -> str:
     return f"route_drive|{olat:.3f}|{olon:.3f}|{dlat:.3f}|{dlon:.3f}"
 
 
+def _aws_route_one(client, origin_lat: float, origin_lon: float,
+                    dest_lat: float, dest_lon: float) -> tuple:
+    """Single point-to-point GeoRoutes CalculateRoutes call → (minutes, miles, warnings).
+
+    Deliberately NOT CalculateRouteMatrix. Two independent problems with that endpoint,
+    both confirmed with live calls (authenticated AWS CLI session) against the exact Juneau, AK
+    coordinates that surfaced this bug:
+    1. RouteMatrixEntry is just {Distance, Duration, Error} — no Notices, no Legs — so a
+       ferry/dirt-road violation can't be read off it structurally.
+    2. Bigger in practice: passing `Avoid` with TravelMode=Car imposes an undocumented
+       60 km cap between origin and EACH destination — exceeding it raises a
+       ValidationException for the WHOLE batched request (not just that one leg). At this
+       app's 60-120mi search radii that's routine, so PR #107's Avoid={Ferries,DirtRoads}
+       addition silently broke drive-time computation for every candidate in most
+       searches, not just ferry detection (caught by the blanket except/log.debug in
+       _aws_drive_times). CalculateRoutes has no such cap.
+
+    Detection itself: a ferry crossing is a structural Legs[].Type == "Ferry"; there IS
+    also a real "ViolatedAvoidFerry" notice, but nested under
+    Legs[].FerryLegDetails.Notices[].Code (a different shape than the one below) —
+    checking the leg Type directly is simpler and doesn't depend on notice ordering.
+    Dirt-road usage is Legs[].VehicleLegDetails.Notices[].Code == "ViolatedAvoidDirtRoad".
+
+    Returns (None, None, []) for a route that's absent, ferry-only, or on any API error —
+    the caller decides whether an exception here should be cached (it re-raises those).
+    """
+    resp = client.calculate_routes(
+        Origin=[origin_lon, origin_lat],
+        Destination=[dest_lon, dest_lat],
+        TravelMode="Car",
+        Avoid={"Ferries": True, "DirtRoads": True},
+    )
+    routes = resp.get("Routes") or []
+    if not routes:
+        return None, None, []
+    legs = routes[0].get("Legs", [])
+    # A ferry-only "road" isn't actually driveable — treat like no route at all, even
+    # though GeoRoutes still reports a plausible-looking Duration/Distance for it.
+    if any(leg.get("Type") == "Ferry" for leg in legs):
+        return None, None, []
+    warnings = []
+    for leg in legs:
+        codes = [n.get("Code") for n in (leg.get("VehicleLegDetails") or {}).get("Notices", [])]
+        if "ViolatedAvoidDirtRoad" in codes:
+            warnings = ["Dirt roads"]
+            break
+    summary = routes[0].get("Summary") or {}
+    secs, meters = summary.get("Duration"), summary.get("Distance")   # seconds, metres
+    mins  = round(secs / 60) if secs is not None else None
+    miles = round(meters / 1609.34) if meters is not None else None
+    return mins, miles, warnings
+
+
 def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> None:
-    """Annotate each cluster dict with drive_minutes (int | None) via AWS Location route matrix.
+    """Annotate each cluster dict with drive_minutes (int | None) via AWS Location GeoRoutes.
 
     AWS-backend only. Mutates in-place. Silently sets None on any API failure so the
     caller always has the field, just without a value.
 
     Per-leg cached (origin→destination, rounded): repeat searches within 24 h skip
-    the route-matrix call; only the cache-missing legs are sent to AWS.
-
-    Uses Amazon Location GeoRoutes CalculateRouteMatrix (the modern, resource-less API)
-    with historical traffic (no DepartNow) for cache-consistent ETAs. Requests best-effort
-    avoidance of ferries (ferry-only "roads" produce a plausible-looking ETA for a route
-    with no actual drivable path — e.g. Juneau→Hoonah, AK) and dirt roads (rough on
-    optical gear / 2WD vehicles). GeoRoutes still routes through them if unavoidable,
-    flagging the leg via `Notices` instead of failing outright, so we inspect notice
-    codes rather than trust Duration/Distance alone.
+    the routing call entirely; only cache-missing legs are sent to AWS, in parallel
+    (bounded fan-out — see _aws_route_one for why this is point-to-point CalculateRoutes
+    rather than the batched CalculateRouteMatrix). Historical traffic (no DepartNow) keeps
+    cached ETAs consistent regardless of when they were computed.
 
     Annotates drive_minutes (int | None), drive_miles (road distance, int | None), and
     warnings (list[str]): non-fatal avoidance violations (currently just dirt roads) the
@@ -681,9 +734,9 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     """
     if not clusters:
         return
-    # 1. Serve cached legs from a single batched route-matrix call's worth of history;
-    #    collect the misses. The cached value is {"m":min,"mi":road_miles,"w":warnings} or
-    #    the _DRIVE_NO_ROUTE sentinel ("computed, no route" ≠ miss). Legacy int = minutes only.
+    # 1. Serve cached legs from prior searches; collect the misses. The cached value is
+    #    {"m":min,"mi":road_miles,"w":warnings} or the _DRIVE_NO_ROUTE sentinel ("computed,
+    #    no route" ≠ miss). Legacy int = minutes only.
     misses = []
     for c in clusters:
         if not c.get("is_poi"):
@@ -706,42 +759,31 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             misses.append(c)
     if not misses:
         return
-    # 2. One GeoRoutes matrix call for just the uncached legs; cache each result. On
-    #    failure leave the fields None and DON'T cache, so a transient error isn't sticky.
+    # 2. Parallel GeoRoutes point-to-point calls, one per uncached leg; cache each result.
+    #    On a per-leg API error, leave that leg's fields None and DON'T cache it, so a
+    #    transient failure isn't sticky — other legs in the same batch are unaffected.
+    #    `misses` is already small (candidates capped at _MAX_RESULTS=10, plus
+    #    best_available), so fan-out stays bounded regardless of search radius.
     try:
         client = _georoutes()
-        resp = client.calculate_route_matrix(
-            Origins=[{"Position": [origin_lon, origin_lat]}],
-            Destinations=[{"Position": [c["lon"], c["lat"]]} for c in misses],
-            RoutingBoundary={"Unbounded": True},
-            TravelMode="Car",
-            Avoid={"Ferries": True, "DirtRoads": True},
-        )
-        row = resp.get("RouteMatrix", [[]])[0]
-        for i, c in enumerate(misses):
-            entry = row[i] if i < len(row) else {}
-            notice_codes = [n.get("Code") for n in entry.get("Notices", []) if "Code" in n]
-
-            # Ferry-only "roads" aren't actually driveable — treat like no route at all,
-            # regardless of whether GeoRoutes also reported a Duration for the leg.
-            if entry.get("Error") or "ViolatedAvoidFerry" in notice_codes:
-                c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []
-                cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
-                          _DRIVE_NO_ROUTE, ttl_seconds=_DRIVE_CACHE_TTL)
+    except Exception as e:
+        log.debug("GeoRoutes client init failed: %s", e)
+        return
+    workers = min(_GEOCODE_MAX_WORKERS, len(misses))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_aws_route_one, client, origin_lat, origin_lon,
+                              c["lat"], c["lon"]): c for c in misses}
+        for fut in futures:
+            c = futures[fut]
+            try:
+                mins, miles, warnings = fut.result()
+            except Exception as e:
+                log.debug("GeoRoutes calculate_routes failed: %s", e)
                 continue
-
-            secs   = entry.get("Duration")   # GeoRoutes: seconds
-            meters = entry.get("Distance")   # GeoRoutes: metres
-            mins  = round(secs / 60) if secs is not None else None
-            miles = round(meters / 1609.34) if meters is not None else None
-            warnings = ["Dirt roads"] if "ViolatedAvoidDirtRoad" in notice_codes else []
-
             c["drive_minutes"], c["drive_miles"], c["warnings"] = mins, miles, warnings
             cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
                       {"m": mins, "mi": miles, "w": warnings} if mins is not None else _DRIVE_NO_ROUTE,
                       ttl_seconds=_DRIVE_CACHE_TTL)
-    except Exception as e:
-        log.debug("GeoRoutes route matrix failed: %s", e)
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
