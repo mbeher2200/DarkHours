@@ -66,6 +66,11 @@ cache/*
 cdk.out/
 .cdk.staging/
 
+# CDK context cache (from_lookup results). CDK regenerates it locally via a
+# live lookup if absent; CI already has AWS creds by the time it synths, so
+# it re-fetches there too.
+cdk/cdk.context.json
+
 # Postman: environment files can carry the live CloudFront URL — keep them out of the
 # public repo. Ignore ALL env files, then re-include only the Local (localhost) one.
 # The collection (PyNightSky.postman_collection.json) is always committed.

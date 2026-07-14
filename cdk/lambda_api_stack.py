@@ -100,6 +100,7 @@ class LambdaApiStack(Stack):
 
         raster_bucket = os.environ["PYNIGHTSKY_RASTER_BUCKET"]
         cache_table = os.environ["PYNIGHTSKY_CACHE_TABLE"]
+        blog_bucket_name = os.environ["PYNIGHTSKY_BLOG_BUCKET"]
 
         Tags.of(self).add("Project", "pynightsky")
         Tags.of(self).add("Env", "prod")
@@ -543,7 +544,7 @@ class LambdaApiStack(Stack):
         # The bucket policy already grants this distribution OAC read access.
         blog_bucket = s3.Bucket.from_bucket_name(
             self, "BlogBucket",
-            "darkhours-blog-prod-058264240168-us-east-1-an",
+            blog_bucket_name,
         )
         blog_origin = origins.S3BucketOrigin.with_origin_access_control(blog_bucket)
 
