@@ -161,3 +161,26 @@ class TestFindWindows:
         result = _find_windows(alts, azs, dts, _MIN_ELEV)
         win, _ = result[0]
         assert win.peak_az_deg == pytest.approx(180.0)  # peak is at index 2, az=180
+
+
+# ---------------------------------------------------------------------------
+# VisibleTarget RA/Dec catalog passthrough (sky-dome renderer wire format)
+# ---------------------------------------------------------------------------
+
+class TestRaDecPassthrough:
+    def test_new_fields_default_to_none(self):
+        """Defaulted fields keep every existing constructor call-site valid."""
+        from PyNightSkyPredictor.targets import VisibleTarget
+        vt = VisibleTarget(name="x", type="galaxy", windows=[], note=None)
+        assert vt.ra_deg is None
+        assert vt.dec_deg is None
+        assert vt.magnitude is None
+        assert vt.galactic_l is None
+        assert vt.galactic_b is None
+
+    def test_catalog_entry_decimal_conversion(self):
+        """Orion Nebula catalog strings → the decimal degrees sent on the wire."""
+        ra_deg  = _parse_ra("05h 35m 17s") * 15.0
+        dec_deg = _parse_dec("-05° 23' 28\"")
+        assert ra_deg  == pytest.approx(83.8208, abs=0.005)
+        assert dec_deg == pytest.approx(-5.3911, abs=0.005)
