@@ -97,6 +97,8 @@ class VisibleTarget:
     landscape_suitability: str = "prominent"     # "prominent" | "diffuse" | "too_small"
     zhr_effective: "float | None" = None         # meteor showers only: day-decayed peak ZHR (IMO log-linear decay);
                                                    # set by _compute_target; None for non-shower types
+    population_index: "float | None" = None      # meteor showers only: IMO magnitude-distribution index r;
+                                                   # from catalog; drives the limiting-magnitude rate degradation
     # Catalog passthrough for the client-side sky renderer (no server compute):
     # equatorial J2000 decimal degrees so the client can place markers at any
     # instant, not just the precomputed window peaks.
@@ -634,6 +636,7 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
         angular_size_arcmin=angular_size,
         landscape_suitability=land_suit,
         zhr_effective=zhr_eff,
+        population_index=entry.get("population_index") if ttype == "meteor_shower" else None,
         ra_deg=round(ra_deg, 4) if ra_deg is not None else None,
         dec_deg=round(dec_deg, 4) if dec_deg is not None else None,
         magnitude=mag if mag is None else round(float(mag), 2),
