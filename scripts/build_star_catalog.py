@@ -117,6 +117,13 @@ def main() -> int:
             names.append((i, s["name"]))
         if len(names) >= args.names:
             break
+    # Polaris is navigationally special — always include it even though at
+    # mag ~2.0 it can fall outside the brightest-N named set.
+    if not any(n == "Polaris" for _, n in names):
+        for i, s in enumerate(stars):
+            if s["name"] == "Polaris":
+                names.append((i, s["name"]))
+                break
 
     names_json = json.dumps(names, separators=(",", ":")).encode("utf-8")
     names_offset = 16 + len(stars) * RECORD_SIZE
