@@ -115,21 +115,25 @@
 
 .mw-mid-section {
   display: flex;
-  flex-direction: row;        /* Side-by-side */
-  align-items: center;        /* Vertically centered */
-  justify-content: center;    /* Keeps the whole group centered in the card */
-  gap: 24px;
+  flex-direction: column;     /* Dome full-width, note badges below */
+  align-items: center;
+  gap: 10px;
   margin-top: 8px;
   margin-bottom: 20px;
 }
 
+.mw-dome-container {
+  width: 100%;
+}
+
 .mw-notes-container {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
-  align-items: flex-start;    /* Keeps the notes left-aligned within their column */
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  max-width: 160px;
 }
 
 .mw-score {
@@ -229,11 +233,15 @@
 /* Half-dome SVG visualization */
 .mw-dome-wrap {
   flex-shrink: 0;
-  width: 400px;
+  width: 100%;               /* fill the card */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0px;
+  /* Dragging the view must never start a text selection (cardinal/alt/target
+     labels, stats, readout) — suppress selection for the whole dome block. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .mw-group-title {
   text-align: center;
@@ -263,11 +271,8 @@
   display: block;
   width: 100%;
   height: auto;
-  background: #0A0F1E;
+  background: transparent; /* the sky canvas underneath provides the background */
   border-radius: 2px;
-}
-html.red-mode .mw-dome-wrap svg {
-  background: #0A0000;
 }
 .mw-dome-svg {
   touch-action: none;
@@ -309,15 +314,6 @@ html.red-mode .mw-dome-ring-label {
   stroke-width: 0.75;
   opacity: 0.5;
 }
-.mw-dome-core {
-  fill: var(--excellent);
-}
-.mw-dome-waypoint {
-  fill: rgba(255, 255, 255, 0.6);
-}
-html.red-mode .mw-dome-waypoint {
-  fill: rgba(200, 0, 0, 0.6);
-}
 .mw-dome-label {
   fill: var(--text-dim);
   font-size: 13px;
@@ -337,30 +333,238 @@ html.red-mode .mw-dome-waypoint {
 .mw-dome-wrap svg:active {
   cursor: grabbing;
 }
-/* ── MW arch segmented rendering ──────────────────────────────────────────── */
-/* stroke="currentColor" on each <line> inherits color from the parent <g>,
-   so one CSS rule controls all 71 lines per layer. */
-.mw-arch-glow,
-.mw-arch-core {
-  color: white;
+/* ── Realistic sky dome: canvas underlay + SVG overlay ────────────────────── */
+.sky-stack {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;         /* matches the SVG viewBox 180×120 */
+  background: #060913;
+  border-radius: 2px;
+  overflow: hidden;
+}
+html.red-mode .sky-stack { background: #0a0000; }
+.sky-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;        /* the SVG on top owns drag/hover */
+}
+/* Canvas pixels aren't CSS-stylable — reuse the app's red night-vision filter
+   (same approach as .ld-canvas in 04-report-core.css). */
+html.red-mode .sky-canvas { filter: url(#red-night); }
+.sky-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-/* Red night-vision mode: swap white → red so the arch doesn't bleach dark-
-   adapted rods. rgb(200,0,0) is slightly dimmer than --text-h (#e00000) to
-   keep the wide glow band from dominating in red mode. */
-html.red-mode .mw-arch-glow,
-html.red-mode .mw-arch-core {
-  color: rgb(200, 0, 0);
+/* Static compass ribbon pinned to the frame bottom */
+.sky-ribbon-band {
+  fill: rgba(6, 9, 19, 0.78);
+}
+html.red-mode .sky-ribbon-band {
+  fill: rgba(10, 0, 0, 0.82);
+}
+.sky-ribbon-tick {
+  stroke: var(--text-dim);
+  stroke-width: 0.5;
+  opacity: 0.7;
+}
+.sky-ribbon-tick-major {
+  stroke-width: 0.9;
+  opacity: 0.95;
+}
+.sky-ribbon-cardinal {
+  fill: var(--text);
+  font-size: 7px;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.sky-ribbon-deg {
+  fill: var(--text-dim);
+  font-size: 4.5px;
+  font-family: var(--mono);
+  opacity: 0.85;
 }
 
-/* Dome sky-glow blobs: currentColor in the SVG gradient stops inherits from
-   this class, so one CSS switch handles both normal and red-mode. */
-.mw-dome-glow { color: rgb(255, 185, 80); }
-html.red-mode .mw-dome-glow { color: rgb(160, 0, 0); }
+/* Target markers, styled by viability (vars flip automatically in red mode) */
+.sky-tgt-ok { fill: var(--excellent); }
+.sky-tgt-degraded { fill: var(--fair); opacity: 0.6; }
+.sky-tgt-blocked { fill: none; stroke: var(--poor); stroke-width: 0.6; opacity: 0.5; }
+.sky-tgt-label {
+  fill: var(--text-dim);
+  font-size: 6px;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  pointer-events: none;
+}
+html.red-mode .sky-tgt-label { fill: rgb(180, 60, 60); }
 
-/* Moon glow blob: cool silvery-blue in normal mode, dark red in night vision. */
-.mw-moon-glow { color: rgb(200, 215, 240); }
-html.red-mode .mw-moon-glow { color: rgb(160, 0, 0); }
+/* Hover tooltip (foreignObject) */
+.sky-tooltip {
+  background: rgba(8, 13, 28, 0.95);
+  color: rgba(200, 212, 238, 0.95);
+  border: 1px solid rgba(90, 120, 200, 0.25);
+  border-radius: 2px;
+  padding: 2px 5px;
+  font-size: 5.5px;
+  line-height: 1.5;
+  font-family: var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+}
+html.red-mode .sky-tooltip {
+  background: rgba(20, 0, 0, 0.95);
+  color: rgb(194, 0, 0);
+  border-color: rgba(255, 0, 0, 0.25);
+}
+
+/* Time scrubber */
+.sky-scrub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 7px;
+}
+.sky-scrub-rail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sky-scrub-track {
+  position: relative;
+  height: 18px;
+  color: var(--accent);        /* dark-interval shading inherits via currentColor */
+}
+/* Hour labels under the track */
+.sky-scrub-hours {
+  position: relative;
+  height: 13px;
+  margin-top: 1px;
+}
+.sky-scrub-hour {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.sky-scrub-hour::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 1px;
+  height: 3px;
+  background: var(--text-dim);
+  opacity: 0.7;
+}
+.sky-scrub-dark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  opacity: 0.22;
+  border-radius: 1px;
+  pointer-events: none;
+}
+.sky-scrub-moontick {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--text-dim);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.sky-scrub input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  /* The slider owns every touch that starts on it — without this, any vertical
+     wobble in the finger track lets the browser claim the gesture for page
+     scrolling and cancel the drag, which reads as a stuck slider on mobile. */
+  touch-action: none;
+}
+.sky-scrub input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: var(--card-border);
+}
+/* Prominent thumb: bigger square knob in the accent color with a subtle frame.
+   Colors come from vars so red mode flips it automatically. */
+.sky-scrub input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -7px;
+  border-radius: 2px;
+  background: var(--accent);
+  border: 1px solid var(--text-h);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+.sky-scrub input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+.sky-scrub input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: var(--card-border);
+}
+.sky-scrub input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--text-h);
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+.sky-scrub-readout {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+  min-width: 62px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Stats row under the dome */
+.sky-stats {
+  width: 100%;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: center;
+}
 
 /* glowStyle() returns an inline color (lilac/rose/red by severity) — inline
    styles beat class rules, so !important is required to override in red mode.

@@ -68,6 +68,12 @@ export interface VisibleTarget {
   angular_size_arcmin: number | null         // Phase 3: catalog angular extent
   landscape_suitability: 'prominent' | 'diffuse' | 'too_small'  // Phase 3: wide-field filter
   zhr_effective: number | null              // meteor showers only: day-decayed peak ZHR
+  // Catalog passthrough for the sky-dome renderer (older cached payloads omit these).
+  ra_deg?: number | null                    // equatorial J2000, decimal degrees
+  dec_deg?: number | null
+  magnitude?: number | null                 // integrated V mag (dynamic for planets)
+  galactic_l?: number | null                // milky_way waypoints only
+  galactic_b?: number | null
 }
 
 export interface WeatherPoint {

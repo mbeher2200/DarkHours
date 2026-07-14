@@ -99,6 +99,14 @@ class VisibleTarget:
                                                    # set by _compute_target; None for non-shower types
     population_index: "float | None" = None      # meteor showers only: IMO magnitude-distribution index r;
                                                    # from catalog; drives the limiting-magnitude rate degradation
+    # Catalog passthrough for the client-side sky renderer (no server compute):
+    # equatorial J2000 decimal degrees so the client can place markers at any
+    # instant, not just the precomputed window peaks.
+    ra_deg: "float | None" = None
+    dec_deg: "float | None" = None
+    magnitude: "float | None" = None             # integrated V mag (dynamic for planets)
+    galactic_l: "float | None" = None            # milky_way waypoints only
+    galactic_b: "float | None" = None
 
 
 def _landscape_suitability(
@@ -445,12 +453,19 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
     # Skyfield's planetary_magnitude() accounts for phase angle and distance, so
     # Mars near opposition (-2.9) and Mars at aphelion (+1.8) are handled correctly.
     # We evaluate at the observation-window midpoint — magnitude drifts < 0.01 mag/night.
-    if ttype == "planet" and _planetary_magnitude is not None and len(obs_sample_idxs) > 0:
+    # The same midpoint observation also yields the planet's RA/Dec passthrough
+    # (planets drift <0.5°/night — fine for a sky-dome marker).
+    ra_deg: float | None = None
+    dec_deg: float | None = None
+    if ttype == "planet" and len(obs_sample_idxs) > 0:
         try:
             mid_i        = int(obs_sample_idxs[len(obs_sample_idxs) // 2])
             planet_astr  = observer.at(t_array[mid_i]).observe(body)
-            mag          = float(_planetary_magnitude(planet_astr))
-            log.debug("Planet %r apparent magnitude: %.2f", name, mag)
+            p_ra, p_dec, _ = planet_astr.radec()
+            ra_deg, dec_deg = float(p_ra.hours) * 15.0, float(p_dec.degrees)
+            if _planetary_magnitude is not None:
+                mag = float(_planetary_magnitude(planet_astr))
+                log.debug("Planet %r apparent magnitude: %.2f", name, mag)
         except Exception as e:
             log.debug("planetary_magnitude failed for %r: %s", name, e)
 
@@ -599,12 +614,33 @@ def _compute_target(entry: dict, observer, eph, t_array, sample_dts: list,
 
     angular_size = entry.get("angular_size_arcmin")
     land_suit    = _landscape_suitability(entry.get("surface_brightness"), angular_size, ttype)
+
+    # Equatorial-coordinate passthrough for non-planet types (planets set above).
+    gal_l = entry.get("galactic_l") if ttype == "milky_way" else None
+    gal_b = entry.get("galactic_b", 0.0) if gal_l is not None else None
+    if ra_deg is None:
+        try:
+            if gal_l is not None:
+                ra_h, dec_d = gal_to_radec(gal_l, gal_b)
+                ra_deg, dec_deg = ra_h * 15.0, dec_d
+            elif "ra" in entry:
+                ra_deg, dec_deg = _parse_ra(entry["ra"]) * 15.0, _parse_dec(entry["dec"])
+            elif "radiant_ra" in entry:
+                ra_deg  = _parse_ra(entry["radiant_ra"]) * 15.0
+                dec_deg = _parse_dec(entry["radiant_dec"])
+        except (KeyError, ValueError, IndexError) as e:
+            log.debug("RA/Dec passthrough failed for %r: %s", name, e)
+
     return VisibleTarget(
         name=name, type=ttype, windows=windows, note=note,
         angular_size_arcmin=angular_size,
         landscape_suitability=land_suit,
         zhr_effective=zhr_eff,
         population_index=entry.get("population_index") if ttype == "meteor_shower" else None,
+        ra_deg=round(ra_deg, 4) if ra_deg is not None else None,
+        dec_deg=round(dec_deg, 4) if dec_deg is not None else None,
+        magnitude=mag if mag is None else round(float(mag), 2),
+        galactic_l=gal_l, galactic_b=gal_b,
     )
 
 
