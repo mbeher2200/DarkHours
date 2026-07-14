@@ -103,6 +103,37 @@
     margin-top: 0;
     max-width: 100%;
   }
+  /* Sky dome scrubber: bigger touch target, readout below the slider */
+  .sky-scrub {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  /* The rail (track + hour labels) takes the full row; the readout wraps below.
+     flex-basis must be on the rail — inside the rail's column flex it would act
+     on the vertical axis and collapse the track to 0 height. */
+  .sky-scrub-rail {
+    flex-basis: 100%;
+  }
+  .sky-scrub-track {
+    height: 34px;              /* comfortable touch band; thumb stays centered */
+  }
+  .sky-scrub input[type="range"]::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+    margin-top: -9px;
+  }
+  .sky-scrub input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+  }
+  /* Fewer hour labels fit on a narrow track — hide every other one */
+  .sky-scrub-hour:nth-of-type(even) {
+    display: none;
+  }
+  .sky-scrub-readout {
+    flex: 1;
+    text-align: center;
+  }
 
   /* Restore nearby table layout for mobile */
   .nearby-table {
