@@ -373,9 +373,18 @@
     gap: 3px;
   }
 
-  /* Clarity/Seeing + Sky Cover — narrower bars, to stay compact. */
+  /* Clarity/Seeing + Sky Cover — narrower bars/stars, to stay compact. */
   .wx-bar-track {
     width: 22px;
+  }
+  .wx-star-row {
+    width: 51px;
+    height: 9px;
+    gap: 1.5px;
+  }
+  .wx-star {
+    width: 9px;
+    height: 9px;
   }
   .wx-eq2 {
     gap: 0;
