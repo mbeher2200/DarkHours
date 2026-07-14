@@ -111,12 +111,22 @@ export class SkyRenderer {
 
   setStatics(s: SkyStatics) { this.statics = s }
 
+  private labelIdx = new Set<number>()
+
   setCatalog(cat: StarCatalog) {
     this.catalog = cat
     this.sE = new Float32Array(cat.n)
     this.sN = new Float32Array(cat.n)
     this.sU = new Float32Array(cat.n)
     this.sAlpha = new Float32Array(cat.n)
+    // Label the 30 brightest named stars plus Polaris (the names table is
+    // magnitude-ordered, with Polaris force-included by the build script).
+    this.labelIdx.clear()
+    let taken = 0
+    for (const [i, name] of cat.names) {
+      if (taken < 30) { this.labelIdx.add(i); taken++ }
+      else if (name === 'Polaris') this.labelIdx.add(i)
+    }
   }
 
   setView(headingDeg: number, tiltDeg: number) {
@@ -412,7 +422,7 @@ export class SkyRenderer {
     ctx.font = `${Math.round(10 * rScale)}px "IBM Plex Mono", monospace`
     ctx.fillStyle = 'rgba(200,212,238,0.72)'
     for (const [i, name] of cat.names) {
-      if (mag[i] >= 1.0 || this.sAlpha[i] <= 0) continue
+      if (!this.labelIdx.has(i) || this.sAlpha[i] <= 0) continue
       const E = this.sE[i], N = this.sN[i], U = this.sU[i]
       const dz = E * cam.fx + N * cam.fy + U * cam.fz
       if (dz <= 0.001) continue
