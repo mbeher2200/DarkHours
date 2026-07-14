@@ -108,18 +108,27 @@
     flex-wrap: wrap;
     row-gap: 2px;
   }
-  .sky-scrub-track {
+  /* The rail (track + hour labels) takes the full row; the readout wraps below.
+     flex-basis must be on the rail — inside the rail's column flex it would act
+     on the vertical axis and collapse the track to 0 height. */
+  .sky-scrub-rail {
     flex-basis: 100%;
-    height: 22px;
+  }
+  .sky-scrub-track {
+    height: 34px;              /* comfortable touch band; thumb stays centered */
   }
   .sky-scrub input[type="range"]::-webkit-slider-thumb {
-    width: 16px;
-    height: 16px;
-    margin-top: -7px;
+    width: 20px;
+    height: 20px;
+    margin-top: -9px;
   }
   .sky-scrub input[type="range"]::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
+  }
+  /* Fewer hour labels fit on a narrow track — hide every other one */
+  .sky-scrub-hour:nth-of-type(even) {
+    display: none;
   }
   .sky-scrub-readout {
     flex: 1;

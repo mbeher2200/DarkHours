@@ -25,7 +25,10 @@ import {
 } from './model'
 
 const DEG = Math.PI / 180
-const F_SVG = 100 / Math.tan(60 * DEG)   // focal length in SVG units (viewBox 180×120)
+/** Half of the nominal field of view — single source of truth shared with the
+ *  SVG overlay (SkyDome.tsx) so canvas and markers project identically. */
+export const FOV_HALF_DEG = 65
+const F_SVG = 100 / Math.tan(FOV_HALF_DEG * DEG)   // focal length in SVG units (viewBox 180×120)
 
 export interface SkyStatics {
   lat: number
@@ -355,8 +358,12 @@ export class SkyRenderer {
     const ctx = this.ctx
     const { order, binStart, mag } = cat
     const faintAt = this.globalLim - FAINT_COLOR_MARGIN
-    const rScale = this.dpr * Math.max(0.75, this.W / this.dpr / 420)
+    // Star size grows only gently with canvas width (sqrt, capped): point sources
+    // should stay near-point at any card size, not scale like the image.
+    const cssW = this.W / this.dpr
+    const rScale = this.dpr * Math.min(1.7, Math.max(0.75, Math.sqrt(cssW / 420)))
     const wLim = this.W + 4, hLim = this.H + 4
+    const TWO_PI = 2 * Math.PI
 
     for (let b = 0; b < COLOR_BINS; b++) {
       const c = STAR_COLORS[b]
@@ -382,7 +389,14 @@ export class SkyRenderer {
         }
         const r = starRadius(m) * rScale
         ctx.globalAlpha = a
-        ctx.fillRect(x - r, y - r, 2 * r, 2 * r)
+        if (r <= 1.4) {
+          // Sub-1.5px points: a rect is indistinguishable from a disc and cheaper.
+          ctx.fillRect(x - r, y - r, 2 * r, 2 * r)
+        } else {
+          ctx.beginPath()
+          ctx.arc(x, y, r, 0, TWO_PI)
+          ctx.fill()
+        }
         if (m < 1.2) {
           ctx.globalAlpha = a * 0.45
           const hr = r * 5
@@ -392,9 +406,11 @@ export class SkyRenderer {
     }
     ctx.globalAlpha = 1
 
-    // Labels for the brightest named stars (canvas text → red-mode CSS filter applies).
-    ctx.font = `${Math.round(9 * this.dpr)}px "IBM Plex Mono", monospace`
-    ctx.fillStyle = 'rgba(200,212,238,0.62)'
+    // Labels for the brightest named stars (canvas text → red-mode CSS filter
+    // applies). Font grows with the same sqrt-of-width scale as the stars so
+    // names stay readable on a full-width desktop card.
+    ctx.font = `${Math.round(10 * rScale)}px "IBM Plex Mono", monospace`
+    ctx.fillStyle = 'rgba(200,212,238,0.72)'
     for (const [i, name] of cat.names) {
       if (mag[i] >= 1.0 || this.sAlpha[i] <= 0) continue
       const E = this.sE[i], N = this.sN[i], U = this.sU[i]
@@ -403,7 +419,7 @@ export class SkyRenderer {
       const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
       const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
       if (x < 0 || x > this.W || y < 0 || y > this.H) continue
-      ctx.fillText(name.toUpperCase(), x + 5 * this.dpr, y + 3 * this.dpr)
+      ctx.fillText(name.toUpperCase(), x + 3 * rScale, y + 1.8 * rScale)
     }
   }
 

@@ -115,21 +115,25 @@
 
 .mw-mid-section {
   display: flex;
-  flex-direction: row;        /* Side-by-side */
-  align-items: center;        /* Vertically centered */
-  justify-content: center;    /* Keeps the whole group centered in the card */
-  gap: 24px;
+  flex-direction: column;     /* Dome full-width, note badges below */
+  align-items: center;
+  gap: 10px;
   margin-top: 8px;
   margin-bottom: 20px;
 }
 
+.mw-dome-container {
+  width: 100%;
+}
+
 .mw-notes-container {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
-  align-items: flex-start;    /* Keeps the notes left-aligned within their column */
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  max-width: 160px;
 }
 
 .mw-score {
@@ -229,11 +233,15 @@
 /* Half-dome SVG visualization */
 .mw-dome-wrap {
   flex-shrink: 0;
-  width: 400px;
+  width: 100%;               /* fill the card */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0px;
+  /* Dragging the view must never start a text selection (cardinal/alt/target
+     labels, stats, readout) — suppress selection for the whole dome block. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .mw-group-title {
   text-align: center;
@@ -352,6 +360,36 @@ html.red-mode .sky-canvas { filter: url(#red-night); }
   height: 100%;
 }
 
+/* Static compass ribbon pinned to the frame bottom */
+.sky-ribbon-band {
+  fill: rgba(6, 9, 19, 0.78);
+}
+html.red-mode .sky-ribbon-band {
+  fill: rgba(10, 0, 0, 0.82);
+}
+.sky-ribbon-tick {
+  stroke: var(--text-dim);
+  stroke-width: 0.5;
+  opacity: 0.7;
+}
+.sky-ribbon-tick-major {
+  stroke-width: 0.9;
+  opacity: 0.95;
+}
+.sky-ribbon-cardinal {
+  fill: var(--text);
+  font-size: 7px;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.sky-ribbon-deg {
+  fill: var(--text-dim);
+  font-size: 4.5px;
+  font-family: var(--mono);
+  opacity: 0.85;
+}
+
 /* Target markers, styled by viability (vars flip automatically in red mode) */
 .sky-tgt-ok { fill: var(--excellent); }
 .sky-tgt-degraded { fill: var(--fair); opacity: 0.6; }
@@ -400,11 +438,43 @@ html.red-mode .sky-tooltip {
   width: 100%;
   margin-top: 7px;
 }
+.sky-scrub-rail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .sky-scrub-track {
   position: relative;
-  flex: 1;
-  height: 16px;
+  height: 18px;
   color: var(--accent);        /* dark-interval shading inherits via currentColor */
+}
+/* Hour labels under the track */
+.sky-scrub-hours {
+  position: relative;
+  height: 13px;
+  margin-top: 1px;
+}
+.sky-scrub-hour {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.sky-scrub-hour::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 1px;
+  height: 3px;
+  background: var(--text-dim);
+  opacity: 0.7;
 }
 .sky-scrub-dark {
   position: absolute;
@@ -436,29 +506,43 @@ html.red-mode .sky-tooltip {
   appearance: none;
   background: transparent;
   cursor: pointer;
+  /* The slider owns every touch that starts on it — without this, any vertical
+     wobble in the finger track lets the browser claim the gesture for page
+     scrolling and cancel the drag, which reads as a stuck slider on mobile. */
+  touch-action: none;
 }
 .sky-scrub input[type="range"]::-webkit-slider-runnable-track {
-  height: 2px;
+  height: 3px;
   background: var(--card-border);
 }
+/* Prominent thumb: bigger square knob in the accent color with a subtle frame.
+   Colors come from vars so red mode flips it automatically. */
 .sky-scrub input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 10px;
-  height: 10px;
-  margin-top: -4px;
+  width: 16px;
+  height: 16px;
+  margin-top: -7px;
   border-radius: 2px;
   background: var(--accent);
+  border: 1px solid var(--text-h);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+.sky-scrub input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
 }
 .sky-scrub input[type="range"]::-moz-range-track {
-  height: 2px;
+  height: 3px;
   background: var(--card-border);
 }
 .sky-scrub input[type="range"]::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  border: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--text-h);
   border-radius: 2px;
   background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: grab;
 }
 .sky-scrub-readout {
   font-family: var(--mono);
