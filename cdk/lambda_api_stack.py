@@ -630,7 +630,7 @@ class LambdaApiStack(Stack):
         )
 
         # SNS topic for alarm notifications. Subscribe your email after deploy:
-        #   aws sns subscribe --profile mbeher --topic-arn <AlarmTopicArn> \
+        #   aws sns subscribe --topic-arn <AlarmTopicArn> \
         #     --protocol email --notification-endpoint <your@email.com>
         alarm_topic = sns.Topic(self, "AlarmTopic", display_name="PyNightSky Alarms")
 
@@ -679,6 +679,193 @@ class LambdaApiStack(Stack):
             resource_arn=web_acl.attr_arn,
         )
 
+        # --- M8: observability dashboard + real alarm wiring ---
+        # AWS Application Insights (console-enabled, outside CDK) auto-generated ~20 alarms
+        # covering Lambda/DynamoDB/SQS, but every one has empty AlarmActions — they evaluate
+        # and sit there, notifying nobody. Rather than reach into resources CDK doesn't own,
+        # add a focused set of real alarms here, wired to the alarm_topic that already exists
+        # (M7.3) but had zero subscribers — subscribe an email to it after this deploys:
+        #   aws sns subscribe --region us-east-1 \
+        #     --topic-arn <AlarmTopicArn output> --protocol email --notification-endpoint <you>
+        api_errors_alarm = cloudwatch.Alarm(
+            self, "ApiErrorsAlarm",
+            alarm_description="API Lambda errors in the last 5 minutes",
+            metric=fn.metric_errors(statistic="Sum", period=Duration.minutes(5)),
+            threshold=3,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        api_errors_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        worker_errors_alarm = cloudwatch.Alarm(
+            self, "WorkerErrorsAlarm",
+            alarm_description="Worker Lambda errors in the last 5 minutes",
+            metric=worker.metric_errors(statistic="Sum", period=Duration.minutes(5)),
+            threshold=2,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        worker_errors_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Highest-value new alarm: today the DLQ has zero live notification coverage. Any
+        # message here means a job failed 3x (max_receive_count) and needs a human look.
+        dlq_not_empty_alarm = cloudwatch.Alarm(
+            self, "DlqNotEmptyAlarm",
+            alarm_description="A job landed in the dead-letter queue",
+            metric=dlq.metric_approximate_number_of_messages_visible(
+                statistic="Maximum", period=Duration.minutes(5),
+            ),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        dlq_not_empty_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Threshold is intentionally loose (20%, not the usual 1-5%): at this traffic volume
+        # a handful of failed requests can swing the rate metric sharply. Tune down once a
+        # week of real baseline is observed (see docs/OBSERVABILITY.md).
+        cf_5xx_metric = cloudwatch.Metric(
+            namespace="AWS/CloudFront",
+            metric_name="5xxErrorRate",
+            dimensions_map={"DistributionId": dist.distribution_id, "Region": "Global"},
+            region="us-east-1",
+            statistic="Average",
+            period=Duration.minutes(5),
+        )
+        cloudfront_5xx_alarm = cloudwatch.Alarm(
+            self, "CloudFront5xxErrorRateAlarm",
+            alarm_description="CloudFront 5xx error rate elevated",
+            metric=cf_5xx_metric,
+            threshold=20,
+            evaluation_periods=2,
+            datapoints_to_alarm=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        cloudfront_5xx_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        def _cf_metric(name: str, stat: str = "Sum") -> cloudwatch.Metric:
+            return cloudwatch.Metric(
+                namespace="AWS/CloudFront",
+                metric_name=name,
+                dimensions_map={"DistributionId": dist.distribution_id, "Region": "Global"},
+                region="us-east-1",
+                statistic=stat,
+                period=Duration.minutes(5),
+            )
+
+        def _waf_metric(rule: str) -> cloudwatch.Metric:
+            return cloudwatch.Metric(
+                namespace="AWS/WAFV2",
+                metric_name="BlockedRequests",
+                dimensions_map={"WebACL": "PyNightSkyWaf", "Rule": rule, "Region": "Global"},
+                region="us-east-1",
+                statistic="Sum",
+                period=Duration.minutes(5),
+            )
+
+        dashboard = cloudwatch.Dashboard(self, "Dashboard", dashboard_name="PyNightSky-Overview")
+        dashboard.add_widgets(
+            cloudwatch.AlarmStatusWidget(
+                title="Alarms",
+                alarms=[
+                    alarm, api_errors_alarm, worker_errors_alarm,
+                    dlq_not_empty_alarm, cloudfront_5xx_alarm,
+                ],
+                width=24,
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="API Lambda — traffic",
+                left=[fn.metric_invocations(), fn.metric_errors(), fn.metric_throttles()],
+            ),
+            cloudwatch.GraphWidget(
+                title="API Lambda — duration",
+                left=[fn.metric_duration(statistic="p50"), fn.metric_duration(statistic="p99")],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="Worker Lambda — traffic",
+                left=[worker.metric_invocations(), worker.metric_errors(), worker.metric_throttles()],
+            ),
+            cloudwatch.GraphWidget(
+                title="Worker Lambda — duration",
+                left=[worker.metric_duration(statistic="p50"), worker.metric_duration(statistic="p99")],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="DynamoDB — capacity",
+                left=[table.metric_consumed_read_capacity_units(), table.metric_consumed_write_capacity_units()],
+            ),
+            cloudwatch.GraphWidget(
+                title="DynamoDB — throttles/errors",
+                left=[table.metric_throttled_requests(), table.metric_user_errors()],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="Jobs queue",
+                left=[
+                    jobs_queue.metric_approximate_number_of_messages_visible(),
+                    jobs_queue.metric_approximate_age_of_oldest_message(),
+                ],
+            ),
+            cloudwatch.GraphWidget(
+                title="Dead-letter queue depth",
+                left=[dlq.metric_approximate_number_of_messages_visible()],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="CloudFront — requests & errors",
+                left=[_cf_metric("Requests")],
+                right=[_cf_metric("4xxErrorRate", "Average"), _cf_metric("5xxErrorRate", "Average")],
+            ),
+            cloudwatch.GraphWidget(
+                title="CloudFront — latency & cache",
+                left=[_cf_metric("OriginLatency", "Average")],
+                right=[_cf_metric("CacheHitRate", "Average")],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="WAF — blocked requests by rule",
+                left=[
+                    _waf_metric("AmazonIpReputation"),
+                    _waf_metric("KnownBadInputs"),
+                    _waf_metric("RateLimitNearbyPerIp"),
+                    _waf_metric("RateLimitCalendarPerIp"),
+                    _waf_metric("RateLimitPerIp"),
+                ],
+            ),
+            cloudwatch.GraphWidget(
+                title="Upstream errors (Location/Celestrak/7Timer)",
+                left=[cloudwatch.Metric(
+                    namespace="PyNightSky", metric_name="UpstreamErrors",
+                    statistic="Sum", period=Duration.minutes(5),
+                )],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.TextWidget(
+                markdown=(
+                    "### X-Ray traces\n"
+                    "Trace-level latency isn't a native dashboard widget — see the "
+                    f"[X-Ray Service Map](https://{self.region}.console.aws.amazon.com/"
+                    f"cloudwatch/home?region={self.region}#xray:service-map) "
+                    "(API + Worker Lambda are traced; the TLE warmer is not)."
+                ),
+                width=24,
+                height=3,
+            ),
+        )
+
         # Route 53 A-alias: darkhours.app → CloudFront distribution (no TTL, free).
         route53.ARecord(
             self, "AliasRecord",
@@ -695,3 +882,10 @@ class LambdaApiStack(Stack):
         CfnOutput(self, "WebAclArn", value=web_acl.attr_arn)
         CfnOutput(self, "AlarmTopicArn", value=alarm_topic.topic_arn)
         CfnOutput(self, "WafLogGroupName", value=waf_log_group.log_group_name)
+        CfnOutput(
+            self, "DashboardUrl",
+            value=(
+                f"https://{self.region}.console.aws.amazon.com/cloudwatch/home"
+                f"?region={self.region}#dashboards:name={dashboard.dashboard_name}"
+            ),
+        )
