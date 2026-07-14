@@ -240,14 +240,11 @@ html.red-mode .wx-now-row td.wx-now-time {
 .wx-table td.wx-atmos-col {
   text-align: center;
 }
-/* Clarity/Seeing header: left-align instead of centering, so "Clarity /" and
-   "Seeing" share one left edge across their two wrapped lines rather than each
-   line centering independently and reading as staggered/misaligned. Extra
-   left padding keeps that shared edge from hugging the Sky Cover column's
-   right edge — the centered C/S data below sits well clear of it already. */
+/* Clarity/Seeing header: centered like the other icon-headed columns (see
+   comment above), so it sits over the centered star rows below regardless of
+   the star row's rendered width. */
 .wx-table th.wx-atmos-hdr {
-  text-align: left;
-  padding-left: 16px;
+  text-align: center;
 }
 /* Grouped span headers (e.g. Rise / Peak / Set in sat table) look better centred */
 .wx-table th[colspan] {
@@ -369,6 +366,42 @@ html.red-mode .recalc-overlay {
   height: 100%;
   background: var(--text-dim);
   border-radius: inherit;
+}
+
+/* Clarity/Seeing star readout — sized for legibility as a star glyph (larger
+   than the .wx-bar-track footprint it replaces, which worked fine as a plain
+   rectangle but reads as a blur at that scale once shaped into a 5-point
+   star). Same fill/track colors as the bar. Each star is a stacked pair of
+   full-size SVGs: a faint background star plus a filled foreground star
+   cropped with clip-path (not resized) so half stars read as a clean
+   half-width crop rather than a shrunken glyph. */
+.wx-star-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 78px;
+  height: 14px;
+  flex: none;
+}
+.wx-star {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-block;
+}
+.wx-star svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.wx-star-bg path {
+  fill: rgba(var(--hairline-rgb), 0.15);
+}
+.wx-star-fg path {
+  fill: var(--text-dim);
 }
 
 /* Sky Cover cell — the condition icon + total % (left) and the altitude

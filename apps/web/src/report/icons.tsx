@@ -387,12 +387,47 @@ function Bar({ pct, title }: { pct: number; title?: string }) {
   )
 }
 
+// A single 5-point star, filled left-to-right by `fill` (0, 0.5, or 1). The
+// foreground star is drawn full-size (same as the background) and cropped
+// with clip-path rather than shrunk into a narrower box — sizing the SVG
+// itself down to the fill width would rescale the whole star glyph to fit
+// (its default preserveAspectRatio), shrinking it into a tiny centered star
+// instead of cropping a clean half.
+const STAR_PATH =
+  'M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279L12 19.771l-7.416 3.642 1.48-8.279-6.064-5.828 8.332-1.151z'
+const STAR_MAX = 5
+
+function Star({ fill }: { fill: number }) {
+  const clamped = Math.max(0, Math.min(1, fill))
+  return (
+    <span className="wx-star">
+      <svg viewBox="0 0 24 24" className="wx-star-bg"><path d={STAR_PATH} /></svg>
+      {clamped > 0 && (
+        <svg
+          viewBox="0 0 24 24"
+          className="wx-star-fg"
+          style={clamped < 1 ? { clipPath: `inset(0 ${(1 - clamped) * 100}% 0 0)` } : undefined}
+        >
+          <path d={STAR_PATH} />
+        </svg>
+      )}
+    </span>
+  )
+}
+
 function EqRow({ label, tier }: { label: string; tier: string }) {
   const index = Math.max(0, Math.min(EQ_SEGMENTS, QUALITY_INDEX[tier] ?? 0))
+  // Same proportional fill as the old bar (index / EQ_SEGMENTS), just rescaled
+  // onto 5 stars and snapped to the nearest half star.
+  const stars = Math.round((index / EQ_SEGMENTS) * STAR_MAX * 2) / 2
   return (
     <div className="wx-eq2-row">
       <span className="wx-eq2-label">{label}</span>
-      <Bar pct={(index / EQ_SEGMENTS) * 100} title={tier} />
+      <span className="wx-star-row" title={tier}>
+        {Array.from({ length: STAR_MAX }, (_, i) => (
+          <Star key={i} fill={stars - i} />
+        ))}
+      </span>
     </div>
   )
 }
