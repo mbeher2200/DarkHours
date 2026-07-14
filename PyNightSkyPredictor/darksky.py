@@ -543,6 +543,11 @@ _DRIVE_NO_ROUTE  = -1            # sentinel: route matrix returned no duration f
 # Drive times use historical traffic (no DepartNow): cached results must be
 # time-consistent regardless of when they were computed.
 _DRIVE_CACHE_TTL = 86_400        # 24 hours
+# GeoRoutes silently snaps an unreachable destination (e.g. an island lighthouse with no
+# road) to the nearest road and reports a normal-looking route to THAT point instead —
+# no Ferry leg, no notice, no error. A gap this large between the requested destination
+# and the route's actual arrival means the last stretch isn't really drivable.
+_TAIL_GAP_MILES  = 1.0 / 1.60934   # 1 km
 
 # PAD-US H3 spatial index — module-level lazy-load cache
 _PADUS_H3_FILENAME = "darkhours_padus_h3.npz"
@@ -660,7 +665,8 @@ def _drive_cache_key(olat: float, olon: float, dlat: float, dlon: float) -> str:
 
 def _aws_route_one(client, origin_lat: float, origin_lon: float,
                     dest_lat: float, dest_lon: float) -> tuple:
-    """Single point-to-point GeoRoutes CalculateRoutes call → (minutes, miles, warnings).
+    """Single point-to-point GeoRoutes CalculateRoutes call →
+    (minutes, miles, warnings, tail_miles).
 
     Deliberately NOT CalculateRouteMatrix. Two independent problems with that endpoint,
     both confirmed with live calls (authenticated AWS CLI session) against the exact Juneau, AK
@@ -675,14 +681,24 @@ def _aws_route_one(client, origin_lat: float, origin_lon: float,
        searches, not just ferry detection (caught by the blanket except/log.debug in
        _aws_drive_times). CalculateRoutes has no such cap.
 
-    Detection itself: a ferry crossing is a structural Legs[].Type == "Ferry"; there IS
-    also a real "ViolatedAvoidFerry" notice, but nested under
-    Legs[].FerryLegDetails.Notices[].Code (a different shape than the one below) —
-    checking the leg Type directly is simpler and doesn't depend on notice ordering.
-    Dirt-road usage is Legs[].VehicleLegDetails.Notices[].Code == "ViolatedAvoidDirtRoad".
+    Detection: a ferry crossing is a structural Legs[].Type == "Ferry"; there IS also a
+    real "ViolatedAvoidFerry" notice, but nested under Legs[].FerryLegDetails.Notices[].Code
+    (a different shape than the one below) — checking the leg Type directly is simpler and
+    doesn't depend on notice ordering. Dirt-road usage is
+    Legs[].VehicleLegDetails.Notices[].Code == "ViolatedAvoidDirtRoad".
 
-    Returns (None, None, []) for a route that's absent, ferry-only, or on any API error —
-    the caller decides whether an exception here should be cached (it re-raises those).
+    A third failure mode (confirmed live, Sand Island Lighthouse WI — an island reachable
+    only by boat): GeoRoutes can't route to a destination with no nearby road, so instead
+    of erroring it silently snaps the arrival to the nearest reachable road and reports a
+    normal-looking Duration/Distance for THAT point — no Ferry leg, no notice at all.
+    Detected by comparing the final leg's actual arrival position against the requested
+    destination; a gap over _TAIL_GAP_MILES means the last stretch wasn't really driven,
+    surfaced as tail_miles rather than collapsing the whole route to "no route" — the
+    drivable portion up to that point is still real and worth showing.
+
+    Returns (None, None, [], None) for a route that's absent, ferry-only, or on any API
+    error — the caller decides whether an exception here should be cached (it re-raises
+    those).
     """
     resp = client.calculate_routes(
         Origin=[origin_lon, origin_lat],
@@ -692,23 +708,33 @@ def _aws_route_one(client, origin_lat: float, origin_lon: float,
     )
     routes = resp.get("Routes") or []
     if not routes:
-        return None, None, []
+        return None, None, [], None
     legs = routes[0].get("Legs", [])
     # A ferry-only "road" isn't actually driveable — treat like no route at all, even
     # though GeoRoutes still reports a plausible-looking Duration/Distance for it.
     if any(leg.get("Type") == "Ferry" for leg in legs):
-        return None, None, []
+        return None, None, [], None
     warnings = []
     for leg in legs:
         codes = [n.get("Code") for n in (leg.get("VehicleLegDetails") or {}).get("Notices", [])]
         if "ViolatedAvoidDirtRoad" in codes:
             warnings = ["Dirt roads"]
             break
+
+    tail_miles = None
+    if legs:
+        arrival = (legs[-1].get("VehicleLegDetails") or {}).get("Arrival") or {}
+        pos = (arrival.get("Place") or {}).get("Position")   # [lon, lat]
+        if pos:
+            gap_miles = _haversine_miles(dest_lat, dest_lon, pos[1], pos[0])
+            if gap_miles > _TAIL_GAP_MILES:
+                tail_miles = round(gap_miles, 1)
+
     summary = routes[0].get("Summary") or {}
     secs, meters = summary.get("Duration"), summary.get("Distance")   # seconds, metres
     mins  = round(secs / 60) if secs is not None else None
     miles = round(meters / 1609.34) if meters is not None else None
-    return mins, miles, warnings
+    return mins, miles, warnings, tail_miles
 
 
 def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> None:
@@ -723,9 +749,12 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     rather than the batched CalculateRouteMatrix). Historical traffic (no DepartNow) keeps
     cached ETAs consistent regardless of when they were computed.
 
-    Annotates drive_minutes (int | None), drive_miles (road distance, int | None), and
-    warnings (list[str]): non-fatal avoidance violations (currently just dirt roads) the
-    frontend can surface as a caveat. A ferry-only route is treated the same as "no route"
+    Annotates drive_minutes (int | None), drive_miles (road distance, int | None),
+    warnings (list[str]): non-fatal avoidance violations (currently just dirt roads), and
+    tail_miles (float | None): set when the route's actual arrival point is more than
+    _TAIL_GAP_MILES from the requested destination (e.g. an island with no road) — the
+    drive_minutes/drive_miles up to that point are still real, but the last tail_miles
+    isn't drivable. A ferry-only route is treated the same as "no route"
     (drive_minutes=drive_miles=None) since it isn't actually driveable.
 
     Routes ONLY is_poi candidates: raw backcountry fallbacks have no established road
@@ -735,27 +764,30 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
     if not clusters:
         return
     # 1. Serve cached legs from prior searches; collect the misses. The cached value is
-    #    {"m":min,"mi":road_miles,"w":warnings} or the _DRIVE_NO_ROUTE sentinel ("computed,
-    #    no route" ≠ miss). Legacy int = minutes only.
+    #    {"m":min,"mi":road_miles,"w":warnings,"t":tail_miles} or the _DRIVE_NO_ROUTE
+    #    sentinel ("computed, no route" ≠ miss). Legacy int = minutes only.
     misses = []
     for c in clusters:
         if not c.get("is_poi"):
             c["drive_minutes"] = None      # never route a non-routable fallback pixel
             c["drive_miles"] = None
             c["warnings"] = []
+            c["tail_miles"] = None
             continue
         cached = cache.get(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]))
         if cached is not None:
             if cached == _DRIVE_NO_ROUTE:
-                c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []
+                c["drive_minutes"], c["drive_miles"], c["warnings"], c["tail_miles"] = None, None, [], None
             elif isinstance(cached, dict):
                 c["drive_minutes"] = cached.get("m")
                 c["drive_miles"] = cached.get("mi")
                 c["warnings"] = cached.get("w", [])
+                c["tail_miles"] = cached.get("t")
             else:                          # legacy int cache entry: minutes only
-                c["drive_minutes"], c["drive_miles"], c["warnings"] = cached, None, []
+                c["drive_minutes"], c["drive_miles"], c["warnings"], c["tail_miles"] = cached, None, [], None
         else:
-            c["drive_minutes"], c["drive_miles"], c["warnings"] = None, None, []  # until filled below
+            # until filled below
+            c["drive_minutes"], c["drive_miles"], c["warnings"], c["tail_miles"] = None, None, [], None
             misses.append(c)
     if not misses:
         return
@@ -776,13 +808,15 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
         for fut in futures:
             c = futures[fut]
             try:
-                mins, miles, warnings = fut.result()
+                mins, miles, warnings, tail_miles = fut.result()
             except Exception as e:
                 log.debug("GeoRoutes calculate_routes failed: %s", e)
                 continue
-            c["drive_minutes"], c["drive_miles"], c["warnings"] = mins, miles, warnings
+            c["drive_minutes"], c["drive_miles"] = mins, miles
+            c["warnings"], c["tail_miles"] = warnings, tail_miles
             cache.set(_drive_cache_key(origin_lat, origin_lon, c["lat"], c["lon"]),
-                      {"m": mins, "mi": miles, "w": warnings} if mins is not None else _DRIVE_NO_ROUTE,
+                      {"m": mins, "mi": miles, "w": warnings, "t": tail_miles}
+                      if mins is not None else _DRIVE_NO_ROUTE,
                       ttl_seconds=_DRIVE_CACHE_TTL)
 
 
@@ -2479,6 +2513,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                 c["drive_minutes"] = None
                 c["drive_miles"] = None
                 c["warnings"] = []
+                c["tail_miles"] = None
 
     _funnel["results_final"] = len(dark_clusters)
     _funnel["best_available"] = best_available is not None

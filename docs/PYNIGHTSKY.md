@@ -61,11 +61,14 @@ The geometric mean means every factor influences the result proportionally, and 
 
 ---
 
-## Moonlight Modeling (Krisciunas & Schaefer 1991)
+## Moonlight Modeling (K&S 1991 × Winkler 2022 hybrid)
 
-PyNightSkyPredictor models scattered moonlight using the empirical photometric model of **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* PASP 103(667), 1033–1039. [doi:10.1086/132921](https://doi.org/10.1086/132921)
+PyNightSkyPredictor models scattered moonlight with a hybrid of two photometric models:
 
-The model computes the sky surface brightness increase (Δ mag/arcsec²) at any sky position given the moon's illumination, altitude, and angular separation from the target. It accounts for the moon's phase-dependent luminosity, atmospheric extinction along the moon's air-mass path, and a scattering phase function that produces the characteristic brightening both near the moon *and* at the antisolar point.
+- **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* PASP 103(667), 1033–1039. [doi:10.1086/132921](https://doi.org/10.1086/132921) — the phase-dependent lunar luminosity and the optical-pathlength form.
+- **Winkler, H. (2022)**, *"A revised simplified scattering model for the moonlit sky brightness profile based on photometry at SAAO,"* MNRAS 514(1), 208–226. [doi:10.1093/mnras/stac1387](https://doi.org/10.1093/mnras/stac1387) — the single-scatter kernel with correct lunar-beam extinction, and the two-component Rayleigh + Henyey–Greenstein (g = 0.8) phase function.
+
+The model computes the sky surface brightness increase (Δ mag/arcsec²) at any sky position given the moon's illumination, altitude, angular separation from the target, the target's own altitude (slant path), and the atmosphere's aerosol load. Extinction is a live optical-depth decomposition (Rayleigh + aerosol + ozone) rather than a fixed coefficient: the **aerosol optical depth (AOD)** forecast from Open-Meteo's air-quality API (CAMS) feeds in as the night's median, so wildfire smoke and haze both dim the lunar beam and *amplify* the forward-scattered aureole near the moon — smoke brightens the sky near the moon while dimming it far away. When AOD is unavailable (past dates, fetch failure, beyond the ~7-day air-quality horizon) the model falls back to a reference clear sky whose extinction equals the classic k = 0.172 exactly. The normalisation anchors the new kernel to the legacy K&S intensity at the site-wide proxy geometry, so nightly planning scores are unchanged at reference conditions (verified by `scripts/verify_moonwash_grid.py`).
 
 ### Why it matters
 
@@ -97,7 +100,7 @@ K&S is inherently directional — it depends on where you're looking relative to
 - **90° separation** is the darkest accessible sky position: the scattering function reaches its minimum there (the cos²ρ term vanishes), representing the best realistic position when the moon is up
 - **30° altitude** is a representative mid-sky moon position over the course of an evening
 
-For per-target evaluation, the actual moon–target separation and moon altitude are computed from the Skyfield ephemeris at each 20-minute sample window.
+For per-target evaluation, the actual moon–target separation, moon altitude, and target altitude are computed from the Skyfield ephemeris at each 10-minute sample.
 
 ### How it affects the output
 
@@ -105,11 +108,17 @@ For per-target evaluation, the actual moon–target separation and moon altitude
 
 **Clear Dark Sky Hours** — When illumination is ≤ 20% (imperceptible-to-minor impact at any altitude), the full astronomical window is reported as dark sky time. When weather data is available, each dark interval is further clipped to hours where cloud cover ≤ 30%.
 
-**Astro Window per target** — K&S is evaluated at the actual moon–target separation and altitude at every 20-minute sample. The window is clipped when Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness − sky background − 3.2 mag; clusters: integrated magnitude − site SQM − 13.0; Milky Way: surface brightness − sky background − 1.5 mag).
+**Astro Window per target** — the model is evaluated at the actual moon–target separation, moon altitude, and target altitude at every 10-minute sample. The window is clipped when Δmag exceeds the per-type contrast threshold (nebulae/galaxies: surface brightness − sky background − 3.2 mag; clusters: integrated magnitude − site SQM − 13.0; Milky Way: surface brightness − sky background − 1.5 mag).
 
 **Light pollution interaction** — The site's SQM enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
 
 **Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. PyNightSkyPredictor corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
+
+**Meteor shower local rates** — `local_rate_at_peak` applies the standard IMO visual-rate correction on top of the decay model and radiant geometry: rate = ZHR_effective × sin(radiant alt) × min(1, r^(lm − 6.5)), where lm is the naked-eye limiting magnitude (NELM = 7.93 − 5·log₁₀(10^(4.316 − SQM/5) + 1)) under the moon-brightened site sky and r is the shower's magnitude-distribution (population) index from the catalog. Faint-meteor-rich showers (Delta Aquariids, r = 3.2) collapse under moonlight or city skies far harder than fireball-rich ones (Perseids, r = 2.2).
+
+**Aurora moon factor** — aurora is an emission source, so moonlight raises the background it must be seen against rather than washing the source. The aurora condition vector degrades (never blocks) tier-scaled: photographic-tier nights at Δ ≥ 0.50 mag/arcsec², naked-eye at ≥ 1.50, and overhead storms punch through any moon.
+
+**Deliberate AOD exclusions** — `ks_moon_credit` (moon_score, calendar dark-cycle scores) always evaluates at the reference sky: planning scores must not wobble with 30-minute weather refetches, and the calendar path fetches no weather at all.
 
 ---
 
