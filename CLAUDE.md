@@ -54,6 +54,9 @@ A default run stays offline and deterministic (currently 390 passed, ~7 skipped)
   on push to `main`: test gate (`pytest -q`) → OIDC → `cdk deploy PyNightSkyLambda`.
   Both the API and worker are **zip Lambdas** — CDK asset bundling pip-installs deps on
   `linux/arm64` inline during deploy; no Docker build or ECR push in CI.
+- `PyNightSkyProviderHealth` (like `PyNightSkyWarmer`/`PyNightSkyCicd`) is deployed manually,
+  once — `deploy.yml` only ever targets `PyNightSkyLambda`. Redeploy it by hand
+  (`cdk deploy PyNightSkyProviderHealth`) if its code changes.
 - **`security.yml`** runs on every branch/PR (scan-only, does not gate deploy): pytest +
   Bandit, pip-audit, Semgrep, gitleaks, Trivy (image CVEs against `Dockerfile.worker`)
   via `scripts/security_scan.sh`.
@@ -98,5 +101,7 @@ To measure a worker change on real infra without touching the deployed worker:
 
 - `docs/PERF_FINDNEARBY.md` — `find_nearby` profiling results, fixes, and benchmark log.
 - `docs/PADUS_INDEX.md` — PAD-US H3 index: format, build, blacklist rules, regeneration.
+- `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
+  X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
 - `memory/` — running project notes (cloud migration, find_nearby perf, PAD-US, etc.).
 - `docs/PYNIGHTSKY.md`, `PRODUCT.md`, `README.md` — product/engine overview.
