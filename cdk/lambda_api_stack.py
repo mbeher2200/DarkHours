@@ -779,6 +779,12 @@ class LambdaApiStack(Stack):
                 width=24,
             ),
         )
+        def _concurrent_executions(function_name) -> cloudwatch.Metric:
+            return cloudwatch.Metric(
+                namespace="AWS/Lambda", metric_name="ConcurrentExecutions",
+                dimensions_map={"FunctionName": function_name}, statistic="Maximum",
+            )
+
         dashboard.add_widgets(
             cloudwatch.GraphWidget(
                 title="API Lambda — traffic",
@@ -787,6 +793,10 @@ class LambdaApiStack(Stack):
             cloudwatch.GraphWidget(
                 title="API Lambda — duration",
                 left=[fn.metric_duration(statistic="p50"), fn.metric_duration(statistic="p99")],
+            ),
+            cloudwatch.GraphWidget(
+                title="API Lambda — concurrency",
+                left=[_concurrent_executions(fn.function_name)],
             ),
         )
         dashboard.add_widgets(
@@ -797,6 +807,10 @@ class LambdaApiStack(Stack):
             cloudwatch.GraphWidget(
                 title="Worker Lambda — duration",
                 left=[worker.metric_duration(statistic="p50"), worker.metric_duration(statistic="p99")],
+            ),
+            cloudwatch.GraphWidget(
+                title="Worker Lambda — concurrency",
+                left=[_concurrent_executions(worker.function_name)],
             ),
         )
         dashboard.add_widgets(
@@ -853,6 +867,67 @@ class LambdaApiStack(Stack):
                 )],
             ),
         )
+
+        # --- Real User Monitoring (CloudWatch RUM, "DarkHours.app" app monitor) ---
+        # RUM is set up client-side in apps/web/src/rum.ts (own app monitor, own resource
+        # policy) — not owned by this stack. Referencing its metrics here by namespace/
+        # dimension needs no CDK cross-stack dependency; CloudWatch metrics are account-wide.
+        def _rum_metric(name: str, stat: str = "Sum") -> cloudwatch.Metric:
+            return cloudwatch.Metric(
+                namespace="AWS/RUM", metric_name=name,
+                dimensions_map={"application_name": "DarkHours.app"},
+                statistic=stat, period=Duration.hours(1),
+            )
+
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="RUM — sessions & page views",
+                left=[_rum_metric("SessionCount"), _rum_metric("PageViewCount")],
+            ),
+            cloudwatch.GraphWidget(
+                title="RUM — errors per page view",
+                left=[
+                    _rum_metric("JsErrorCount"),
+                    _rum_metric("Http4xxCountPerPageView", "Average"),
+                    _rum_metric("Http5xxCountPerPageView", "Average"),
+                ],
+            ),
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="RUM — Largest Contentful Paint (ms)",
+                left=[_rum_metric("WebVitalsLargestContentfulPaint", "Average")],
+            ),
+            cloudwatch.GraphWidget(
+                title="RUM — Cumulative Layout Shift",
+                left=[_rum_metric("WebVitalsCumulativeLayoutShift", "Average")],
+            ),
+        )
+
+        # --- Weather provider health (PyNightSkyProviderHealth stack's EMF metrics) ---
+        # Separate CDK stack; same account-wide-metrics reasoning as the RUM widgets above.
+        def _provider_metric(name: str, provider: str | None = None, stat: str = "Sum") -> cloudwatch.Metric:
+            dims = {"Provider": provider} if provider else {}
+            return cloudwatch.Metric(
+                namespace="PyNightSky/WeatherProviders", metric_name=name,
+                dimensions_map=dims, statistic=stat, period=Duration.minutes(5),
+            )
+
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="Weather provider status (1=up)",
+                left=[
+                    _provider_metric("ProviderUp", "open-meteo", "Minimum"),
+                    _provider_metric("ProviderUp", "7timer", "Minimum"),
+                ],
+            ),
+            cloudwatch.GraphWidget(
+                title="Weather provider latency & DB write failures",
+                left=[_provider_metric("HTTPVerificationLatency", stat="Average")],
+                right=[_provider_metric("DynamoDBWriteFailure")],
+            ),
+        )
+
         dashboard.add_widgets(
             cloudwatch.TextWidget(
                 markdown=(
