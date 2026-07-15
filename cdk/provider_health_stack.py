@@ -78,7 +78,7 @@ class ProviderHealthStack(Stack):
         )
 
         # SNS topic for alarm notifications. Subscribe your email after deploy:
-        #   aws sns subscribe --profile <profile> --topic-arn <AlarmTopicArn> \
+        #   aws sns subscribe --topic-arn <AlarmTopicArn> \
         #     --protocol email --notification-endpoint <your@email.com>
         alarm_topic = sns.Topic(self, "AlarmTopic", display_name="PyNightSky Provider Health Alarms")
 
