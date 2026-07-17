@@ -22,7 +22,7 @@ public land cell the park name is returned directly; if it lands on a blackliste
 --- DEPENDENCIES ---
 
     pip install -r requirements-build.txt
-    # or individually: geopandas pyarrow fiona h3
+    # or individually: geopandas pyarrow h3
 
 --- USAGE ---
 
