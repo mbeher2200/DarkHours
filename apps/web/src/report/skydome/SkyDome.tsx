@@ -50,6 +50,7 @@ export function SkyDome({ summary, report }: {
   const [hover, setHover] = useState<Hover>(null)
   const [catState, setCatState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [mwReady, setMwReady] = useState(false)
+  const [stackW, setStackW] = useState(0)
   const [tickResult, setTickResult] = useState<TickResult | null>(null)
 
   const pointerRef = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean } | null>(null)
@@ -110,6 +111,7 @@ export function SkyDome({ summary, report }: {
       const rect = stack.getBoundingClientRect()
       if (rect.width < 4) return
       renderer.setSize(rect.width, rect.height, window.devicePixelRatio || 1)
+      setStackW(rect.width)
       requestDraw()
     }
     const ro = new ResizeObserver(resize)
@@ -532,14 +534,23 @@ export function SkyDome({ summary, report }: {
             ))}
           </g>
 
-          {hover && (
-            <foreignObject x={Math.min(115, Math.max(15, hover.x - 37.5))} y={Math.max(1, hover.y - 12 - hover.lines.length * 8)}
-              width="105" height={6 + hover.lines.length * 9} pointerEvents="none">
-              <div className="sky-tooltip">
-                {hover.lines.map((l, i) => <div key={i}>{l}</div>)}
-              </div>
-            </foreignObject>
-          )}
+          {hover && (() => {
+            // The tooltip lives in SVG user units, so its CSS font scales with
+            // the rendered card width (units × width/180). Counter-scale above
+            // the mobile cap (420px, where 5.5px units ≈ 13px on screen) so
+            // the on-screen size stays constant on desktop-width cards.
+            const tipScale = stackW > 420 ? 420 / stackW : 1
+            return (
+              <foreignObject x={Math.min(115, Math.max(15, hover.x - 37.5))}
+                y={Math.max(1, hover.y - (12 + hover.lines.length * 8) * tipScale)}
+                width="105" height={6 + hover.lines.length * 9} pointerEvents="none">
+                <div className="sky-tooltip"
+                  style={tipScale < 1 ? { transform: `scale(${tipScale})`, transformOrigin: '50% 0' } : undefined}>
+                  {hover.lines.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+              </foreignObject>
+            )
+          })()}
         </svg>
       </div>
 
