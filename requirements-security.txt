@@ -2,4 +2,4 @@
 # Trivy (container/fs scan) is run from its official Docker image — no pip install.
 bandit==1.9.4
 pip-audit==2.10.1
-semgrep==1.169.0
+semgrep==1.170.0
