@@ -101,6 +101,9 @@ class LambdaApiStack(Stack):
         raster_bucket = os.environ["PYNIGHTSKY_RASTER_BUCKET"]
         cache_table = os.environ["PYNIGHTSKY_CACHE_TABLE"]
         blog_bucket_name = os.environ["PYNIGHTSKY_BLOG_BUCKET"]
+        # Optional (not a hard deploy dependency): aqicn.py degrades to "no live haze
+        # data" when unset, so a missing secret shouldn't break the stack.
+        aqicn_token = os.environ.get("AQICN_TOKEN", "")
 
         Tags.of(self).add("Project", "pynightsky")
         Tags.of(self).add("Env", "prod")
@@ -150,6 +153,7 @@ class LambdaApiStack(Stack):
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
                 "LOG_LEVEL": "INFO",
+                "AQICN_TOKEN": aqicn_token,
             },
         )
 
@@ -281,6 +285,7 @@ class LambdaApiStack(Stack):
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
                 "PYNIGHTSKY_RASTER_BUCKET": raster_bucket,
                 "LOG_LEVEL": "INFO",
+                "AQICN_TOKEN": aqicn_token,
             },
         )
         bucket.grant_read(worker)

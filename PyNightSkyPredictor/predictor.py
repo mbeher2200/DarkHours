@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from zoneinfo import ZoneInfo
 
+from . import aqicn as _aqicn
 from . import aurora as _aur
 from . import darksky as _ds
 from . import light_dome as _ld
@@ -131,6 +132,13 @@ class NightReport:
     # Night-median aerosol optical depth (moonlight scattering input); None when
     # unavailable (past dates, AQ fetch failure, beyond the 7-day AQ horizon).
     night_aod: float | None = None
+
+    # Live station PM2.5/PM10 reading (WAQI) — a haze cross-check against the
+    # forecast-driven Haze icon, surfaced only on the Night Timeline's live
+    # "Now" row. NOT part of weather_score/rate_conditions. None when
+    # unavailable, outside the +/-1 day window, token unset, no station PM
+    # data nearby, or the nearest station is too far away to be meaningful.
+    current_haze: dict | None = None
 
     # Visible targets (populated when fetch_targets=True)
     visible_targets: list = field(default_factory=list)
@@ -545,6 +553,14 @@ def assemble_night(
                 return rows, r_stale, outlook, o_stale
             _aurora_future = _pool.submit(_aurora_io)
 
+        # Live PM2.5/PM10 haze cross-check (WAQI) — a "right now" ground-station
+        # reading, not a forecast, so it's meaningless for a report several days
+        # out. Same -1 day UTC-slop convention as the aurora gate above.
+        _haze_future: _futures.Future | None = None
+        _haze_days_ahead = (target - _now.date()).days
+        if fetch_weather and -1 <= _haze_days_ahead <= 1:
+            _haze_future = _pool.submit(_aqicn.current_haze, lat, lon)
+
         # Heuristic: start weather for tonight-or-future dates without waiting for
         # sunrise. "Tonight" may be yesterday in UTC when the night spans midnight
         # (e.g. 03:00 UTC — still before sunrise for a US location). Subtracting
@@ -704,6 +720,11 @@ def assemble_night(
         # Light dome — precomputed H3 index lookup (O(log n), no raster read), so it's
         # safe on the initial page-load path. None when outside the index coverage.
         light_dome_info = _ld.lightdome_lookup(lat, lon)
+
+        # Collect the live haze cross-check — independent of the weather-forecast
+        # cache/fetch below, so a slow or failed WAQI call never affects wx_exc
+        # handling or the forecast blend.
+        _current_haze = _haze_future.result() if _haze_future is not None else None
 
         # Collect weather future (cache check + HTTP fetch both ran off-thread).
         _wx_fetched = None
@@ -1012,6 +1033,7 @@ def assemble_night(
         wx_archive_error=wx_archive_error,
         wx_error=wx_error,
         night_aod=_night_aod,
+        current_haze=_current_haze,
         score=rating["score"],
         score_components=rating["components"],
         visible_targets=target_list,

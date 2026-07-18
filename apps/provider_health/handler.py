@@ -1,13 +1,19 @@
 """Weather provider health monitor.
 
-Runs on a schedule (EventBridge → Lambda) to poll the two weather providers the
-engine depends on (Open-Meteo, 7Timer) and record UP/DOWN status + latency to
-DynamoDB, so an SRE can alarm on sustained provider outages independently of
-user traffic. Zero third-party imports beyond boto3 (ships with the runtime) —
-this Lambda never touches the PyNightSkyPredictor engine, so it stays a tiny
-zip with no rasterio/GDAL tax.
+Runs on a schedule (EventBridge → Lambda) to poll the providers the engine
+depends on (Open-Meteo, 7Timer, WAQI, NOAA SWPC) and record UP/DOWN status +
+latency to DynamoDB, so an SRE can alarm on sustained provider outages
+independently of user traffic. Zero third-party imports beyond boto3 (ships
+with the runtime) — this Lambda never touches the PyNightSkyPredictor engine,
+so it stays a tiny zip with no rasterio/GDAL tax.
 
-Env it expects: ``PROVIDER_HEALTH_TABLE``.
+Deliberately NOT monitored here: Celestrak. It has specific access-timing
+expectations and will shut off a client that polls it too regularly — a
+5-minute synthetic health check is exactly the kind of traffic that would put
+this app's TLE access at risk, so it's excluded on purpose, not an oversight.
+
+Env it expects: ``PROVIDER_HEALTH_TABLE``, ``AQICN_TOKEN`` (optional — the
+WAQI check is skipped entirely, not marked DOWN, when unset).
 """
 import json
 import logging
@@ -16,24 +22,63 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Callable
 
 import boto3
 from botocore.exceptions import ClientError
 
-PROVIDERS: list[dict[str, str]] = [
+
+def _status_200(status_code: int, body: bytes) -> bool:
+    return status_code == 200
+
+
+def _waqi_ok(status_code: int, body: bytes) -> bool:
+    # WAQI returns HTTP 200 even on an invalid/expired token
+    # (body: {"status":"error","data":"Invalid key"}) — a plain status-code
+    # check would report this provider as permanently "UP" regardless of
+    # whether the token still works, so the body must be inspected too.
+    if status_code != 200:
+        return False
+    try:
+        return json.loads(body).get("status") == "ok"
+    except (ValueError, AttributeError):
+        return False
+
+
+PROVIDERS: list[dict[str, Any]] = [
     {
         "id": "open-meteo",
         "url": (
             "https://api.open-meteo.com/v1/forecast"
             "?latitude=33.3943&longitude=-104.5230&current=temperature_2m"
         ),
+        "validate": _status_200,
     },
     {
         "id": "7timer",
         "url": "http://www.7timer.info/bin/api.pl?lon=-104.5230&lat=33.3943&product=astro&output=json",
+        "validate": _status_200,
+    },
+    {
+        "id": "swpc",
+        # NOAA Space Weather Prediction Center — 3-day Kp forecast (aurora.py).
+        # Keyless, plain 200-on-success/404-on-failure — no body-inspection
+        # quirk like WAQI's, confirmed by hand against the live endpoint.
+        "url": "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json",
+        "validate": _status_200,
     },
 ]
+
+_AQICN_TOKEN = os.environ.get("AQICN_TOKEN", "")
+if _AQICN_TOKEN:
+    PROVIDERS.append({
+        "id": "waqi",
+        # Same fixed reference point as the other two checks — this is purely
+        # an "is the API up and authenticating" probe, independent of the
+        # app's own distance-filtered nearest-station logic.
+        "url": f"https://api.waqi.info/feed/geo:33.3943;-104.5230/?token={_AQICN_TOKEN}",
+        "validate": _waqi_ok,
+    })
 
 TIMEOUT_S = 4.0
 RETRY_DELAY_S = 2.0
@@ -90,8 +135,8 @@ def _emit_dynamo_write_failure(provider: str) -> None:
     print(json.dumps(emf))
 
 
-def _probe(url: str) -> tuple[int, float]:
-    """Returns (http_status_code, latency_ms). Raises on network failure."""
+def _probe(url: str) -> tuple[int, float, bytes]:
+    """Returns (http_status_code, latency_ms, body). Raises on network failure."""
     req = urllib.request.Request(url, method="GET")
 
     # FIX: Build an opener that explicitly ONLY supports HTTP and HTTPS.
@@ -106,10 +151,10 @@ def _probe(url: str) -> tuple[int, float]:
 
     # Use our locked-down opener instead of the default urllib.request.urlopen
     with opener.open(req, timeout=TIMEOUT_S) as resp:
-        resp.read()  # drain body to free the connection
+        body = resp.read()  # some providers' "up" check needs to inspect this
         status = resp.status
 
-    return status, (time.monotonic() - t0) * 1000
+    return status, (time.monotonic() - t0) * 1000, body
 
 
 def _write_status(provider_id: str, status: str, epoch: int) -> None:
@@ -121,15 +166,16 @@ def _write_status(provider_id: str, status: str, epoch: int) -> None:
              error_type=type(exc).__name__, error_message=str(exc))
 
 
-def _check_provider(provider: dict[str, str]) -> None:
+def _check_provider(provider: dict[str, Any]) -> None:
     """One attempt, then (on failure) one retry after RETRY_DELAY_S, then persist."""
     pid, url = provider["id"], provider["url"]
+    validate: Callable[[int, bytes], bool] = provider.get("validate", _status_200)
     last_latency_ms = TIMEOUT_S * 1000
 
     for attempt in (1, 2):
         try:
-            status_code, latency_ms = _probe(url)
-            is_up = status_code == 200
+            status_code, latency_ms, body = _probe(url)
+            is_up = validate(status_code, body)
             _log("info", pid, attempt, event="probe_complete", http_status=status_code,
                  latency_ms=round(latency_ms, 2), status="UP" if is_up else "DOWN")
             _emit_provider_metrics(pid, latency_ms, is_up)

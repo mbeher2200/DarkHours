@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import type { SkyEvent, WeatherPoint } from '../types'
+import type { SkyEvent, WeatherPoint, CurrentHaze } from '../types'
 import { formatTime, formatDayTime, fmtTempValue, tempUnitLabel, fmtWindSpeed, windUnitLabel, moonUpAt, formatAge, formatIssuedUtc } from '../format'
 import { InfoTip } from '../shared'
 import { Star } from 'lucide-react'
@@ -8,7 +8,7 @@ import { cell } from './common'
 
 // ── Weather table ────────────────────────────────────────────────────────────
 
-export function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, moonPhaseName = null, moonIlluminationPct = null, isFetching = false, cathodeSnap = false, wxSource = null, wxFetchedAt = null }: {
+export function WeatherTable({ points, events = [], tz, imperial, moonrise, moonset, moonPhaseName = null, moonIlluminationPct = null, isFetching = false, cathodeSnap = false, wxSource = null, wxFetchedAt = null, currentHaze = null }: {
   points: WeatherPoint[]
   events?: SkyEvent[]
   tz: string
@@ -21,6 +21,7 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
   cathodeSnap?: boolean
   wxSource?: string | null
   wxFetchedAt?: string | null
+  currentHaze?: CurrentHaze | null
 }) {
   // Clip the table to the sunset→sunrise window. Events/points outside this
   // range are daytime and not useful once the astro-night band conveys darkness.
@@ -195,7 +196,18 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
                   <tr key="now-marker" className="wx-now-row">
                     <td className="wx-time wx-now-time">{formatTime(new Date(row.ts).toISOString(), tz)}</td>
                     <td colSpan={hasWx ? totalCols - 1 : 1} className="wx-now-content">
-                      <span className="wx-now-inner">▶ Now</span>
+                      <span className="wx-now-inner">
+                        ▶ Now
+                        {currentHaze?.hazy && (
+                          <InfoTip tip={<>Live station reading (WAQI): {currentHaze.pollutant.toUpperCase()} AQI sub-index {currentHaze.pm_value}
+                            {currentHaze.station ? ` at ${currentHaze.station}` : ''}
+                            {currentHaze.observed_at ? `, ${new Date(currentHaze.observed_at).toLocaleString()}` : ''} —
+                            above this app's haze threshold. The forecast rows above may not reflect this yet.
+                            {currentHaze.stale ? ' (cached — station temporarily unreachable)' : ''} Data: World Air Quality Index Project (waqi.info).</>}>
+                            <span className="wx-cond-word"> · Haze (live)</span>
+                          </InfoTip>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 )
@@ -329,15 +341,20 @@ export function WeatherTable({ points, events = [], tz, imperial, moonrise, moon
             })}
           </tbody>
         </table>
-        {hasWx && <WxProvenanceBadge source={wxSource} fetchedAt={wxFetchedAt} />}
+        {hasWx && <WxProvenanceBadge source={wxSource} fetchedAt={wxFetchedAt} currentHaze={isLive ? currentHaze : null} />}
       </div>
     </details>
   )
 }
 
 // Dense, monospace "instrument readout" footer for the Night Timeline table — shows
-// which weather source served this forecast and how fresh the data is.
-export function WxProvenanceBadge({ source, fetchedAt }: { source: string | null; fetchedAt: string | null }) {
+// which weather source served this forecast and how fresh the data is. The WAQI
+// item only appears when the live Haze badge is actually showing (see the "Now"
+// row above) — that's the one case this report actually displays WAQI's data to
+// the user, and their terms require attribution wherever it's shown.
+export function WxProvenanceBadge({ source, fetchedAt, currentHaze = null }: {
+  source: string | null; fetchedAt: string | null; currentHaze?: CurrentHaze | null
+}) {
   if (!source) return null
   return (
     <div className="wx-provenance">
@@ -346,6 +363,12 @@ export function WxProvenanceBadge({ source, fetchedAt }: { source: string | null
       <span className="wx-prov-item">ISSUED: {formatIssuedUtc(fetchedAt)}</span>
       <span className="wx-prov-sep">·</span>
       <span className="wx-prov-item">UPDATED: {formatAge(fetchedAt)}</span>
+      {currentHaze?.hazy && (
+        <>
+          <span className="wx-prov-sep">·</span>
+          <span className="wx-prov-item">LIVE HAZE: WORLD AIR QUALITY INDEX PROJECT (WAQI.INFO)</span>
+        </>
+      )}
     </div>
   )
 }

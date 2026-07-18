@@ -1,12 +1,17 @@
 """Weather provider health monitor.
 
 A tiny zip Lambda (just apps/provider_health — boto3 comes from the runtime, no
-rasterio/GDAL) on a 5-minute EventBridge schedule. It polls Open-Meteo and 7Timer
-independently, writes UP/DOWN + latency to its own DynamoDB table, and emits
-CloudWatch EMF metrics (ProviderUp, HTTPVerificationLatency, DynamoDBWriteFailure)
-so SRE alarms can fire on sustained outage or a missed execution, decoupled from
-user traffic.
+rasterio/GDAL) on a 5-minute EventBridge schedule. It polls Open-Meteo, 7Timer,
+NOAA SWPC, and WAQI (when AQICN_TOKEN is configured) independently, writes
+UP/DOWN + latency to its own DynamoDB table, and emits CloudWatch EMF metrics
+(ProviderUp, HTTPVerificationLatency, DynamoDBWriteFailure) so SRE alarms can
+fire on sustained outage or a missed execution, decoupled from user traffic.
+
+Celestrak is deliberately NOT in this list — it has specific access-timing
+expectations and will shut off a client that polls it too regularly; a 5-min
+synthetic check would put this app's real TLE access at risk.
 """
+import os
 import pathlib
 import shutil
 
@@ -27,7 +32,10 @@ from constructs import Construct
 
 _REPO = pathlib.Path(__file__).resolve().parents[1]
 _NAMESPACE = "PyNightSky/WeatherProviders"
-_PROVIDERS = ["open-meteo", "7timer"]
+_AQICN_TOKEN = os.environ.get("AQICN_TOKEN", "")
+_PROVIDERS = ["open-meteo", "7timer", "swpc"]
+if _AQICN_TOKEN:
+    _PROVIDERS.append("waqi")
 
 
 def _stage_provider_health_code() -> str:
@@ -63,9 +71,12 @@ class ProviderHealthStack(Stack):
             architecture=lambda_.Architecture.ARM_64,
             handler="apps.provider_health.handler.handler",
             code=lambda_.Code.from_asset(_stage_provider_health_code()),
-            timeout=Duration.seconds(30),   # 2 providers x (4s timeout + 2s retry delay), in parallel
+            timeout=Duration.seconds(30),   # N providers x (4s timeout + 2s retry delay), in parallel
             memory_size=128,
-            environment={"PROVIDER_HEALTH_TABLE": table.table_name},
+            environment={
+                "PROVIDER_HEALTH_TABLE": table.table_name,
+                "AQICN_TOKEN": _AQICN_TOKEN,
+            },
             description="Polls weather providers every 5 min, writes UP/DOWN to DynamoDB.",
         )
         table.grant_write_data(fn)
