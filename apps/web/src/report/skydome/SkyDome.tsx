@@ -5,7 +5,8 @@ import { bestWindow, wxAtTime } from '../Targets'
 import { eqToAltAz } from './astro'
 import { loadCatalog } from './catalog'
 import { sqmFromBortle } from './model'
-import { SkyRenderer, FOV_HALF_DEG, type TickResult } from './render'
+import { buildGrainPoints, loadMwTexture } from './mwtex'
+import { SkyRenderer, FOV_HALF_DEG, F_SVG, type TickResult } from './render'
 
 // ── Realistic 360° sky dome ───────────────────────────────────────────────────
 // Canvas underlay (star field, Milky Way, moon disc + phase, light domes, haze,
@@ -13,7 +14,7 @@ import { SkyRenderer, FOV_HALF_DEG, type TickResult } from './render'
 // cardinal labels, and tooltips. The SVG keeps the original gnomonic projection
 // and heading/tilt drag behavior; the canvas mirrors it exactly.
 
-const F = 100 / Math.tan(FOV_HALF_DEG * Math.PI / 180)
+const F = F_SVG   // stereographic focal length, shared with the canvas renderer
 const toRad = (deg: number) => (deg * Math.PI) / 180
 
 // Static compass ribbon pinned to the bottom of the frame (viewBox y 110.5–119.5).
@@ -48,6 +49,8 @@ export function SkyDome({ summary, report }: {
   const [tilt, setTilt] = useState<number>(0)
   const [hover, setHover] = useState<Hover>(null)
   const [catState, setCatState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [mwReady, setMwReady] = useState(false)
+  const [stackW, setStackW] = useState(0)
   const [tickResult, setTickResult] = useState<TickResult | null>(null)
 
   const pointerRef = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean } | null>(null)
@@ -108,6 +111,7 @@ export function SkyDome({ summary, report }: {
       const rect = stack.getBoundingClientRect()
       if (rect.width < 4) return
       renderer.setSize(rect.width, rect.height, window.devicePixelRatio || 1)
+      setStackW(rect.width)
       requestDraw()
     }
     const ro = new ResizeObserver(resize)
@@ -132,6 +136,13 @@ export function SkyDome({ summary, report }: {
         console.warn('sky dome: star catalog failed to load', err)
         if (alive) setCatState('error')
       })
+    loadMwTexture()
+      .then(tex => {
+        if (!alive) return
+        renderer.setMwTexture(tex, buildGrainPoints(tex))
+        setMwReady(true)   // re-tick so band/grain get this tick's dimming
+      })
+      .catch(err => console.warn('sky dome: milky way texture failed to load', err))
 
     return () => {
       alive = false
@@ -179,7 +190,7 @@ export function SkyDome({ summary, report }: {
       setTickResult(ren.tick(params))
       ren.render()
     })
-  }, [report, timeMs, cloudFrac, aod, catState])
+  }, [report, timeMs, cloudFrac, aod, catState, mwReady])
   useEffect(() => () => {
     if (tickRafRef.current) cancelAnimationFrame(tickRafRef.current)
     tickRafRef.current = 0
@@ -191,7 +202,7 @@ export function SkyDome({ summary, report }: {
     requestDraw()
   }, [heading, tilt, requestDraw])
 
-  // ── Gnomonic projection in SVG viewBox units (identical to the canvas) ──────
+  // ── Stereographic projection in SVG viewBox units (identical to the canvas) ─
   const project = useCallback((alt: number, az: number) => {
     const altR = toRad(alt)
     const azR = toRad(az - heading)
@@ -201,10 +212,29 @@ export function SkyDome({ summary, report }: {
     const dy = sinAlt * Math.cos(tiltR) - cosAlt * Math.cos(azR) * Math.sin(tiltR)
     const dz = cosAlt * Math.cos(azR) * Math.cos(tiltR) + sinAlt * Math.sin(tiltR)
     if (dz <= 0) return { x: 100, y: 100, isFront: false }
-    return { x: 100 + F * (dx / dz), y: 100 - F * (dy / dz), isFront: true }
+    const k = (2 * F) / (1 + dz)
+    return { x: 100 + k * dx, y: 100 - k * dy, isFront: true }
   }, [heading, tilt])
 
-  const horizonY = Math.min(120, 100 + F * Math.tan(toRad(tilt)))
+  // Horizon at the frame center. Stereographic maps the horizon great circle
+  // to an ARC that bows up toward the frame edges when tilted, so the ground,
+  // clip region, and horizon line are drawn from sampled points instead of a
+  // straight rect (the center value still anchors soft checks).
+  const horizonY = Math.min(120, 100 + 2 * F * Math.tan(toRad(tilt) / 2))
+  const horizonArc = (() => {
+    const pts: { x: number; y: number }[] = []
+    for (let dAz = -80; dAz <= 80; dAz += 4) {
+      const p = project(0, heading + dAz)
+      if (p.isFront) pts.push({ x: p.x, y: p.y })
+    }
+    const str = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    return {
+      line: str.join(' '),
+      ground: `${str.join(' ')} 250,140 -50,140`,
+      sky: `-50,-50 250,-50 ${[...str].reverse().join(' ')}`,
+      visible: pts.some(p => p.y < 121),
+    }
+  })()
 
   // ── Drag interaction (pointer + native iOS touch) ───────────────────────────
   useEffect(() => {
@@ -341,7 +371,7 @@ export function SkyDome({ summary, report }: {
     while (rel <= -180) rel += 360
     while (rel > 180) rel -= 360
     if (Math.abs(rel) >= 80) return
-    const x = 100 + F * Math.tan(toRad(rel))
+    const x = 100 + 2 * F * Math.tan(toRad(rel) / 2)
     if (x < 14 || x > 186) return
     ribbonMarks.push({ x, kind, label })
   }
@@ -413,14 +443,14 @@ export function SkyDome({ summary, report }: {
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
         >
-          {horizonY < 120 && (
-            <rect className="mw-dome-ground" x="0" y={horizonY} width="200" height={120 - horizonY} />
+          {horizonArc.visible && (
+            <polygon className="mw-dome-ground" points={horizonArc.ground} />
           )}
 
           <g clipPath="url(#sky-half-dome-clip)">
             <defs>
               <clipPath id="sky-half-dome-clip">
-                <rect x="0" y="0" width="200" height={horizonY} />
+                <polygon points={horizonArc.sky} />
               </clipPath>
             </defs>
             {ringPolylines.map(ring => ring.points && (
@@ -481,8 +511,8 @@ export function SkyDome({ summary, report }: {
             )
           })()}
 
-          {horizonY < 120 && (
-            <line className="mw-dome-horizon" x1="0" y1={horizonY} x2="200" y2={horizonY} />
+          {horizonArc.visible && (
+            <polyline className="mw-dome-horizon" points={horizonArc.line} fill="none" />
           )}
           <rect className="mw-dome-frame" x="10.5" y="0.5" width="179" height="119" fill="none" />
 
@@ -504,14 +534,26 @@ export function SkyDome({ summary, report }: {
             ))}
           </g>
 
-          {hover && (
-            <foreignObject x={Math.min(115, Math.max(15, hover.x - 37.5))} y={Math.max(1, hover.y - 12 - hover.lines.length * 8)}
-              width="105" height={6 + hover.lines.length * 9} pointerEvents="none">
-              <div className="sky-tooltip">
-                {hover.lines.map((l, i) => <div key={i}>{l}</div>)}
-              </div>
-            </foreignObject>
-          )}
+          {hover && (() => {
+            // The tooltip lives in SVG user units, so its CSS font scales with
+            // the rendered card width (units × width/180). Counter-scale above
+            // the mobile cap (420px, where 5.5px units ≈ 13px on screen) so
+            // the on-screen size stays constant on desktop-width cards. The
+            // scaling is pure layout (font/padding/border via --tip-scale in
+            // the stylesheet) — a CSS transform inside foreignObject renders
+            // blank in Safari.
+            const tipScale = stackW > 420 ? 420 / stackW : 1
+            return (
+              <foreignObject x={Math.min(115, Math.max(15, hover.x - 37.5))}
+                y={Math.max(1, hover.y - (12 + hover.lines.length * 8) * tipScale)}
+                width="105" height={6 + hover.lines.length * 9} pointerEvents="none">
+                <div className="sky-tooltip"
+                  style={{ '--tip-scale': tipScale } as React.CSSProperties}>
+                  {hover.lines.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+              </foreignObject>
+            )
+          })()}
         </svg>
       </div>
 

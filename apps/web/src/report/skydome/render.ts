@@ -2,33 +2,63 @@
 //
 // Two-stage pipeline:
 //   tick(time+conditions)  — per scrub step: horizontal ENU unit vectors for
-//     every star/MW sample (typed arrays, 2 trig calls each), per-star dimming
-//     (extinction, light dome, moon, twilight, clouds) and the visible count.
+//     every star/grain point (typed arrays, 2 trig calls each), per-star
+//     dimming (extinction, light dome, moon, twilight, clouds), the visible
+//     count, and the ENU→galactic/ecliptic frame matrices for the band pass.
 //   render()               — per view frame: camera basis from heading/tilt,
 //     3 dot products + gnomonic projection per point, draws batched by color
-//     bin. Diffuse light (sky gradient, dome glows, MW band, moon halo, haze,
-//     cloud veil) renders on a 1/3-resolution offscreen canvas scaled up.
+//     bin. Diffuse light (sky gradient, dome glows, moon halo, haze, cloud
+//     veil) renders on a 1/3-resolution offscreen canvas scaled up; the Milky
+//     Way band + zodiacal light render per-pixel from the real-sky texture
+//     (mwtex.ts) on a 1/6-resolution layer composited into the diffuse canvas.
 //
 // The projection is IDENTICAL to the SVG overlay's project() in SkyDome.tsx:
-// gnomonic, f = 100/tan(60°) in the 180×120 viewBox space, center (100, 100).
+// stereographic (R = 2f·tan(θ/2)) in the 180×120 viewBox space, center
+// (100, 100). Stereographic is conformal — constellation shapes stay true
+// across the whole 130° frame (gnomonic stretched them 2:1 at the edges) —
+// at the cost of great circles (horizon, band) rendering as gentle arcs.
 
 import type { LightDomeSummary } from '../../types'
 import { ldTent, LD_DIR_AZ, LD_DIRS } from '../glow'
-import { lstRad, sunState, moonState, type MoonState } from './astro'
+import {
+  enuToEclMatrix, enuToGalMatrix, lstRad, sunState, moonState, type MoonState,
+} from './astro'
 import type { StarCatalog } from './catalog'
 import { COLOR_BINS } from './catalog'
 import {
-  airmass, buildMwSamples, domeScores8, extinctionCoeff, moonPenaltyMag,
-  nelmFromSqm, rgb, skyBackground, starAlpha, starRadius,
-  twilightPenaltyMag, type MwSamples,
+  airmass, domeGlowColor, domeScores8, extinctionCoeff, grainDarknessFactor,
+  moonPenaltyMag, MW_GAIN, mwLpFactor, nelmFromSqm, rgb, skyBackground,
+  starAlpha, starRadius, twilightPenaltyMag, zodiacalBrightness, zodiacalGate,
   STAR_COLORS, STAR_COLORS_FAINT, FAINT_COLOR_MARGIN,
 } from './model'
+import { MW_B_MAX, type GrainPoints, type MwTexture } from './mwtex'
 
 const DEG = Math.PI / 180
-/** Half of the nominal field of view — single source of truth shared with the
- *  SVG overlay (SkyDome.tsx) so canvas and markers project identically. */
+const LN10_04 = 0.4 * Math.LN10          // 10^(−0.4·dm) = e^(−LN10_04·dm)
+/** The band/zodiacal layer renders at 1/this of full canvas resolution. */
+const MW_RES_DIV = 8
+/** Zodiacal cone gain: canvas luma at zodiacalBrightness = 1 and zero dimming.
+ *  Tuned so the cone reads as the "false dawn" wedge at a dark site — clearly
+ *  present near the horizon, fading out by ~60° elongation. */
+const ZL_GAIN = 150
+/** Peak grain-point alpha (texture luma 1, dark site, zenith). */
+const GRAIN_ALPHA = 0.45
+/** Directional dome-glow index cap for magnitude math. The raw Walker index is
+ *  unbounded (downtown cores reach thousands) but the Δm mapping is calibrated
+ *  for the badge scale (LD_MAJOR = 3 ⇒ ~2.6 mag near the horizon); site-wide
+ *  brightness beyond that is already carried by the SQM-driven NELM. */
+const LD_GLOW_CAP = 3
+/** Half of the field of view at the frame's side edges — single source of
+ *  truth shared with the SVG overlay (SkyDome.tsx) so canvas and markers
+ *  project identically. */
 export const FOV_HALF_DEG = 65
-const F_SVG = 100 / Math.tan(FOV_HALF_DEG * DEG)   // focal length in SVG units (viewBox 180×120)
+/** Stereographic focal length in SVG units: the visible half-width (90 of the
+ *  180×120 viewBox) maps to FOV_HALF_DEG via R = 2f·tan(θ/2). */
+export const F_SVG = 90 / (2 * Math.tan((FOV_HALF_DEG / 2) * DEG))
+/** Mean lunar angular radius (rad) × display boost. 1× would be a ~2px dot;
+ *  3× keeps the disc findable while staying near-true to the sky. */
+const MOON_ANG_RADIUS = 0.00454
+const MOON_SIZE_BOOST = 3
 
 export interface SkyStatics {
   lat: number
@@ -57,8 +87,11 @@ export class SkyRenderer {
   private diffuse: HTMLCanvasElement
   private dctx: CanvasRenderingContext2D
   private haloSprite: HTMLCanvasElement
-  private mwSpriteCool: HTMLCanvasElement
-  private mwSpriteWarm: HTMLCanvasElement
+  private mwCanvas: HTMLCanvasElement
+  private mwCtx: CanvasRenderingContext2D
+  private mwImage: ImageData | null = null
+  private noiseCanvas: HTMLCanvasElement
+  private noisePattern: CanvasPattern | null = null
 
   private W = 0
   private H = 0
@@ -66,15 +99,15 @@ export class SkyRenderer {
 
   private statics: SkyStatics | null = null
   private catalog: StarCatalog | null = null
-  private mw: MwSamples = buildMwSamples()
+  private mwTex: MwTexture | null = null
+  private grain: GrainPoints | null = null
 
   // Per-tick state
   private sE!: Float32Array; private sN!: Float32Array; private sU!: Float32Array
   private sAlpha!: Float32Array
-  private mwE = new Float32Array(this.mw.n)
-  private mwN = new Float32Array(this.mw.n)
-  private mwU = new Float32Array(this.mw.n)
-  private mwAlpha = new Float32Array(this.mw.n)
+  private gE!: Float32Array; private gN!: Float32Array; private gU!: Float32Array
+  private gAlpha!: Float32Array
+  private grainOn = false
   private moon: MoonState | null = null
   private sunAltDeg = -90
   private sunAzDeg = 0
@@ -82,6 +115,16 @@ export class SkyRenderer {
   private aod: number | null = null
   private magStopBound = 7
   private globalLim = 6.5
+  // Cached per-tick inputs for the per-pixel band/zodiacal pass (drawMwLayer)
+  private mGal: number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  private mEcl: number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  private glowLut = new Float32Array(512)
+  private scores8: number[] = new Array(8).fill(0)
+  private extK = 0.27
+  private bandScale = 0
+  private zodScale = 0
+  private sunEclCos = 1
+  private sunEclSin = 0
 
   // View
   private headingDeg = 180
@@ -92,11 +135,10 @@ export class SkyRenderer {
     this.ctx = canvas.getContext('2d')!
     this.diffuse = document.createElement('canvas')
     this.dctx = this.diffuse.getContext('2d')!
+    this.mwCanvas = document.createElement('canvas')
+    this.mwCtx = this.mwCanvas.getContext('2d')!
     this.haloSprite = makeRadialSprite(32, 'rgba(255,255,255,0.55)')
-    // Two-tone band (see the Mellinger-style panorama reference): cool silver
-    // along the outer disk, warm cream near the bulge.
-    this.mwSpriteCool = makeRadialSprite(64, 'rgba(186,196,216,0.85)')
-    this.mwSpriteWarm = makeRadialSprite(64, 'rgba(228,212,184,0.85)')
+    this.noiseCanvas = makeNoiseCanvas(128)
   }
 
   setSize(cssW: number, cssH: number, dpr: number) {
@@ -107,9 +149,22 @@ export class SkyRenderer {
     if (this.canvas.height !== this.H) this.canvas.height = this.H
     this.diffuse.width = Math.max(1, Math.round(this.W / 3))
     this.diffuse.height = Math.max(1, Math.round(this.H / 3))
+    this.mwCanvas.width = Math.max(1, Math.round(this.W / MW_RES_DIV))
+    this.mwCanvas.height = Math.max(1, Math.round(this.H / MW_RES_DIV))
+    this.mwImage = null   // re-allocated lazily at the new size
   }
 
   setStatics(s: SkyStatics) { this.statics = s }
+
+  setMwTexture(tex: MwTexture, grain: GrainPoints) {
+    this.mwTex = tex
+    this.grain = grain
+    this.gE = new Float32Array(grain.n)
+    this.gN = new Float32Array(grain.n)
+    this.gU = new Float32Array(grain.n)
+    this.gAlpha = new Float32Array(grain.n)
+    this.grainOn = false
+  }
 
   private labelIdx = new Set<number>()
 
@@ -160,6 +215,8 @@ export class SkyRenderer {
     this.globalLim = globalLim
     this.magStopBound = globalLim   // Δm_ext, Δm_ld ≥ 0 ⇒ nothing fainter can show
     const scores8 = domeScores8(s.lightDome)
+    this.scores8 = scores8
+    this.extK = k
     // Uniform veil: star visibility scales with the clear-sky fraction and
     // reaches exactly 0 at full overcast — nothing shines through 100% cloud.
     const starCloudDim = Math.pow(Math.max(0, 1 - cloudFrac), 1.3)
@@ -178,7 +235,7 @@ export class SkyRenderer {
         this.sE[i] = E; this.sN[i] = N; this.sU[i] = U
         const altDeg = Math.asin(Math.min(1, U)) / DEG
         const azDeg = (Math.atan2(E, N) / DEG + 360) % 360
-        const glow = ldTent(scores8, azDeg) / (1 + (altDeg / 40) ** 2)
+        const glow = Math.min(LD_GLOW_CAP, ldTent(scores8, azDeg)) / (1 + (altDeg / 40) ** 2)
         const dmLd = 0.8686 * glow
         const dmExt = k * (airmass(U) - 1)
         const margin = globalLim - dmLd - dmExt - mag[i]
@@ -188,22 +245,40 @@ export class SkyRenderer {
       }
     }
 
-    // MW band samples: brightness = weight × 10^(−0.4·(Δm_ld + moon + twilight)),
-    // the same magnitude→brightness mapping as washoutFactor, killed fast by cloud.
+    // Band + zodiacal layer inputs: frame matrices and global brightness scales.
+    // Per-direction dimming (light dome, extinction) happens per pixel in
+    // drawMwLayer; everything global — moon, twilight, LP washout, cloud —
+    // folds into one scale here (same 10^(−0.4·Δm) mapping as washoutFactor).
     const mwCloud = Math.pow(Math.max(0, 1 - cloudFrac), 1.5)
-    for (let i = 0; i < this.mw.n; i++) {
-      const ha = lst - this.mw.raRad[i]
-      const cosHa = Math.cos(ha)
-      const U = this.mw.sinDec[i] * sinLat + this.mw.cosDec[i] * cosLat * cosHa
-      if (U <= -0.05) { this.mwAlpha[i] = 0; continue }
-      const E = -this.mw.cosDec[i] * Math.sin(ha)
-      const N = this.mw.sinDec[i] * cosLat - this.mw.cosDec[i] * sinLat * cosHa
-      this.mwE[i] = E; this.mwN[i] = N; this.mwU[i] = U
-      const altDeg = Math.asin(Math.max(-1, Math.min(1, U))) / DEG
-      const azDeg = (Math.atan2(E, N) / DEG + 360) % 360
-      const glow = ldTent(scores8, azDeg) / (1 + (Math.max(0, altDeg) / 40) ** 2)
-      const dm = 0.8686 * glow + moonPen + twPen
-      this.mwAlpha[i] = this.mw.weight[i] * Math.pow(10, -0.4 * dm) * mwCloud
+    this.mGal = enuToGalMatrix(s.lat, lst)
+    this.mEcl = enuToEclMatrix(s.lat, lst, utcMs)
+    this.bandScale = (MW_GAIN / 255) * mwLpFactor(s.sqm)
+      * Math.exp(-LN10_04 * (moonPen + twPen)) * mwCloud
+    this.zodScale = ZL_GAIN * zodiacalGate(s.sqm, sun.alt, moonPen) * mwCloud
+    const sunLamRad = sun.eclipticLonDeg * DEG
+    this.sunEclCos = Math.cos(sunLamRad)
+    this.sunEclSin = Math.sin(sunLamRad)
+
+    // Grain points: unresolved starlight along the band. Same per-point math as
+    // catalog stars, but alpha-scaled by texture luma and gated on darkness.
+    const grain = this.grain
+    const gFac = grainDarknessFactor(globalLim) * starCloudDim
+    this.grainOn = !!grain && gFac > 0.02
+    if (grain && this.grainOn) {
+      for (let i = 0; i < grain.n; i++) {
+        const ha = lst - grain.raRad[i]
+        const cosHa = Math.cos(ha)
+        const U = grain.sinDec[i] * sinLat + grain.cosDec[i] * cosLat * cosHa
+        if (U <= 0) { this.gAlpha[i] = 0; continue }
+        const E = -grain.cosDec[i] * Math.sin(ha)
+        const N = grain.sinDec[i] * cosLat - grain.cosDec[i] * sinLat * cosHa
+        this.gE[i] = E; this.gN[i] = N; this.gU[i] = U
+        const altDeg = Math.asin(Math.min(1, U)) / DEG
+        const azDeg = (Math.atan2(E, N) / DEG + 360) % 360
+        const glow = Math.min(LD_GLOW_CAP, ldTent(scores8, azDeg)) / (1 + (altDeg / 40) ** 2)
+        const dm = 0.8686 * glow + k * (airmass(U) - 1)
+        this.gAlpha[i] = GRAIN_ALPHA * grain.w[i] * Math.exp(-LN10_04 * dm) * gFac
+      }
     }
 
     return {
@@ -214,7 +289,7 @@ export class SkyRenderer {
     }
   }
 
-  /** Gnomonic projection in device pixels; matches the SVG overlay exactly. */
+  /** Stereographic projection in device pixels; matches the SVG overlay exactly. */
   private camera() {
     const h = this.headingDeg * DEG
     const t = this.tiltDeg * DEG
@@ -238,11 +313,12 @@ export class SkyRenderer {
     const U = Math.sin(alt)
     const dz = E * cam.fx + N * cam.fy + U * cam.fz
     if (dz <= 0.001) return null
+    const k = (2 * cam.F) / (1 + dz)
     const dx = E * cam.rx + N * cam.ry + U * cam.rz
     const dy = E * cam.ux + N * cam.uy + U * cam.uz
     return {
-      x: (cam.cx + cam.F * (dx / dz)) * scale,
-      y: (cam.cy - cam.F * (dy / dz)) * scale,
+      x: (cam.cx + k * dx) * scale,
+      y: (cam.cy - k * dy) * scale,
     }
   }
 
@@ -255,6 +331,16 @@ export class SkyRenderer {
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, this.W, this.H)
     ctx.drawImage(this.diffuse, 0, 0, this.W, this.H)
+    // Full-res noise at ~2% alpha: dithers away Mach banding in the smooth
+    // upscaled gradients and reads as faint sensor grain, not a pattern.
+    if (!this.noisePattern) this.noisePattern = ctx.createPattern(this.noiseCanvas, 'repeat')
+    if (this.noisePattern) {
+      ctx.globalAlpha = 0.02
+      ctx.fillStyle = this.noisePattern
+      ctx.fillRect(0, 0, this.W, this.H)
+      ctx.globalAlpha = 1
+    }
+    this.drawGrain(cam)
     this.drawStars(cam)
     this.drawMoon(cam)
     ctx.globalAlpha = 1
@@ -266,7 +352,9 @@ export class SkyRenderer {
     const s = this.statics!
     const w = this.diffuse.width, h = this.diffuse.height
     const scale = w / this.W
-    const horizonY = (cam.cy + cam.F * Math.tan(this.tiltDeg * DEG)) * scale
+    // Center-of-frame horizon (stereographic R = 2F·tan(θ/2)); the soft
+    // gradients anchored here don't need the horizon's edge curvature.
+    const horizonY = (cam.cy + 2 * cam.F * Math.tan(this.tiltDeg * DEG / 2)) * scale
 
     d.globalCompositeOperation = 'source-over'
     d.globalAlpha = 1
@@ -280,41 +368,40 @@ export class SkyRenderer {
     d.fillRect(0, 0, w, h)
 
     // 2. Light-dome glows: warm radial gradients anchored just above the horizon.
+    // Scores are the raw (unbounded) Walker-kernel index — downtown cores reach
+    // the thousands — so both radius and opacity must saturate: the sky
+    // background gradient carries overall urban brightness, and the glows keep
+    // a horizon-weighted falloff instead of flooding the frame to one color.
     if (s.lightDome) {
       const cloudBoost = 1 + 0.6 * this.cloudFrac   // clouds reflect city light
+      const tint = domeGlowColor(s.sqm)
       for (const dir of LD_DIRS) {
         const score = s.lightDome.scores[dir] ?? 0
         if (score < 0.03) continue
         const pos = this.projectAltAz(cam, 3, LD_DIR_AZ[dir], scale)
         if (!pos) continue
-        const r = (30 + 18 * Math.log1p(score)) / 200 * w * 1.9
-        const op = Math.min(0.55, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
+        const r = Math.min(0.7 * w, (30 + 18 * Math.log1p(score)) / 200 * w * 1.9)
+        const op = Math.min(0.34, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
         const g = d.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r)
-        g.addColorStop(0, `rgba(255,190,110,${op})`)
-        g.addColorStop(0.4, `rgba(255,170,90,${op * 0.45})`)
-        g.addColorStop(1, 'rgba(255,170,90,0)')
+        g.addColorStop(0, rgb(tint.inner, op))
+        g.addColorStop(0.4, rgb(tint.outer, op * 0.45))
+        g.addColorStop(1, rgb(tint.outer, 0))
         d.fillStyle = g
         d.fillRect(pos.x - r, pos.y - r, 2 * r, 2 * r)
       }
     }
 
-    // 3. Milky Way band: additive soft blobs.
-    d.globalCompositeOperation = 'lighter'
-    const mwR = Math.max(6, w * 0.085)
-    for (let i = 0; i < this.mw.n; i++) {
-      const a = this.mwAlpha[i]
-      if (a < 0.004) continue
-      const dz = this.mwE[i] * cam.fx + this.mwN[i] * cam.fy + this.mwU[i] * cam.fz
-      if (dz <= 0.01) continue
-      const x = (cam.cx + cam.F * ((this.mwE[i] * cam.rx + this.mwN[i] * cam.ry) / dz)) * scale
-      const y = (cam.cy - cam.F * ((this.mwE[i] * cam.ux + this.mwN[i] * cam.uy + this.mwU[i] * cam.uz) / dz)) * scale
-      if (x < -mwR || x > w + mwR || y < -mwR || y > h + mwR) continue
-      const r = mwR * (0.7 + 0.6 * this.mw.weight[i])
-      d.globalAlpha = Math.min(0.24, 0.065 * a)
-      const sprite = this.mw.warmth[i] > 0.45 ? this.mwSpriteWarm : this.mwSpriteCool
-      d.drawImage(sprite, x - r, y - r, 2 * r, 2 * r)
+    // 3. Milky Way band + zodiacal light: per-pixel sky-texture layer rendered
+    // at 1/MW_RES_DIV resolution, composited additively with a slight blur so
+    // the upscale stays soft (the grain pass supplies high-frequency detail).
+    if ((this.mwTex && this.bandScale > 0.001) || this.zodScale > 0.01) {
+      this.drawMwLayer(cam)
+      // The 1/8→1/3 smoothed upscale is blur enough; ctx.filter would cost
+      // several ms of software convolution per frame.
+      d.globalCompositeOperation = 'lighter'
+      d.drawImage(this.mwCanvas, 0, 0, w, h)
+      d.globalCompositeOperation = 'source-over'
     }
-    d.globalAlpha = 1
 
     // 4. Moon halo (drawn before haze/clouds so they sit in front of it).
     // Fades with cloud cover — fully hidden behind a 100% overcast deck.
@@ -324,7 +411,9 @@ export class SkyRenderer {
       if (pos) {
         const illum = s.illumPct / 100
         const aod = this.aod ?? 0.10
-        const r = (20 + 60 * illum) * (1 + 2 * aod) * (w / 420)
+        // Aureole radius in angular terms: ~2.5° crescent → ~8° full moon,
+        // swelling with aerosols (cam.F ≈ px per radian at frame center).
+        const r = cam.F * (0.04 + 0.10 * illum) * (1 + 2 * aod) * scale
         const op = Math.min(0.5, 0.10 + 0.45 * illum) * (1 - this.cloudFrac)
         const g = d.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r)
         g.addColorStop(0, `rgba(210,222,250,${op})`)
@@ -361,6 +450,148 @@ export class SkyRenderer {
     }
   }
 
+  // ── Milky Way band + zodiacal light: per-pixel ray pass at 1/6 resolution ────
+  // For every pixel of the small layer: unproject to an ENU unit ray, rotate it
+  // into galactic coordinates for a bilinear band-texture sample and into
+  // ecliptic coordinates for the zodiacal cone, then apply the per-direction
+  // dimming (light-dome tent + airmass extinction — global terms were already
+  // folded into bandScale/zodScale at tick time).
+  private drawMwLayer(cam: ReturnType<SkyRenderer['camera']>) {
+    const mc = this.mwCanvas
+    const w = mc.width, h = mc.height
+    if (!this.mwImage) this.mwImage = this.mwCtx.createImageData(w, h)
+    const px = this.mwImage.data
+    px.fill(0)
+
+    const tex = this.mwTex
+    const bandOn = !!tex && this.bandScale > 0.001
+    const zodOn = this.zodScale > 0.01
+    const scale = w / this.W
+    const cx = cam.cx * scale, cy = cam.cy * scale, F = cam.F * scale
+    const m = this.mGal, me = this.mEcl
+    const k = this.extK
+    const bandScale = this.bandScale, zodScale = this.zodScale
+    const sunC = this.sunEclCos, sunS = this.sunEclSin
+
+    // Light-dome glow by azimuth, tabulated once per frame (the per-pixel tent
+    // interpolation + degree conversion was a measurable chunk of the loop).
+    const GLOW_N = 512
+    const glowLut = this.glowLut
+    for (let i = 0; i < GLOW_N; i++) {
+      glowLut[i] = Math.min(LD_GLOW_CAP, ldTent(this.scores8, (i * 360) / GLOW_N))
+    }
+    const AZ_TO_LUT = GLOW_N / (2 * Math.PI)
+    const SIN_BMAX = Math.sin(MW_B_MAX * DEG)
+    const COS_ELONG_MIN = -0.26     // ε ≳ 105°: zodiacal contribution < 1 luma
+
+    for (let py = 0; py < h; py++) {
+      // Inverse stereographic: with X,Y in units of 2F, the unit camera-space
+      // ray is (2X, 2Y, 1−r²)/(1+r²) — exact and sqrt-free.
+      const Y = (cy - (py + 0.5)) / (2 * F)
+      for (let ix = 0; ix < w; ix++) {
+        const X = (ix + 0.5 - cx) / (2 * F)
+        const r2 = X * X + Y * Y
+        const inv = 1 / (1 + r2)
+        const lx = 2 * X * inv, ly = 2 * Y * inv, lz = (1 - r2) * inv
+        const E = lx * cam.rx + ly * cam.ux + lz * cam.fx
+        const N = lx * cam.ry + ly * cam.uy + lz * cam.fy
+        const U = ly * cam.uz + lz * cam.fz            // cam.rz === 0
+        if (U < 0) continue                            // below the horizon
+
+        // altDeg ≈ asin(U) in degrees (5th-order series; < 0.5° error at 60°,
+        // only shapes the glow-vs-altitude falloff so that's plenty).
+        const altDeg = U * (1 + U * U * (0.1667 + 0.075 * U * U)) * 57.29578
+        let az = Math.atan2(E, N) * AZ_TO_LUT
+        if (az < 0) az += GLOW_N
+        const glow = glowLut[az | 0] / (1 + (altDeg / 40) ** 2)
+        const att = Math.exp(-LN10_04 * (0.8686 * glow + k * (airmass(U) - 1)))
+        if (att < 0.02) continue
+
+        let r = 0, g = 0, b = 0
+        if (bandOn && tex) {
+          const gz = m[6] * E + m[7] * N + m[8] * U
+          if (gz > -SIN_BMAX && gz < SIN_BMAX) {
+            const bDeg = Math.asin(gz) / DEG
+            const gx = m[0] * E + m[1] * N + m[2] * U
+            const gy = m[3] * E + m[4] * N + m[5] * U
+            const lDeg = (Math.atan2(gy, gx) / DEG + 360) % 360
+            const { w: tw, h: th, data: td } = tex
+            // Bilinear sample: wrap in longitude, clamp in latitude.
+            const xf = (lDeg / 360) * tw - 0.5
+            let x0 = Math.floor(xf)
+            const fx = xf - x0
+            x0 = ((x0 % tw) + tw) % tw
+            const x1 = x0 + 1 === tw ? 0 : x0 + 1
+            const yf = Math.min(th - 1, Math.max(0, ((MW_B_MAX - bDeg) / (2 * MW_B_MAX)) * th - 0.5))
+            const y0 = Math.floor(yf)
+            const fy = yf - y0
+            const y1 = Math.min(th - 1, y0 + 1)
+            const i00 = (y0 * tw + x0) << 2, i10 = (y0 * tw + x1) << 2
+            const i01 = (y1 * tw + x0) << 2, i11 = (y1 * tw + x1) << 2
+            const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy)
+            const w01 = (1 - fx) * fy, w11 = fx * fy
+            const s = bandScale * att
+            r += (td[i00] * w00 + td[i10] * w10 + td[i01] * w01 + td[i11] * w11) * s
+            g += (td[i00 + 1] * w00 + td[i10 + 1] * w10 + td[i01 + 1] * w01 + td[i11 + 1] * w11) * s
+            b += (td[i00 + 2] * w00 + td[i10 + 2] * w10 + td[i01 + 2] * w01 + td[i11 + 2] * w11) * s
+          }
+        }
+        if (zodOn) {
+          const ex = me[0] * E + me[1] * N + me[2] * U
+          const ey = me[3] * E + me[4] * N + me[5] * U
+          const cosElong = ex * sunC + ey * sunS
+          if (cosElong > COS_ELONG_MIN) {
+            const ez = me[6] * E + me[7] * N + me[8] * U
+            const betaDeg = Math.asin(Math.max(-1, Math.min(1, ez))) / DEG
+            const elongDeg = Math.acos(Math.min(1, cosElong)) / DEG
+            const zb = zodiacalBrightness(elongDeg, betaDeg) * zodScale * att
+            if (zb > 0.4) { r += zb; g += zb * 0.97; b += zb * 0.88 }   // warm white
+          }
+        }
+
+        if (r + g + b < 1.2) continue
+        // ±1-LSB ordered-ish dither so the smooth glow doesn't band at 8 bits.
+        let hsh = (ix * 374761393 + py * 668265263) | 0
+        hsh = Math.imul(hsh ^ (hsh >>> 13), 1274126177)
+        const dith = (((hsh >>> 16) & 255) / 255 - 0.5) * 2.4
+        const idx = (py * w + ix) << 2
+        px[idx] = r + dith
+        px[idx + 1] = g + dith
+        px[idx + 2] = b + dith
+        px[idx + 3] = 255
+      }
+    }
+    this.mwCtx.putImageData(this.mwImage, 0, 0)
+  }
+
+  // ── Unresolved-starlight grain: dim 1px points at full resolution ────────────
+  private drawGrain(cam: ReturnType<SkyRenderer['camera']>) {
+    const grain = this.grain
+    if (!grain || !this.grainOn) return
+    const ctx = this.ctx
+    const cssW = this.W / this.dpr
+    const rScale = this.dpr * Math.min(1.7, Math.max(0.75, Math.sqrt(cssW / 420)))
+    const s = Math.max(1, Math.round(0.8 * rScale))
+    const half = s / 2
+    const wLim = this.W + 2, hLim = this.H + 2
+    ctx.fillStyle = 'rgb(206,211,224)'
+    for (let i = 0; i < grain.n; i++) {
+      const a = this.gAlpha[i]
+      if (a <= 0.01) continue
+      const E = this.gE[i], N = this.gN[i], U = this.gU[i]
+      const dz = E * cam.fx + N * cam.fy + U * cam.fz
+      if (dz <= 0.001) continue
+      const k = (2 * cam.F) / (1 + dz)
+      const x = cam.cx + k * (E * cam.rx + N * cam.ry)
+      if (x < -2 || x > wLim) continue
+      const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
+      if (y < -2 || y > hLim) continue
+      ctx.globalAlpha = a
+      ctx.fillRect(x - half, y - half, s, s)
+    }
+    ctx.globalAlpha = 1
+  }
+
   // ── Point stars, batched by color bin (mag-ascending within each bin) ────────
   private drawStars(cam: ReturnType<SkyRenderer['camera']>) {
     const cat = this.catalog
@@ -388,9 +619,10 @@ export class SkyRenderer {
         const E = this.sE[i], N = this.sN[i], U = this.sU[i]
         const dz = E * cam.fx + N * cam.fy + U * cam.fz
         if (dz <= 0.001) continue
-        const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
+        const k = (2 * cam.F) / (1 + dz)
+        const x = cam.cx + k * (E * cam.rx + N * cam.ry)
         if (x < -4 || x > wLim) continue
-        const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
+        const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
         if (y < -4 || y > hLim) continue
         if (!faint && m > faintAt) {
           const fc = STAR_COLORS_FAINT[b]
@@ -426,8 +658,9 @@ export class SkyRenderer {
       const E = this.sE[i], N = this.sN[i], U = this.sU[i]
       const dz = E * cam.fx + N * cam.fy + U * cam.fz
       if (dz <= 0.001) continue
-      const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
-      const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
+      const k = (2 * cam.F) / (1 + dz)
+      const x = cam.cx + k * (E * cam.rx + N * cam.ry)
+      const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
       if (x < 0 || x > this.W || y < 0 || y > this.H) continue
       ctx.fillText(name.toUpperCase(), x + 3 * rScale, y + 1.8 * rScale)
     }
@@ -444,7 +677,8 @@ export class SkyRenderer {
     const pos = this.projectAltAz(cam, moon.alt, moon.az)
     if (!pos) return
     const ctx = this.ctx
-    const r = Math.max(5, this.W * 0.016)
+    // True-to-sky scale ×MOON_SIZE_BOOST (center-of-frame scale is cam.F px/rad).
+    const r = Math.max(4, cam.F * MOON_ANG_RADIUS * MOON_SIZE_BOOST)
 
     // Screen-space "toward zenith" at the moon's position.
     const upPos = this.projectAltAz(cam, Math.min(89.9, moon.alt + 2), moon.az)
@@ -492,6 +726,26 @@ export class SkyRenderer {
     ctx.fill()
     ctx.restore()
   }
+}
+
+/** Tiling grey-noise canvas for the anti-banding overlay (deterministic hash). */
+function makeNoiseCanvas(size: number): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const px = img.data
+  for (let i = 0; i < size * size; i++) {
+    let h = (i * 2654435761) | 0
+    h = Math.imul(h ^ (h >>> 15), 2246822519)
+    h = Math.imul(h ^ (h >>> 13), 3266489917)
+    const v = ((h ^ (h >>> 16)) >>> 24) & 255
+    const idx = i << 2
+    px[idx] = px[idx + 1] = px[idx + 2] = v
+    px[idx + 3] = 255
+  }
+  ctx.putImageData(img, 0, 0)
+  return c
 }
 
 /** Soft radial-gradient sprite (white core → transparent edge). */

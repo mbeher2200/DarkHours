@@ -17,8 +17,7 @@
 //                 sky background toward deep blue.
 
 import type { LightDomeSummary } from '../../types'
-import { LD_DIRS, archGlowAt, intrinsicBrightness } from '../glow'
-import { galToRaDec } from './astro'
+import { LD_DIRS, archGlowAt } from '../glow'
 
 export const CATALOG_LIMIT_MAG = 6.7
 
@@ -123,8 +122,10 @@ const mix3 = (a: number[], b: number[], t: number) =>
 
 const SKY_DARK_ZENITH = [4, 7, 16]      // pristine dark zenith
 const SKY_DARK_HORIZON = [10, 14, 26]   // natural airglow near the horizon
-const SKY_LP_ZENITH = [24, 30, 48]      // heavily light-polluted zenith
-const SKY_LP_HORIZON = [46, 52, 72]
+// Reference for the LP shades: stacked exposure from a Bortle ~7 suburb —
+// zenith stays near-black blue-grey (~13,18,26), horizon a muted steel.
+const SKY_LP_ZENITH = [15, 19, 28]      // heavily light-polluted zenith
+const SKY_LP_HORIZON = [36, 43, 55]
 const SKY_TWILIGHT = [38, 62, 110]      // deep twilight blue
 const SKY_CLOUD = [34, 38, 48]          // overcast grey
 
@@ -154,72 +155,69 @@ export function skyBackground(sqm: number, sunAltDeg: number, cloudFrac: number)
 export const rgb = (c: [number, number, number], a = 1) =>
   `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`
 
-// ── Milky Way band samples ────────────────────────────────────────────────────
-// Deterministic point cloud along the galactic plane: l every 2°, b ∈ {0,±2,±4,±7},
-// weight = intrinsicBrightness(l) × Gaussian(b) × Great Rift attenuation, with a
-// hash-jitter so the band doesn't read as a grid. ~1,260 samples, precomputed to
-// equatorial and reused across ticks exactly like catalog stars.
-
-export interface MwSamples {
-  n: number
-  raRad: Float32Array
-  sinDec: Float32Array
-  cosDec: Float32Array
-  weight: Float32Array
-  /** 0 = cool silvery disk, 1 = warm creamy bulge (peaks at the galactic core). */
-  warmth: Float32Array
-}
-
-/** Deterministic hash → [−1, 1). */
-function jitter(i: number, salt: number): number {
-  let h = (i * 374761393 + salt * 668265263) | 0
-  h = Math.imul(h ^ (h >>> 13), 1274126177)
-  return (((h ^ (h >>> 16)) >>> 0) / 4294967296) * 2 - 1
-}
-
-/** Great Rift: dust lane dimming the band from Aquila through the core.
- *  Strong attenuation — in wide-field panoramas the rift reads nearly black. */
-function riftFactor(l: number, b: number): number {
-  const inRiftL = l >= 320 || l <= 65
-  return inRiftL && b >= -5 && b <= 0.5 ? 0.18 : 1.0
-}
-
-const MW_B_STEPS = [0, 2, -2, 4, -4, 7, -7]
-
-export function buildMwSamples(): MwSamples {
-  const raList: number[] = []
-  const sinList: number[] = []
-  const cosList: number[] = []
-  const wList: number[] = []
-  const warmList: number[] = []
-  let i = 0
-  for (let l = 0; l < 360; l += 2) {
-    for (const b of MW_B_STEPS) {
-      i++
-      const lj = l + jitter(i, 17)
-      const bj = b + jitter(i, 31)
-      const w = intrinsicBrightness(lj)
-        * Math.exp(-(bj * bj) / (4.2 * 4.2))
-        * riftFactor(((lj % 360) + 360) % 360, bj)
-      if (w < 0.02) continue
-      const { raDeg, decDeg } = galToRaDec(lj, bj)
-      raList.push(raDeg * Math.PI / 180)
-      const dec = decDeg * Math.PI / 180
-      sinList.push(Math.sin(dec))
-      cosList.push(Math.cos(dec))
-      wList.push(w)
-      // Warm creamy tint near the bulge, cool silver along the outer disk.
-      const norm = ((lj % 360) + 360) % 360
-      const dl = Math.min(norm, 360 - norm)
-      warmList.push(Math.exp(-(dl * dl) / (55 * 55)))
-    }
-  }
+/**
+ * Horizon light-dome glow tint by site darkness. An isolated small-town dome
+ * seen from a dark site reads warm amber, but broad suburban/urban skyglow is
+ * a cool steel blue-grey (reference: stacked long exposure from a Bortle ~6–7
+ * suburb — shades run blue-grey to black, no amber). Cools from warm below
+ * ~SQM 21.3 to fully steel by ~18.8.
+ */
+export function domeGlowColor(sqm: number): {
+  inner: [number, number, number]
+  outer: [number, number, number]
+} {
+  const cool = Math.min(1, Math.max(0, (21.3 - sqm) / 2.5))
   return {
-    n: wList.length,
-    raRad: Float32Array.from(raList),
-    sinDec: Float32Array.from(sinList),
-    cosDec: Float32Array.from(cosList),
-    weight: Float32Array.from(wList),
-    warmth: Float32Array.from(warmList),
+    inner: mix3([255, 190, 110], [112, 128, 156], cool),
+    outer: mix3([255, 170, 90], [92, 108, 134], cool),
   }
+}
+
+// ── Milky Way band ────────────────────────────────────────────────────────────
+// The band itself is a real-sky texture (see mwtex.ts) rendered per-pixel in
+// render.ts; the models here are its brightness scalers.
+
+/** Texture luma 1.0 → this much canvas luma (0..255 units) at zero dimming. */
+export const MW_GAIN = 0.65 * 255
+
+/**
+ * Light-pollution washout of the band as a whole: the MW's ~21.5–22 mag/arcsec²
+ * surface brightness loses contrast against a bright sky background everywhere,
+ * not just inside horizon domes. 1 below SQM≈21, gone by SQM≈18.8.
+ */
+export function mwLpFactor(sqm: number): number {
+  return Math.min(1, Math.max(0, (sqm - 18.8) / 2.2))
+}
+
+/**
+ * Unresolved-starlight grain fades before the band does: 0 when the effective
+ * limiting magnitude drops to 5 (moonlight/LP/twilight), full by ~6.2.
+ */
+export function grainDarknessFactor(globalLim: number): number {
+  return Math.min(1, Math.max(0, (globalLim - 5) / 1.2))
+}
+
+// ── Zodiacal light ────────────────────────────────────────────────────────────
+// Tuned-for-visualization cone along the ecliptic: falls off exponentially with
+// elongation from the sun, Gaussian in ecliptic latitude with a width that
+// grows with elongation (narrow bright cone near the horizon, broad faint band
+// further out).
+
+/** Relative surface brightness 0..~0.5 from elongation/latitude in degrees. */
+export function zodiacalBrightness(elongDeg: number, betaDeg: number): number {
+  const e = Math.max(20, elongDeg)
+  const bw = 8 + 0.15 * e
+  return Math.pow(10, -e / 60) * Math.exp(-(betaDeg * betaDeg) / (bw * bw))
+}
+
+/**
+ * Visibility gate 0..1: needs a dark site (fades out toward urban SQM), full
+ * astronomical darkness (fades in as the sun sinks from −12° to −16°), and no
+ * significant moonlight.
+ */
+export function zodiacalGate(sqm: number, sunAltDeg: number, moonPen: number): number {
+  const dark = Math.min(1, Math.max(0, (sqm - 20.2) / 1.3))
+  const tw = Math.min(1, Math.max(0, (-sunAltDeg - 12) / 4))
+  const moon = Math.max(0, 1 - moonPen / 0.8)
+  return dark * tw * moon
 }

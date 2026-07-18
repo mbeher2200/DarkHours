@@ -34,6 +34,10 @@ This project was developed with substantial assistance from:
   - License: Public Domain (U.S. Government work — no restrictions on use)
 
 ### Astronomical Data
+- **ESO/S. Brunier Milky Way panorama (GigaGalaxy Zoom, eso0932a)**: all-sky galactic-coordinate panorama used to build the sky dome's Milky Way band texture (`apps/web/public/mw.v1.png`, via `scripts/build_mw_texture.py`)
+  - Credit: ESO/S. Brunier
+  - License: CC BY 4.0 (requires attribution)
+  - https://www.eso.org/public/images/eso0932a/
 - **JPL Ephemeris (DE421)**: NASA Jet Propulsion Laboratory
 - **HYG Star Database (v4.x)**: David Nash / Astronexus compilation of the Hipparcos, Yale Bright Star, and Gliese catalogs, used by `scripts/build_star_catalog.py` to build the web sky-dome star catalog (`apps/web/public/stars.v1.bin`)
   - https://github.com/astronexus/HYG-Database (now maintained at https://codeberg.org/astronexus/hyg)

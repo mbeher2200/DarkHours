@@ -138,6 +138,59 @@ export function moonState(latDeg: number, lonDeg: number, utcMs: number): MoonSt
   }
 }
 
+// ── Frame rotation matrices for the per-pixel band/zodiacal pass ──────────────
+// Row-major 3×3 matrices taking a horizontal ENU unit vector (E, N, U) into
+// another frame. Derived from the same spherical formulas as eqToAltAz: a star
+// at the zenith maps to (ra = lst, dec = lat), the east horizon point to
+// (ra = lst + 90°, dec = 0).
+
+/** ENU → equatorial (ICRS xyz, x toward ra=0/dec=0). */
+export function enuToEqMatrix(latDeg: number, lst: number): number[] {
+  const sinLat = Math.sin(toRad(latDeg)), cosLat = Math.cos(toRad(latDeg))
+  const sinLst = Math.sin(lst), cosLst = Math.cos(lst)
+  return [
+    -sinLst, -cosLst * sinLat, cosLst * cosLat,
+    cosLst, -sinLst * sinLat, sinLst * cosLat,
+    0, cosLat, sinLat,
+  ]
+}
+
+/** Row-major 3×3 product a·b. */
+function mul3(a: readonly number[], b: readonly number[]): number[] {
+  const out = new Array<number>(9)
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      out[3 * r + c] = a[3 * r] * b[c] + a[3 * r + 1] * b[3 + c] + a[3 * r + 2] * b[6 + c]
+    }
+  }
+  return out
+}
+
+/** ENU → galactic xyz (x toward l=0/b=0). */
+export function enuToGalMatrix(latDeg: number, lst: number): number[] {
+  // GAL_TO_ICRS is orthonormal, so its transpose is the ICRS→galactic rotation.
+  const R = GAL_TO_ICRS
+  const icrsToGal = [
+    R[0][0], R[1][0], R[2][0],
+    R[0][1], R[1][1], R[2][1],
+    R[0][2], R[1][2], R[2][2],
+  ]
+  return mul3(icrsToGal, enuToEqMatrix(latDeg, lst))
+}
+
+/** ENU → ecliptic-of-date xyz (x toward the March equinox). */
+export function enuToEclMatrix(latDeg: number, lst: number, utcMs: number): number[] {
+  const T = (utcMs / 86_400_000 + 2_440_587.5 - 2_451_545.0) / 36_525.0
+  const eps = obliquityRad(T)
+  const cosE = Math.cos(eps), sinE = Math.sin(eps)
+  const eqToEcl = [
+    1, 0, 0,
+    0, cosE, sinE,
+    0, -sinE, cosE,
+  ]
+  return mul3(eqToEcl, enuToEqMatrix(latDeg, lst))
+}
+
 // IAU (1958) galactic → ICRS rotation matrix (mirrors milky_way.py exactly).
 export const GAL_TO_ICRS = [
   [-0.0548755604, +0.4941094279, -0.8676661490],
