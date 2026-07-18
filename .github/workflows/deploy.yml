@@ -51,7 +51,7 @@ jobs:
       - uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Install CDK + stack deps
