@@ -14,6 +14,22 @@ This project was developed with substantial assistance from:
   - Attribution: Link to https://open-meteo.com/ must be displayed where data is shown
   - https://open-meteo.com/
 
+### Air Quality Data
+- **WAQI (World Air Quality Index Project)**: real-time ground-station PM2.5/PM10 readings,
+  used for a live haze cross-check against the forecast-driven Haze indicator (shown on the
+  Night Timeline's "Now" row when a live reading crosses this app's own haze threshold)
+  - License: free API use; attribution to the World Air Quality Index Project and the
+    originating station/EPA required wherever the data is shown (station name is included
+    inline where the reading appears)
+  - https://waqi.info/
+
+### Space Weather Data
+- **NOAA Space Weather Prediction Center (SWPC)**: 3-day planetary Kp-index forecast and
+  27-day outlook, used for the aurora visibility forecast (dipole geomagnetic-latitude
+  viewline model in `aurora.py`)
+  - License: public domain (U.S. Government work — no restrictions on use)
+  - https://www.swpc.noaa.gov/
+
 ### Light Pollution Data
 - **VIIRS Black Marble 2025**: Raw satellite radiance data from lightpollutionmap.info
 - **Falchi World Atlas 2016**: World Atlas of Artificial Night Sky Brightness by Cinzano, Falchi, and Elvidge (GFZ Potsdam)

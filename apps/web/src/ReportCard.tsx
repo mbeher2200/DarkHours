@@ -620,6 +620,7 @@ export default function ReportCard({
           cathodeSnap={cathodeSnap}
           wxSource={showWeather ? r.wx_source : null}
           wxFetchedAt={showWeather ? r.wx_fetched_at : null}
+          currentHaze={showWeather ? r.current_haze : null}
         />
       )}
 

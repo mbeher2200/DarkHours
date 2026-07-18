@@ -239,6 +239,19 @@ export interface LightDomeSummary {
   domes: LightDome[]                       // worst-first; [] when none stand out
 }
 
+// Live station PM2.5/PM10 reading (WAQI) — a haze cross-check, not a health
+// rating. `pollutant` is 'pm25' unless the nearest station only reports
+// 'pm10' (coarser dust, still light-scattering, clearly labeled as a
+// fallback). `hazy` mirrors the app's own forecast-side haze threshold.
+export interface CurrentHaze {
+  pm_value: number
+  pollutant: 'pm25' | 'pm10'
+  hazy: boolean
+  station: string | null
+  observed_at: string | null
+  stale: boolean
+}
+
 export interface NightReport {
   date: string
   lat: number
@@ -274,6 +287,11 @@ export interface NightReport {
   // Night-median aerosol optical depth (moonlight model input); null when
   // unavailable, absent on pre-field cached reports
   night_aod?: number | null
+  // Live station PM2.5/PM10 reading (WAQI) — a haze cross-check surfaced on
+  // the Night Timeline's "Now" row, not part of weather_score. null when
+  // unavailable/not near-term/token unset/no station PM data, absent on
+  // pre-field cached reports.
+  current_haze?: CurrentHaze | null
   score: number
   score_components: ScoreComponents
   visible_targets: VisibleTarget[]

@@ -654,6 +654,10 @@ export default function App() {
         <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
         {' / '}
         <a href="https://github.com/Yeqzids/7timer-issues/wiki" target="_blank" rel="noreferrer">7Timer</a>
+        {' · '}Live haze:{' '}
+        <a href="https://waqi.info" target="_blank" rel="noreferrer">World Air Quality Index Project</a>
+        {' · '}Aurora:{' '}
+        <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noreferrer">NOAA SWPC</a>
         <br />
         Satellites:{' '}
         <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>

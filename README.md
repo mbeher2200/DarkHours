@@ -18,8 +18,13 @@ Beyond the score:
 * Monthly night scoring calendar
 * Multi-location trip comparison across a date range
 * Historical weather analysis back to 1940 via ERA5 reanalysis
+* Live haze cross-check — a real-time ground-station PM2.5/PM10 reading (WAQI), shown on
+  tonight's live "Now" marker when it crosses this app's own haze threshold, catching
+  fast-moving smoke/haze events the forecast hasn't caught up to yet
+* Aurora visibility forecast — NOAA SWPC Kp-index forecast run through a dipole
+  geomagnetic-latitude viewline model, tiered overhead/naked-eye/photographic by margin
 
-Built on open data: NOAA, Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, Celestrak, and USGS PAD-US.
+Built on open data: NOAA (SWPC space weather, NWS), Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, Celestrak, WAQI, and USGS PAD-US.
 
 The two CLI scripts are:
 
@@ -342,6 +347,8 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/config.py` | Configuration loader — merges `PyNightSkyPredictor/config.json` over built-in defaults (see [Configuration](#configuration) below) |
 | `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource` adapter |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
+| `PyNightSkyPredictor/aqicn.py` | Live haze cross-check — WAQI real-time station PM2.5/PM10, ±1 day window, distance-filtered against far-away "nearest" stations |
+| `PyNightSkyPredictor/aurora.py` | Aurora visibility forecast — NOAA SWPC 3-day Kp forecast + 27-day outlook, dipole geomagnetic-latitude viewline model |
 | `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
 | `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
 | `PyNightSkyPredictor/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
@@ -385,6 +392,8 @@ External datasets are downloaded on first use and stored in `~/.pynightsky-predi
 | Nominatim geocoding | OpenStreetMap | 90 days |
 | Overpass API (area names for `--show-nearby`) | OpenStreetMap | 90 days |
 | Weather forecasts | NOAA / Open-Meteo / 7Timer | Hours–days |
+| Live haze cross-check (PM2.5/PM10) | WAQI (World Air Quality Index Project) | 30 minutes |
+| Aurora Kp forecast (3-day) / outlook (27-day) | NOAA SWPC | 30 minutes / 6 hours |
 | Satellite TLEs (ISS, Hubble, Tiangong, Starlink) | Celestrak | 6 hours |
 
 The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
