@@ -163,7 +163,19 @@ export function MilkyWayAbsent({ report: r }: { report: NightReport }) {
     reason = 'Galactic core is below the horizon during tonight\'s dark window'
   }
 
-  return <p className="mw-absent-reason">{reason}</p>
+  // The Milky Way itself isn't shootable, but the sky dome still is: it shows
+  // the realistic view for this site (star wipe-out, glow, moon) at any Bortle.
+  return (
+    <div className="mw-card">
+      <p className="mw-absent-reason">{reason}</p>
+      <div className="mw-group-title">360° Sky View</div>
+      <div className="mw-mid-section">
+        <div className="mw-dome-container">
+          <SkyDome summary={r.mw_summary} report={r} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function MilkyWayCard({ summary, waypoints, report }: {

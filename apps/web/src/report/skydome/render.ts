@@ -40,6 +40,11 @@ const MW_RES_DIV = 8
 const ZL_GAIN = 150
 /** Peak grain-point alpha (texture luma 1, dark site, zenith). */
 const GRAIN_ALPHA = 0.45
+/** Directional dome-glow index cap for magnitude math. The raw Walker index is
+ *  unbounded (downtown cores reach thousands) but the Δm mapping is calibrated
+ *  for the badge scale (LD_MAJOR = 3 ⇒ ~2.6 mag near the horizon); site-wide
+ *  brightness beyond that is already carried by the SQM-driven NELM. */
+const LD_GLOW_CAP = 3
 /** Half of the nominal field of view — single source of truth shared with the
  *  SVG overlay (SkyDome.tsx) so canvas and markers project identically. */
 export const FOV_HALF_DEG = 65
@@ -220,7 +225,7 @@ export class SkyRenderer {
         this.sE[i] = E; this.sN[i] = N; this.sU[i] = U
         const altDeg = Math.asin(Math.min(1, U)) / DEG
         const azDeg = (Math.atan2(E, N) / DEG + 360) % 360
-        const glow = ldTent(scores8, azDeg) / (1 + (altDeg / 40) ** 2)
+        const glow = Math.min(LD_GLOW_CAP, ldTent(scores8, azDeg)) / (1 + (altDeg / 40) ** 2)
         const dmLd = 0.8686 * glow
         const dmExt = k * (airmass(U) - 1)
         const margin = globalLim - dmLd - dmExt - mag[i]
@@ -260,7 +265,7 @@ export class SkyRenderer {
         this.gE[i] = E; this.gN[i] = N; this.gU[i] = U
         const altDeg = Math.asin(Math.min(1, U)) / DEG
         const azDeg = (Math.atan2(E, N) / DEG + 360) % 360
-        const glow = ldTent(scores8, azDeg) / (1 + (altDeg / 40) ** 2)
+        const glow = Math.min(LD_GLOW_CAP, ldTent(scores8, azDeg)) / (1 + (altDeg / 40) ** 2)
         const dm = 0.8686 * glow + k * (airmass(U) - 1)
         this.gAlpha[i] = GRAIN_ALPHA * grain.w[i] * Math.exp(-LN10_04 * dm) * gFac
       }
@@ -350,6 +355,10 @@ export class SkyRenderer {
     d.fillRect(0, 0, w, h)
 
     // 2. Light-dome glows: warm radial gradients anchored just above the horizon.
+    // Scores are the raw (unbounded) Walker-kernel index — downtown cores reach
+    // the thousands — so both radius and opacity must saturate: the sky
+    // background gradient carries overall urban brightness, and the glows keep
+    // a horizon-weighted falloff instead of flooding the frame to one color.
     if (s.lightDome) {
       const cloudBoost = 1 + 0.6 * this.cloudFrac   // clouds reflect city light
       for (const dir of LD_DIRS) {
@@ -357,8 +366,8 @@ export class SkyRenderer {
         if (score < 0.03) continue
         const pos = this.projectAltAz(cam, 3, LD_DIR_AZ[dir], scale)
         if (!pos) continue
-        const r = (30 + 18 * Math.log1p(score)) / 200 * w * 1.9
-        const op = Math.min(0.55, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
+        const r = Math.min(0.7 * w, (30 + 18 * Math.log1p(score)) / 200 * w * 1.9)
+        const op = Math.min(0.42, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
         const g = d.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r)
         g.addColorStop(0, `rgba(255,190,110,${op})`)
         g.addColorStop(0.4, `rgba(255,170,90,${op * 0.45})`)
@@ -452,7 +461,9 @@ export class SkyRenderer {
     // interpolation + degree conversion was a measurable chunk of the loop).
     const GLOW_N = 512
     const glowLut = this.glowLut
-    for (let i = 0; i < GLOW_N; i++) glowLut[i] = ldTent(this.scores8, (i * 360) / GLOW_N)
+    for (let i = 0; i < GLOW_N; i++) {
+      glowLut[i] = Math.min(LD_GLOW_CAP, ldTent(this.scores8, (i * 360) / GLOW_N))
+    }
     const AZ_TO_LUT = GLOW_N / (2 * Math.PI)
     const SIN_BMAX = Math.sin(MW_B_MAX * DEG)
     const COS_ELONG_MIN = -0.26     // ε ≳ 105°: zodiacal contribution < 1 luma
