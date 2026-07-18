@@ -5,6 +5,7 @@ import { bestWindow, wxAtTime } from '../Targets'
 import { eqToAltAz } from './astro'
 import { loadCatalog } from './catalog'
 import { sqmFromBortle } from './model'
+import { buildGrainPoints, loadMwTexture } from './mwtex'
 import { SkyRenderer, FOV_HALF_DEG, type TickResult } from './render'
 
 // ── Realistic 360° sky dome ───────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export function SkyDome({ summary, report }: {
   const [tilt, setTilt] = useState<number>(0)
   const [hover, setHover] = useState<Hover>(null)
   const [catState, setCatState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [mwReady, setMwReady] = useState(false)
   const [tickResult, setTickResult] = useState<TickResult | null>(null)
 
   const pointerRef = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean } | null>(null)
@@ -132,6 +134,13 @@ export function SkyDome({ summary, report }: {
         console.warn('sky dome: star catalog failed to load', err)
         if (alive) setCatState('error')
       })
+    loadMwTexture()
+      .then(tex => {
+        if (!alive) return
+        renderer.setMwTexture(tex, buildGrainPoints(tex))
+        setMwReady(true)   // re-tick so band/grain get this tick's dimming
+      })
+      .catch(err => console.warn('sky dome: milky way texture failed to load', err))
 
     return () => {
       alive = false
@@ -179,7 +188,7 @@ export function SkyDome({ summary, report }: {
       setTickResult(ren.tick(params))
       ren.render()
     })
-  }, [report, timeMs, cloudFrac, aod, catState])
+  }, [report, timeMs, cloudFrac, aod, catState, mwReady])
   useEffect(() => () => {
     if (tickRafRef.current) cancelAnimationFrame(tickRafRef.current)
     tickRafRef.current = 0
