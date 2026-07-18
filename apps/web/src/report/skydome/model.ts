@@ -122,8 +122,10 @@ const mix3 = (a: number[], b: number[], t: number) =>
 
 const SKY_DARK_ZENITH = [4, 7, 16]      // pristine dark zenith
 const SKY_DARK_HORIZON = [10, 14, 26]   // natural airglow near the horizon
-const SKY_LP_ZENITH = [24, 30, 48]      // heavily light-polluted zenith
-const SKY_LP_HORIZON = [46, 52, 72]
+// Reference for the LP shades: stacked exposure from a Bortle ~7 suburb —
+// zenith stays near-black blue-grey (~13,18,26), horizon a muted steel.
+const SKY_LP_ZENITH = [15, 19, 28]      // heavily light-polluted zenith
+const SKY_LP_HORIZON = [36, 43, 55]
 const SKY_TWILIGHT = [38, 62, 110]      // deep twilight blue
 const SKY_CLOUD = [34, 38, 48]          // overcast grey
 
@@ -152,6 +154,24 @@ export function skyBackground(sqm: number, sunAltDeg: number, cloudFrac: number)
 
 export const rgb = (c: [number, number, number], a = 1) =>
   `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`
+
+/**
+ * Horizon light-dome glow tint by site darkness. An isolated small-town dome
+ * seen from a dark site reads warm amber, but broad suburban/urban skyglow is
+ * a cool steel blue-grey (reference: stacked long exposure from a Bortle ~6–7
+ * suburb — shades run blue-grey to black, no amber). Cools from warm below
+ * ~SQM 21.3 to fully steel by ~18.8.
+ */
+export function domeGlowColor(sqm: number): {
+  inner: [number, number, number]
+  outer: [number, number, number]
+} {
+  const cool = Math.min(1, Math.max(0, (21.3 - sqm) / 2.5))
+  return {
+    inner: mix3([255, 190, 110], [112, 128, 156], cool),
+    outer: mix3([255, 170, 90], [92, 108, 134], cool),
+  }
+}
 
 // ── Milky Way band ────────────────────────────────────────────────────────────
 // The band itself is a real-sky texture (see mwtex.ts) rendered per-pixel in

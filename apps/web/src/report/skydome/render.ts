@@ -23,9 +23,9 @@ import {
 import type { StarCatalog } from './catalog'
 import { COLOR_BINS } from './catalog'
 import {
-  airmass, domeScores8, extinctionCoeff, grainDarknessFactor, moonPenaltyMag,
-  MW_GAIN, mwLpFactor, nelmFromSqm, rgb, skyBackground, starAlpha, starRadius,
-  twilightPenaltyMag, zodiacalBrightness, zodiacalGate,
+  airmass, domeGlowColor, domeScores8, extinctionCoeff, grainDarknessFactor,
+  moonPenaltyMag, MW_GAIN, mwLpFactor, nelmFromSqm, rgb, skyBackground,
+  starAlpha, starRadius, twilightPenaltyMag, zodiacalBrightness, zodiacalGate,
   STAR_COLORS, STAR_COLORS_FAINT, FAINT_COLOR_MARGIN,
 } from './model'
 import { MW_B_MAX, type GrainPoints, type MwTexture } from './mwtex'
@@ -361,17 +361,18 @@ export class SkyRenderer {
     // a horizon-weighted falloff instead of flooding the frame to one color.
     if (s.lightDome) {
       const cloudBoost = 1 + 0.6 * this.cloudFrac   // clouds reflect city light
+      const tint = domeGlowColor(s.sqm)
       for (const dir of LD_DIRS) {
         const score = s.lightDome.scores[dir] ?? 0
         if (score < 0.03) continue
         const pos = this.projectAltAz(cam, 3, LD_DIR_AZ[dir], scale)
         if (!pos) continue
         const r = Math.min(0.7 * w, (30 + 18 * Math.log1p(score)) / 200 * w * 1.9)
-        const op = Math.min(0.42, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
+        const op = Math.min(0.34, (0.12 + 0.15 * Math.log1p(score)) * cloudBoost)
         const g = d.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r)
-        g.addColorStop(0, `rgba(255,190,110,${op})`)
-        g.addColorStop(0.4, `rgba(255,170,90,${op * 0.45})`)
-        g.addColorStop(1, 'rgba(255,170,90,0)')
+        g.addColorStop(0, rgb(tint.inner, op))
+        g.addColorStop(0.4, rgb(tint.outer, op * 0.45))
+        g.addColorStop(1, rgb(tint.outer, 0))
         d.fillStyle = g
         d.fillRect(pos.x - r, pos.y - r, 2 * r, 2 * r)
       }
