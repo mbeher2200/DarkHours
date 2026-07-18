@@ -35,6 +35,9 @@ This project was developed with substantial assistance from:
 
 ### Astronomical Data
 - **JPL Ephemeris (DE421)**: NASA Jet Propulsion Laboratory
+- **HYG Star Database (v4.x)**: David Nash / Astronexus compilation of the Hipparcos, Yale Bright Star, and Gliese catalogs, used by `scripts/build_star_catalog.py` to build the web sky-dome star catalog (`apps/web/public/stars.v1.bin`)
+  - https://github.com/astronexus/HYG-Database (now maintained at https://codeberg.org/astronexus/hyg)
+  - License: CC BY-SA 4.0 (requires attribution)
 - **Celestrak**: Two-Line Element sets (TLEs) for ISS, Hubble Space Telescope, Tiangong, and Starlink satellites, used for satellite pass prediction
   - https://celestrak.org/
   - Data is freely available for non-commercial use; see https://celestrak.org/data/update-policy.php
