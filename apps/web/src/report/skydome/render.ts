@@ -13,7 +13,10 @@
 //     (mwtex.ts) on a 1/6-resolution layer composited into the diffuse canvas.
 //
 // The projection is IDENTICAL to the SVG overlay's project() in SkyDome.tsx:
-// gnomonic, f = 100/tan(60°) in the 180×120 viewBox space, center (100, 100).
+// stereographic (R = 2f·tan(θ/2)) in the 180×120 viewBox space, center
+// (100, 100). Stereographic is conformal — constellation shapes stay true
+// across the whole 130° frame (gnomonic stretched them 2:1 at the edges) —
+// at the cost of great circles (horizon, band) rendering as gentle arcs.
 
 import type { LightDomeSummary } from '../../types'
 import { ldTent, LD_DIR_AZ, LD_DIRS } from '../glow'
@@ -45,10 +48,17 @@ const GRAIN_ALPHA = 0.45
  *  for the badge scale (LD_MAJOR = 3 ⇒ ~2.6 mag near the horizon); site-wide
  *  brightness beyond that is already carried by the SQM-driven NELM. */
 const LD_GLOW_CAP = 3
-/** Half of the nominal field of view — single source of truth shared with the
- *  SVG overlay (SkyDome.tsx) so canvas and markers project identically. */
+/** Half of the field of view at the frame's side edges — single source of
+ *  truth shared with the SVG overlay (SkyDome.tsx) so canvas and markers
+ *  project identically. */
 export const FOV_HALF_DEG = 65
-const F_SVG = 100 / Math.tan(FOV_HALF_DEG * DEG)   // focal length in SVG units (viewBox 180×120)
+/** Stereographic focal length in SVG units: the visible half-width (90 of the
+ *  180×120 viewBox) maps to FOV_HALF_DEG via R = 2f·tan(θ/2). */
+export const F_SVG = 90 / (2 * Math.tan((FOV_HALF_DEG / 2) * DEG))
+/** Mean lunar angular radius (rad) × display boost. 1× would be a ~2px dot;
+ *  3× keeps the disc findable while staying near-true to the sky. */
+const MOON_ANG_RADIUS = 0.00454
+const MOON_SIZE_BOOST = 3
 
 export interface SkyStatics {
   lat: number
@@ -279,7 +289,7 @@ export class SkyRenderer {
     }
   }
 
-  /** Gnomonic projection in device pixels; matches the SVG overlay exactly. */
+  /** Stereographic projection in device pixels; matches the SVG overlay exactly. */
   private camera() {
     const h = this.headingDeg * DEG
     const t = this.tiltDeg * DEG
@@ -303,11 +313,12 @@ export class SkyRenderer {
     const U = Math.sin(alt)
     const dz = E * cam.fx + N * cam.fy + U * cam.fz
     if (dz <= 0.001) return null
+    const k = (2 * cam.F) / (1 + dz)
     const dx = E * cam.rx + N * cam.ry + U * cam.rz
     const dy = E * cam.ux + N * cam.uy + U * cam.uz
     return {
-      x: (cam.cx + cam.F * (dx / dz)) * scale,
-      y: (cam.cy - cam.F * (dy / dz)) * scale,
+      x: (cam.cx + k * dx) * scale,
+      y: (cam.cy - k * dy) * scale,
     }
   }
 
@@ -341,7 +352,9 @@ export class SkyRenderer {
     const s = this.statics!
     const w = this.diffuse.width, h = this.diffuse.height
     const scale = w / this.W
-    const horizonY = (cam.cy + cam.F * Math.tan(this.tiltDeg * DEG)) * scale
+    // Center-of-frame horizon (stereographic R = 2F·tan(θ/2)); the soft
+    // gradients anchored here don't need the horizon's edge curvature.
+    const horizonY = (cam.cy + 2 * cam.F * Math.tan(this.tiltDeg * DEG / 2)) * scale
 
     d.globalCompositeOperation = 'source-over'
     d.globalAlpha = 1
@@ -398,7 +411,9 @@ export class SkyRenderer {
       if (pos) {
         const illum = s.illumPct / 100
         const aod = this.aod ?? 0.10
-        const r = (20 + 60 * illum) * (1 + 2 * aod) * (w / 420)
+        // Aureole radius in angular terms: ~2.5° crescent → ~8° full moon,
+        // swelling with aerosols (cam.F ≈ px per radian at frame center).
+        const r = cam.F * (0.04 + 0.10 * illum) * (1 + 2 * aod) * scale
         const op = Math.min(0.5, 0.10 + 0.45 * illum) * (1 - this.cloudFrac)
         const g = d.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r)
         g.addColorStop(0, `rgba(210,222,250,${op})`)
@@ -470,18 +485,18 @@ export class SkyRenderer {
     const COS_ELONG_MIN = -0.26     // ε ≳ 105°: zodiacal contribution < 1 luma
 
     for (let py = 0; py < h; py++) {
-      const dy = (cy - (py + 0.5)) / F
-      const bxr = cam.fx + dy * cam.ux
-      const byr = cam.fy + dy * cam.uy
-      const bzr = cam.fz + dy * cam.uz
-      if (bzr < 0) continue             // U is constant per row: row below horizon
+      // Inverse stereographic: with X,Y in units of 2F, the unit camera-space
+      // ray is (2X, 2Y, 1−r²)/(1+r²) — exact and sqrt-free.
+      const Y = (cy - (py + 0.5)) / (2 * F)
       for (let ix = 0; ix < w; ix++) {
-        const dx = (ix + 0.5 - cx) / F
-        let E = bxr + dx * cam.rx
-        let N = byr + dx * cam.ry
-        let U = bzr                       // cam.rz === 0
-        const inv = 1 / Math.sqrt(E * E + N * N + U * U)
-        E *= inv; N *= inv; U *= inv
+        const X = (ix + 0.5 - cx) / (2 * F)
+        const r2 = X * X + Y * Y
+        const inv = 1 / (1 + r2)
+        const lx = 2 * X * inv, ly = 2 * Y * inv, lz = (1 - r2) * inv
+        const E = lx * cam.rx + ly * cam.ux + lz * cam.fx
+        const N = lx * cam.ry + ly * cam.uy + lz * cam.fy
+        const U = ly * cam.uz + lz * cam.fz            // cam.rz === 0
+        if (U < 0) continue                            // below the horizon
 
         // altDeg ≈ asin(U) in degrees (5th-order series; < 0.5° error at 60°,
         // only shapes the glow-vs-altitude falloff so that's plenty).
@@ -566,9 +581,10 @@ export class SkyRenderer {
       const E = this.gE[i], N = this.gN[i], U = this.gU[i]
       const dz = E * cam.fx + N * cam.fy + U * cam.fz
       if (dz <= 0.001) continue
-      const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
+      const k = (2 * cam.F) / (1 + dz)
+      const x = cam.cx + k * (E * cam.rx + N * cam.ry)
       if (x < -2 || x > wLim) continue
-      const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
+      const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
       if (y < -2 || y > hLim) continue
       ctx.globalAlpha = a
       ctx.fillRect(x - half, y - half, s, s)
@@ -603,9 +619,10 @@ export class SkyRenderer {
         const E = this.sE[i], N = this.sN[i], U = this.sU[i]
         const dz = E * cam.fx + N * cam.fy + U * cam.fz
         if (dz <= 0.001) continue
-        const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
+        const k = (2 * cam.F) / (1 + dz)
+        const x = cam.cx + k * (E * cam.rx + N * cam.ry)
         if (x < -4 || x > wLim) continue
-        const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
+        const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
         if (y < -4 || y > hLim) continue
         if (!faint && m > faintAt) {
           const fc = STAR_COLORS_FAINT[b]
@@ -641,8 +658,9 @@ export class SkyRenderer {
       const E = this.sE[i], N = this.sN[i], U = this.sU[i]
       const dz = E * cam.fx + N * cam.fy + U * cam.fz
       if (dz <= 0.001) continue
-      const x = cam.cx + cam.F * ((E * cam.rx + N * cam.ry) / dz)
-      const y = cam.cy - cam.F * ((E * cam.ux + N * cam.uy + U * cam.uz) / dz)
+      const k = (2 * cam.F) / (1 + dz)
+      const x = cam.cx + k * (E * cam.rx + N * cam.ry)
+      const y = cam.cy - k * (E * cam.ux + N * cam.uy + U * cam.uz)
       if (x < 0 || x > this.W || y < 0 || y > this.H) continue
       ctx.fillText(name.toUpperCase(), x + 3 * rScale, y + 1.8 * rScale)
     }
@@ -659,7 +677,8 @@ export class SkyRenderer {
     const pos = this.projectAltAz(cam, moon.alt, moon.az)
     if (!pos) return
     const ctx = this.ctx
-    const r = Math.max(5, this.W * 0.016)
+    // True-to-sky scale ×MOON_SIZE_BOOST (center-of-frame scale is cam.F px/rad).
+    const r = Math.max(4, cam.F * MOON_ANG_RADIUS * MOON_SIZE_BOOST)
 
     // Screen-space "toward zenith" at the moon's position.
     const upPos = this.projectAltAz(cam, Math.min(89.9, moon.alt + 2), moon.az)
