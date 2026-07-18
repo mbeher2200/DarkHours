@@ -409,10 +409,13 @@ html.red-mode .sky-tgt-label { fill: rgb(180, 60, 60); }
 .sky-tooltip {
   background: rgba(8, 13, 28, 0.95);
   color: rgba(200, 212, 238, 0.95);
-  border: 1px solid rgba(90, 120, 200, 0.25);
-  border-radius: 2px;
-  padding: 2px 5px;
-  font-size: 5.5px;
+  /* --tip-scale (set inline by SkyDome) counter-scales the SVG-unit metrics so
+     the on-screen size stays constant on wide cards. Layout-based on purpose:
+     a CSS transform inside foreignObject renders blank in Safari. */
+  border: calc(1px * var(--tip-scale, 1)) solid rgba(90, 120, 200, 0.25);
+  border-radius: calc(2px * var(--tip-scale, 1));
+  padding: calc(2px * var(--tip-scale, 1)) calc(5px * var(--tip-scale, 1));
+  font-size: calc(5.5px * var(--tip-scale, 1));
   line-height: 1.5;
   font-family: var(--mono);
   letter-spacing: 0.05em;

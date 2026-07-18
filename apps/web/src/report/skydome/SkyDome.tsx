@@ -538,14 +538,17 @@ export function SkyDome({ summary, report }: {
             // The tooltip lives in SVG user units, so its CSS font scales with
             // the rendered card width (units × width/180). Counter-scale above
             // the mobile cap (420px, where 5.5px units ≈ 13px on screen) so
-            // the on-screen size stays constant on desktop-width cards.
+            // the on-screen size stays constant on desktop-width cards. The
+            // scaling is pure layout (font/padding/border via --tip-scale in
+            // the stylesheet) — a CSS transform inside foreignObject renders
+            // blank in Safari.
             const tipScale = stackW > 420 ? 420 / stackW : 1
             return (
               <foreignObject x={Math.min(115, Math.max(15, hover.x - 37.5))}
                 y={Math.max(1, hover.y - (12 + hover.lines.length * 8) * tipScale)}
                 width="105" height={6 + hover.lines.length * 9} pointerEvents="none">
                 <div className="sky-tooltip"
-                  style={tipScale < 1 ? { transform: `scale(${tipScale})`, transformOrigin: '50% 0' } : undefined}>
+                  style={{ '--tip-scale': tipScale } as React.CSSProperties}>
                   {hover.lines.map((l, i) => <div key={i}>{l}</div>)}
                 </div>
               </foreignObject>
