@@ -25,7 +25,7 @@ from aws_cdk import (
 from constructs import Construct
 
 # Subject claim format GitHub puts in the OIDC token: "repo:<owner>/<name>:<ref>".
-_GITHUB_REPO = os.environ.get("GITHUB_REPO", "mbeher2200/PyNightSkyPredictor")
+_GITHUB_REPO = os.environ.get("GITHUB_REPO", "mbeher2200/DarkHours")
 # Only the main branch may assume the deploy role (matches the push-to-main trigger).
 _ALLOWED_SUB = f"repo:{_GITHUB_REPO}:ref:refs/heads/main"
 _GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
