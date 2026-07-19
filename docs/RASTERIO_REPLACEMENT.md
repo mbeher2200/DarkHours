@@ -1,114 +1,143 @@
-# Replacing rasterio/GDAL — starting context
+# Raster Grid Pipeline (rasterio/GDAL replaced — shipped)
 
-Seed for a focused initiative to replace (or slim) the rasterio/GDAL dependency. Read
-this + `docs/PYNIGHTSKY.md` first. (Earlier drafts pointed at `CLAUDE.md` /
-`docs/PADUS_INDEX.md`, which do not exist — see `docs/PADUS_INDEX.md`'s actual home and
-the project reference `docs/PYNIGHTSKY.md`.)
+The light-pollution rasters (VIIRS 2025 radiance, Falchi 2016 World Atlas) are served
+at runtime by a **pure-numpy tiled raw-binary grid reader** — no rasterio, no GDAL, no
+tifffile. rasterio survives only as a **build-time** dependency
+(`requirements-build.txt`) that reads the source GeoTIFFs when the grids are
+(re)generated. This document describes the shipped pipeline; the initiative history
+that led here is in the appendix.
 
-> **STATUS 2026-06-10 — approach chosen + verified facts (read before the rest):**
-> Both datasets are **already EPSG:4326** — the local tifs *and* both S3 COGs. The claim
-> below that Falchi is non-4326 and triggers a runtime `reproject` is **false for the
-> current data**; the `needs_reproject` branch in `_load_raster_window` is dead code. No
-> runtime warp is needed. Chosen replacement: **fixed-size tiled raw-binary grids** (built
-> offline from the GeoTIFFs) read with pure `numpy`+`boto3` via S3 byte-range reads — no
-> GDAL. See `scripts/build_raster_grid.py`, `PyNightSkyPredictor/gridraster.py`,
-> `scripts/validate_grid_vs_rasterio.py`, and the `rasterio_replacement` memory note.
-> Verified dims: VIIRS 86400×33600 f32 (~11.6 GB raw); Falchi 43200×17406 f32 (~3.0 GB raw).
+## Current architecture
 
-## Why
+```
+build time (offline, rasterio):
+  source GeoTIFF ──scripts/build_raster_grid.py──▶ <prefix>.bin + <prefix>.json
+                    (thin CLI over PyNightSkyPredictor/gridbuild.py)
 
-`rasterio==1.5.0` pulls the **~335 MB GDAL stack** — by far the heaviest dependency. It
-drives the worker/API image size, the **one-time ~17 s first-container image lazy-load
-tax** (the last unaddressed cold-start cost; see `docs/PERF_FINDNEARBY.md`), and a chunk
-of cold import time. Replacing it with a lightweight COG reader is the lever for image
-size + cold start. (It's also why the warmer is a separate rasterio-free zip Lambda.)
+runtime (numpy only, via the ports.py RasterSource seam):
+  local backend:  LocalRasterSource → gridraster.open_local()  → memmap reads
+                  (auto-builds the grid from the downloaded GeoTIFF on first use)
+  aws backend:    S3RasterSource    → gridraster.open_s3()     → S3 byte-range GETs
+                  (nothing is ever downloaded; the .bin is range-read in place)
+```
 
-## What rasterio is used for (the full surface to replace)
+- **Runtime reader:** `PyNightSkyPredictor/gridraster.py` (`GridArray` with
+  `sample(lat, lon)` and `read_window(bbox, out_shape=None)`).
+- **Builder:** `PyNightSkyPredictor/gridbuild.py` (`build()`, tile size default 512),
+  wrapped by `scripts/build_raster_grid.py`. This is the only rasterio import in the
+  package, and it raises a clear "install requirements-build.txt" error if rasterio
+  is absent.
+- **Seam:** `ports.py` selects `LocalRasterSource` / `S3RasterSource`
+  (`PYNIGHTSKY_BACKEND`); the S3 bucket comes from `PYNIGHTSKY_RASTER_BUCKET`
+  (never committed — public repo).
+- **Consumers:** `darksky.lookup()` (single-pixel sample for the `/night`
+  light-pollution value) and `darksky.find_nearby()` (two bbox window reads);
+  `apps/worker/handler.py::_prewarm` warms both grids on container start.
 
-All in `PyNightSkyPredictor/darksky.py` unless noted. Two operations + the path adapter:
+## Grid format
 
-1. **`_sample_tif(path, lat, lon)`** (~line 273) — **single-pixel** read. Opens the raster;
-   if `ds.crs.to_epsg() != 4326`, `warp_transform` the one (lon,lat) to native CRS; then
-   `ds.sample([(x,y)])`. nodata→0.0, negatives→0, `None` on any error. Used by `lookup()`
-   (the `/night` light-pollution value).
-2. **`_load_raster_window(source_key, min_lat, max_lat, min_lon, max_lon, out_shape=None)`**
-   (~line 611) — **bbox window → float64 ndarray**, row 0 = north (max_lat), col 0 = west.
-   Two paths:
-   - **EPSG:4326 (VIIRS):** `windows.from_bounds` + `ds.read(1, window=..., boundless=True,
-     fill_value=0.0)`, with optional `out_shape` + `Resampling.bilinear` (used to align
-     Falchi to the VIIRS pixel grid).
-   - **non-4326 (Falchi):** transform the 4 bbox corners to native CRS, read that native
-     window, then `reproject(... dst_crs="EPSG:4326", Resampling.bilinear)` onto a
-     `transform.from_bounds` dst grid. nodata→0.0, negatives→0.
-   Used by `find_nearby` (the two window reads; Falchi is read at `out_shape=viirs.shape`).
-3. **`LocalRasterSource` / `S3RasterSource.path_for`** (`ports.py` seam, ~line 201/227) —
-   returns something `rasterio.open` accepts: a local `Path`, or `"/vsis3/{bucket}/{key}"`
-   for S3. `S3RasterSource.__init__` sets GDAL `/vsis3` tuning: `VSI_CACHE=TRUE`,
-   `VSI_CACHE_SIZE=52428800`, `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`,
-   `CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif`, `GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES`.
-   **A replacement needs its own S3 byte-range read path** (boto3 `get_object` Range, or
-   obstore/async-tiff) — this is where the "no download, range-read only the tiles needed"
-   property lives.
-4. **`apps/worker/handler.py` `_prewarm`** — opens both COGs + samples one pixel to warm
-   the reader. Update to the new reader's warm-up.
-5. **`_download` / `_download_viirs` / `_download_falchi`** (~line 144) — local backend
-   only: downloads + unzips the raw GeoTIFFs. Not S3-path; lower priority.
+A grid is a `<prefix>.json` (affine + tiling metadata) plus a `<prefix>.bin` of
+fixed `tile_size × tile_size` tiles in row-major tile order, edge tiles
+zero-padded. Every tile is exactly `tile_size² × itemsize` bytes, so any pixel's
+byte offset is pure arithmetic — no offset index exists or is needed:
 
-## The two datasets
+```
+tile_id  = ty * tiles_x + tx
+elem_off = tile_id * tile_size² + row_in_tile * tile_size + col_in_tile
+```
+
+- `sample()` is a single `itemsize`-byte ranged GET on S3 (memmap slice locally).
+- `read_window()` fetches every tile intersecting the bbox as an independent
+  ranged GET, dispatched concurrently (`PYNIGHTSKY_GRID_WORKERS` threads,
+  default 8), then crops/assembles.
+
+Shipped grid parameters (hardcoded in `darksky.S3RasterSource._GRID_META` to skip
+the JSON GET on cold start — regenerate if the source GeoTIFFs change):
 
 | | VIIRS 2025 (Black Marble) | Falchi 2016 (World Atlas) |
 |---|---|---|
 | Units | radiance nW/cm²/sr | artificial luminance mcd/m² |
-| CRS | **EPSG:4326** | **EPSG:4326** (current data — see STATUS; the reproject path below is dead code) |
-| S3 COG key | `viirs_2025_cog.tif` | `world_atlas_2016_cog.tif` |
+| Dimensions | 86400 × 33600 float32 | 43200 × 17406 float32 |
+| Tile size | 512 (169 × 66 tiles) | 512 (85 × 34 tiles) |
+| `.bin` size | ~11.7 GB | ~3.0 GB |
+| CRS | EPSG:4326, north-up | EPSG:4326, north-up |
+| S3 key prefix | `viirs_2025` | `world_atlas_2016` |
 | Raw source | lightpollutionmap.info zip (~986 MB) | GFZ Potsdam zip (~2.8 GB) |
-| Backends | S3 COG (`/vsis3`, range reads) on aws; local raw `.tif` under `~/.pynightsky-predictor` on local | same |
 
-The COGs on S3 are read in place via GDAL `/vsis3` range reads (nothing downloaded). The
-COG-build process is **not in the repo** — confirm how the COGs were produced (likely
-`rio cogeo` / `gdal_translate`) before changing the build.
+Both datasets are EPSG:4326, so there is **no runtime reprojection anywhere** —
+the one operation that would have required GDAL's warp machinery.
 
-## Invariants any replacement MUST preserve (correctness gate)
+## Invariants (the correctness gate the replacement had to pass)
 
-- `_sample_tif`: identical value at (lat,lon); nodata→0.0; negatives→0; `None` on error.
-- `_load_raster_window`: **exact array orientation** (row 0 = max_lat, col 0 = min_lon),
-  `boundless` fill 0.0, the `out_shape` bilinear resample (Falchi → VIIRS shape), and the
-  Falchi native→4326 bilinear reproject. Downstream numpy (`_extract_dark_sky_candidates`,
-  SQM/Bortle, haversine mask, dome detection) depends on exact orientation + values.
-- Works on **both backends** through the ports seam (keep `path_for`, or introduce a new
-  `RasterSource.read_window/sample` abstraction).
-- Graceful degradation: return `None`/skip when the reader is unavailable (mirror the
-  current rasterio-missing behavior).
+Preserved exactly from the old rasterio paths, because downstream numpy
+(`_extract_dark_sky_candidates`, SQM/Bortle conversion, haversine masking, dome
+detection) depends on orientation and values:
 
-## Strong simplifying idea to evaluate first
+- `sample()` ≡ old `_sample_tif`: nodata → 0.0, negatives → 0, out-of-raster → 0.0,
+  `None` only on read error.
+- `read_window()` ≡ old `_load_raster_window`: row 0 = max_lat (north),
+  col 0 = min_lon (west); boundless fill 0.0; window origin/extent rounded to
+  nearest so arrays are pixel-identical to the rasterio path; optional bilinear
+  `out_shape` resample (half-pixel aligned, used to put Falchi on the VIIRS pixel
+  grid) matching GDAL bilinear to within tolerance.
+- Works through the ports seam on both backends; degrades gracefully (returns
+  `None` / skips) when the grid is unavailable.
 
-The **only** thing forcing GDAL's warp machinery at runtime is the Falchi **reproject**
-(VIIRS is already 4326). If Falchi is **re-projected to EPSG:4326 once at COG-build time**,
-*both* datasets become the simple 4326 window-read path — then a lightweight pure-Python/
-Rust COG tile reader (no GDAL) is sufficient, and the runtime reproject code path is
-deleted. That likely turns "replace rasterio" into "build a 4326 Falchi COG + a small COG
-window/sample reader." Worth validating before picking a library.
+Verified by `scripts/validate_grid_vs_rasterio.py` (A/B against rasterio over many
+points and bboxes on both datasets) and the ongoing suites
+`tests/test_gridraster.py`, `tests/test_darksky_formulas.py`,
+`tests/test_light_dome_array.py`, and the `aws`-marked `tests/test_aws_smoke.py`.
 
-## Candidate directions to investigate (user has ideas — these are just leads)
+## Regenerating the grids
 
-- Pure-Python COG: `tifffile` + `imagecodecs` (tile decode) over boto3-range / `fsspec`.
-- Rust-backed: `cog3pio` (returns numpy), `async-tiff` + `obstore`.
-- Coordinate transforms without GDAL: `pyproj` (lightweight) covers `warp_transform`;
-  resampling/reproject is the hard part GDAL does — hence the build-time-reproject idea.
-- Keep GDAL but slim the image (multi-stage, drop unused drivers) — smaller win.
+```bash
+pip install -r requirements-build.txt   # rasterio lives here, and only here
+python scripts/build_raster_grid.py viirs_2025_cog.tif        out/viirs_2025        --dataset viirs
+python scripts/build_raster_grid.py world_atlas_2016_cog.tif  out/world_atlas_2016  --dataset falchi
+```
 
-## How to validate
+Upload the resulting `.bin` + `.json` pairs to the raster bucket
+(`PYNIGHTSKY_RASTER_BUCKET`) under the key prefixes above, then update
+`_GRID_META` in `darksky.py` with the values printed by the builder. The local
+backend needs no upload — `LocalRasterSource` builds the grid automatically from
+the downloaded GeoTIFF on first use.
 
-1. **Correctness:** compare the new reader vs rasterio for `_sample_tif` over many
-   (lat,lon) and `_load_raster_window` over several bboxes — **both datasets**, incl. the
-   Falchi reproject + `out_shape` alignment. Define a tolerance for bilinear differences,
-   or match exactly if the same algorithm. Then confirm `find_nearby` results are unchanged
-   (reuse the funnel logging + `scripts/bench_*`).
-2. **The win:** measure image size + cold-start delta (import time, the ~17 s first-container
-   tax) using the throwaway test-worker recipe in `CLAUDE.md` + `PYNIGHTSKY_PROFILE`.
-3. Ship one variable at a time; record in `docs/PERF_FINDNEARBY.md`.
+## Outcome
 
-## Test touchpoints
+- The Lambda runtime lost the ~335 MB GDAL stack entirely; both the API and the
+  worker deploy as **zip Lambdas** with numpy/boto3-only raster access (a container
+  image would not even be needed for size). The former "first-container ~17 s
+  image lazy-load tax" (see `docs/PERF_FINDNEARBY.md`) went with it.
+- Cold-start raster access is now a handful of S3 ranged GETs; window reads
+  parallelize across tiles.
 
-`tests/test_darksky_formulas.py`, `tests/test_light_dome_array.py` (pure-array, no I/O),
-`tests/test_aws_smoke.py` (`darksky.lookup` via real S3 — the `aws`-marked integration).
+---
+
+## Appendix — initiative history (2026-06-10 → shipped)
+
+Kept for context; superseded by the sections above.
+
+- **Why it started:** `rasterio==1.5.0` pulled the ~335 MB GDAL stack — the
+  heaviest dependency, driving the then-container image size, a one-time ~17 s
+  first-container lazy-load tax, and a chunk of cold import time. (It is also why
+  the TLE warmer was built as a separate rasterio-free zip Lambda.)
+- **Key discovery (2026-06-10):** both datasets — local GeoTIFFs *and* the S3
+  COGs — were already EPSG:4326. The belief that Falchi was non-4326 and needed a
+  runtime `reproject` was false for the current data; the `needs_reproject` branch
+  in the old `_load_raster_window` was dead code. That collapsed the problem from
+  "replace GDAL's warp machinery" to "read 4326 windows without GDAL."
+- **Candidates considered:** pure-Python COG readers (`tifffile` + `imagecodecs`
+  over ranged reads), Rust-backed readers (`cog3pio`, `async-tiff` + `obstore`),
+  `pyproj` for coordinate transforms, or keeping GDAL but slimming the image.
+  All were rejected in favor of the simpler custom tiled raw-binary format, which
+  needs no TIFF decoding at all and makes every pixel's offset arithmetic.
+- **Old rasterio surface that was replaced:** `_sample_tif` (single-pixel read with
+  CRS transform fallback), `_load_raster_window` (bbox window with boundless fill +
+  bilinear out_shape + the dead reproject branch), the `/vsis3` path adapter with
+  its GDAL environment tuning (`VSI_CACHE`, `GDAL_DISABLE_READDIR_ON_OPEN`, …), and
+  the worker prewarm that opened both COGs.
+- **Validation approach:** A/B the new reader against rasterio for samples and
+  windows on both datasets (`scripts/validate_grid_vs_rasterio.py`), confirm
+  `find_nearby` output unchanged via the funnel logging + `scripts/bench_*`, then
+  measure the size/cold-start win with the throwaway test-worker recipe in
+  `CLAUDE.md` and `PYNIGHTSKY_PROFILE=1`.

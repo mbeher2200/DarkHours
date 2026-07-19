@@ -1,75 +1,62 @@
-# find_nearby Performance — Profiling Results & Recommendations
+# find_nearby Performance
 
-Record of the 2026-06-09 performance investigation into `darksky.find_nearby`.
-Reproduce with the tooling in `scripts/` (see bottom).
+Current performance architecture of `darksky.find_nearby` (the `/nearby` async job),
+plus the investigation log that produced it. Facts below verified against the code
+and CDK on 2026-07-18; in-region timings are from the dated runs in Appendix A.
 
-## TL;DR
+## Current state
 
-`find_nearby` was network-bound on cold searches: ~85–95% of wall time was reverse
-geocoding + an Overpass call that always timed out. Two bugs were fixed and two
-optimizations shipped; a real worker run then showed the bottleneck has **moved to
-cold-start CPU cost** (PAD-US index load), not the network.
+End-to-end `/nearby` is **worker-bound**: the API side (enqueue + job polls) runs
+warm at 2–15 ms, and the SQS worker does all the work. The optimizations that got
+here, all shipped and still in effect:
 
-## Instrumentation (kept, opt-in)
+- **Keep-warm on both Lambdas.** EventBridge pings the API and the worker every
+  4 minutes (`cdk/lambda_api_stack.py`); a Record-less event makes the worker run
+  its prewarm synchronously. Real jobs skip the ~4.6 s cold Init entirely.
+- **Background prewarm** (`apps/worker/handler.py::_prewarm`, daemon thread on
+  cold start): warms the raster grids, PAD-US + OSM POI indexes, the DynamoDB
+  connection pool, and the ephemeris — so those costs are off the job path.
+- **Columnar PAD-US index.** Sorted-uint64 `.npz` + `np.searchsorted`
+  (`darksky._load_padus_h3_index`): ~450 ms cold load (down ~35× from the original
+  dict build), 0 ms in-job thanks to prewarm. See `docs/PADUS_INDEX.md`.
+- **Rasterio-free raster reads.** Window reads are tiled-grid S3 byte-range GETs,
+  tiles fetched concurrently (`gridraster.py`; see `docs/RASTERIO_REPLACEMENT.md`).
+  Typically ~200–400 ms per dataset in-region.
+- **Vectorized dome detection.** The per-blob centroid loop was replaced with
+  batched `bincount`/`center_of_mass(index=)` ops (~12–30× faster, ~80–200 ms), and
+  the whole dome pipeline is skipped when the origin is Bortle ≥ 8 (no dome could
+  ever qualify).
+- **Reverse-geocode discipline.** 8-mile pre-dedup of candidate probes
+  (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, and — on the aws backend
+  only — parallel AWS Location calls (~87 ms each in-region) with a pooled client.
+  The local backend stays serial per Nominatim's 1 req/s policy.
+- **Drive times via `CalculateRoutes`, per-leg, in parallel.** One point-to-point
+  call per cache-missing leg (bounded thread pool), replacing the batched
+  `CalculateRouteMatrix` call whose undocumented 60 km `Avoid` cap silently killed
+  whole searches (see the 2026-07-12 entry). Each leg is cached 24 h
+  (`_DRIVE_CACHE_TTL`); repeat-area searches pay ~0 for this phase. Ferry /
+  unpaved-tail warnings come from the route legs.
+- **Memory:** both Lambdas run at 3008 MB (the account cap; a 2 GB→3 GB A/B showed
+  init flat and only ~0.3 s invoke gain, but the bump shipped later with the
+  worker's larger workload).
 
+Representative warm-container, cache-warm total: **~1–3 s** per search, dominated
+by first-visit drive-time legs and the two raster window reads (Appendix A,
+2026-06-16 table — measured before the CalculateRoutes switch; first-visit
+drive-time timing has not been re-profiled in-region since).
+
+## Instrumentation (opt-in, kept)
+
+- `PYNIGHTSKY_PROFILE=1` — per-phase wall time + cache hit/miss delta logged from
+  `find_nearby` (`[profile]` lines; `darksky._Profiler`).
 - `cache.stats` — hit/miss counter at the `cache.get` chokepoint (`cache.py`).
-- Per-phase profiler in `find_nearby`, enabled with `PYNIGHTSKY_PROFILE=1`; logs each
-  phase's wall time + cache hit/miss delta (`darksky.py`).
+- `scripts/profile_aws.sh` + `scripts/aws_one_search.py` — one profiled search
+  against the real aws backend (resource names from env; needs an authenticated
+  session).
+- The throwaway in-region test-worker recipe in `CLAUDE.md` for validating changes
+  on real infra without touching the deployed worker.
 
-## Baseline (local backend, radius 60 mi, city-centre origins)
-
-| Origin | Wall | cache hit-rate | Note |
-|---|---:|---:|---|
-| Los Angeles | 28.9 s | 0% | cold |
-| New York | 26.4 s | 9% | |
-| Chicago | 27.5 s | 8% | |
-| Denver | 1.3 s | 50% | Overpass result cached |
-| Phoenix | 62.0 s | 2% | 42 geocode misses |
-| Atlanta | 36.0 s | 5% | |
-| LA (repeat, warm) | 1.3 s | 92% | everything cached |
-
-Representative phase breakdown (LA cold, 28.9 s): `overpass join` **15007 ms** (timeout
-every call), `jit geocode candidates` **9421 ms** (9 Nominatim misses × ~1.1 s),
-`padus index load` 2306 ms (one-time), `light dome detection` 937 ms, raster reads ~280 ms.
-
-### Root causes
-1. **Dead Overpass endpoint.** `overpass.private.coffee` (in the working tree) was
-   unreachable → a guaranteed 15 s join timeout, and zero natural-area names. Only
-   `overpass-api.de` of the mirrors tested responded (~7.6 s).
-2. **Duplicate-dominated reverse geocoding.** Nominatim is 1.1 s/miss and serial; on
-   Phoenix **36 of 43 probes were duplicate town names** (adjacent dark pixels → same
-   settlement, median 5.3 mi apart).
-
-## Fixes shipped (Tier 0)
-
-| Change | Effect |
-|---|---|
-| Revert Overpass URL to `overpass-api.de` | 15 s timeout → ~7.6 s, real names (local/CLI backend only; aws disables Overpass) |
-| 8-mi geocode pre-dedup (`_NAME_DEDUP_MILES`) | Phoenix cold probes 43 → 25 (−42%) |
-| **A:** parallel reverse-geocode on aws backend | ~4× (see below); forbidden on Nominatim by policy, so aws-only |
-| **B:** pooled, reused boto3 `location` client | no per-call client rebuild / dropped connection pool |
-
-## Real worker validation (aws backend, in-region Lambda)
-
-Built the worker image from the working tree, deployed an isolated
-`pynightsky-worker-proftest` Lambda (x86_64, 2 GB, reused worker role,
-`PYNIGHTSKY_PROFILE=1`), invoked via synthetic SQS event, read CloudWatch, tore down.
-
-| Run | `jit geocode candidates` | cold misses | effective/call |
-|---|---:|---:|---:|
-| Serial (Phoenix, workers=1) | 1746 ms | 20 | ~87 ms |
-| Parallel (Dallas, workers=8) | 339 ms | 16 | ~21 ms |
-
-- **AWS Location ≈ 87 ms/call in-region** (vs 1.1 s on public Nominatim).
-- **Parallel geocode ≈ 4×**, matching the offline 4.8× (`scripts/profile_parallel_geocode.py`).
-- **New dominant cold cost: `padus index load` = 5–24 s per cold container** (parquet→dict
-  build, CPU-bound; ~2.3 s on a laptop, much slower on throttled Lambda vCPU). Once per
-  container.
-- The 10 s init pre-warm (`_prewarm_rasters`) **timed out**, so the first job still pays
-  cold S3 COG reads.
-- Net: with parallel geocode in, `find_nearby` on the worker is **cold-start/CPU-bound**.
-
-## Provider latency reference
+## Provider latency reference (as measured 2026-06)
 
 | Provider | Use | Observed latency |
 |---|---|---|
@@ -82,188 +69,133 @@ Built the worker image from the working tree, deployed an isolated
 Live connectivity for every provider is covered by `tests/test_provider_smoke.py`
 (`PYNIGHTSKY_LIVE=1 pytest -m live`).
 
-## Recommendations (prioritized)
+## Open items
 
-**Tier 0 — done (this change):** Overpass fix, 8-mi dedup, A (parallel geocode), B (pooled client).
-
-**Tier 1 — high impact, low effort**
-1. Bump worker Lambda memory (2 GB → 3–4 GB): vCPU scales with memory; cuts the CPU-bound
-   PAD-US load, dome detection, numpy, and init. One-line CDK change.
-2. Pre-build the PAD-US index into a load-optimized format (pickled dict / int-keyed H3
-   cells) so cold load is a deserialize, not a CPU loop. Biggest cold-start win.
-
-**Tier 2 — high impact, medium effort**
-3. Load only the regional PAD-US subset covering the search bbox (partitioned parquet or
-   DynamoDB-by-cell) instead of the whole US index per container.
-4. Resolve the init pre-warm timeout: drop the prewarm and rely on VSI cache after job 1,
-   or use provisioned concurrency if job latency is user-visible.
-
-**Tier 3 — medium**
-5. Speed up scipy dome detection (2–4.5 s): downsample the window, or cache per coarse origin.
-6. Pre-warm the geocode cache for popular origins (reuse the EventBridge warmer pattern).
-7. Request an AWS Location TPS quota increase before scaling parallel geocode widely
-   (~50 req/s account default; adaptive retries already cushion bursts).
-
-## Benchmark log
-
-One variable at a time; numbers kept for later reference.
-
-### Tier 1 · Item 2 — PAD-US index: dict build → columnar uint64 + binary search (2026-06-09)
-
-The cold load built a ~1.37M-entry Python dict from string-keyed parquet
-(`to_pylist` ×3 → `dict(zip(...))`). Replaced with a sorted `uint64` cell array +
-parallel name/blacklist arrays, looked up via `np.searchsorted`; names stay in Arrow
-and are materialised only on a hit. Parquet regenerated to uint64-sorted (build +
-`scripts/migrate_padus_uint64.py`).
-
-Local benchmark (`scripts/bench_padus_load.py`, 5 cold iters, M-series laptop):
-
-| Metric | Before (dict) | After (columnar) |
-|---|---:|---:|
-| Index load, median | **1787.7 ms** | **53.7 ms** (~33× faster) |
-| Index load, min | 1645.0 ms | 52.5 ms |
-| Lookup | 0.85 µs/pt | 2.54 µs/pt (≈0.3 ms total per search — negligible) |
-| Parquet size | 10.6 MB | 3.5 MB |
-| Correctness | — | 0 mismatches over 50,006 checks ✅ |
-
-**In-region confirmation** (throwaway worker, x86_64/2 GB — same config as the baseline,
-so only the index-load variable changed). Cold `padus index load`, 4 samples:
-
-| Cold sample | padus index load |
-|---|---:|
-| 1 — first-ever container | 17178 ms (one-time Lambda image lazy-load tax) |
-| 2 | 463.8 ms |
-| 3 | 454.9 ms |
-| 4 | 424.4 ms |
-
-Steady cold-container load **≈ 450 ms, down from the baseline 15–24 s (~35×)** — matches
-the laptop ratio. The first container after a fresh image deploy still pays a one-time
-~17 s image-load tax (Lambda fetches/decompresses layers on first touch; the old build
-paid this *plus* its dict build). Residual fix for that tax if ever needed: provisioned
-concurrency. Tests: 390 passed. This likely makes Tier 2 item 3 (regional subset) unnecessary.
-
-Not yet benchmarked: Item 1 (memory bump) — deferred (single-threaded load already has
-≥1 vCPU at 2 GB, so it won't help this phase; revisit for Init + dome detection).
-
-### Tier 3 · scipy dome detection — vectorise the per-blob centroid loop (2026-06-09)
-
-Profiling `_find_light_domes_from_array` on real 150-mile VIIRS windows
-(`scripts/bench_dome_detection.py`) showed **97–98% of the time was the centroid loop**,
-not the land mask as assumed: it did `labeled == i` + `.sum()` + `center_of_mass(...)`
-per blob — O(blobs × pixels), ~500–1300 blobs over ~1.3M pixels. Replaced with batched
-ops: `np.bincount` for sizes + scipy `center_of_mass`/`maximum` with `index=` (each a
-few full-array passes). **Output-identical** to the per-blob loop.
-
-| Origin (≈1.3M-px window) | Before | After | Speedup |
-|---|---:|---:|---:|
-| Los Angeles (315 domes) | 928 ms | **79 ms** | ~12× |
-| New York (829 domes) | 2547 ms | **84 ms** | ~30× |
-
-Correctness: new vs original loop = identical dome lists on both windows; 390 tests pass
-(incl. `test_light_dome_array.py`). Structural win (removes a blobs×pixels factor), so the
-ratio holds on Lambda's slower vCPU too — laptop absolute 0.9–2.5 s → ~0.08 s.
-
-**In-region confirmation** (throwaway 2 GB worker, cold), `light dome detection` phase vs
-the OLD-code baselines on the same origins:
-
-| Origin | OLD (baseline) | NEW | Speedup |
-|---|---:|---:|---:|
-| Phoenix | ~1726 ms | 207 ms | ~8× |
-| Dallas | ~4516 ms | 185 ms | ~24× |
-
-`find_nearby` returned cleanly both times. Confirmed → shipped.
-
-### Tier 3 · dome naming parallelised + B8–9 suppression (2026-06-09)
-
-A 5-city AWS funnel/profile run (`docs/perf_runs/findnearby_funnel_2026-06-09.*`, captured
-with the funnel logging + `PYNIGHTSKY_NO_CACHE`) exposed two dome-stage costs:
-1. **`dome naming` was serial** — `_settlement` per dome in a loop (~1.45 s uncached for
-   dark origins with domes). Parallelised on the aws backend (`ThreadPoolExecutor`, same
-   pattern as `_parallel_prefetch_settlements`); local stays serial per Nominatim policy.
-2. **Bright origins waste the dome pipeline** — a dome must be ≥ origin+2 Bortle, and the
-   brightest blob is Bortle 9, so for origin Bortle ≥ 8 no dome can ever qualify. Now
-   gated by `origin_bortle <= 7` → detection + naming skipped (output unchanged: was empty).
-
-In-region confirmation (throwaway 2 GB worker, uncached):
-
-| City | phase | before | after |
-|---|---|---:|---:|
-| Sedona (B7) | dome naming | 1451 ms | 214 ms (~7×) |
-| Knolls (B1) | dome naming | 1417 ms | 217 ms (~7×) |
-| Atlantic City (B9) | dome detection + naming | 204 ms | 0 ms (suppressed) |
-
-Both output-preserving; 390 tests pass.
-
-### Worker cold start · non-blocking prewarm + memory A/B (2026-06-10)
-
-The worker ran `_prewarm_rasters()` **synchronously at module init**, blowing Lambda's 10 s
-init budget (`INIT_REPORT … Status: timeout`) — wasted init that re-ran into the first
-invoke. Moved the warm-up to a **daemon thread** (mirrors the API's lifespan prewarm) and
-extended it to warm rasters + PAD-US index + DynamoDB pool + ephemeris in the background.
-
-In-region (throwaway 2 GB worker, cold containers):
-- **`INIT` no longer times out: 10 s timeout → ~4.4–5.8 s.**
-- **PAD-US load in-job → 0 ms** (background-prewarmed; was 0.45 s columnar / 5–24 s as the old dict).
-- First cold-job `[profile] TOTAL` ~3.1–3.5 s (was dominated by the wasted init + cold PAD-US).
-
-**Memory A/B (2 GB vs 3 GB; account caps Lambda at 3008 MB so 4 GB N/A):**
-
-| cold sample | init | first-job TOTAL | billed GB-s |
-|---|--:|--:|--:|
-| 2 GB | ~4.4 s | 3481 ms | 16.0 |
-| 3 GB (max) | ~4.6 s | 3117 ms | 23.5 |
-
-3 GB shaved ~0.3 s off the invoke but **init was flat** (the cold-start dominator) at ~47%
-more GB-s/invoke. **Decision: keep 2 GB — memory bump is a no-op.** Shipped the prewarm fix
-only. (Out of scope per decision: keep-warm ping, provisioned concurrency — the one-time
-~17 s first-container image lazy-load tax remains, only addressable by provisioned concurrency.)
+- **Re-profile drive times in-region** since the CalculateRouteMatrix →
+  CalculateRoutes switch (N client-parallel calls, ≤11/search): the 2026-06-16
+  phase timings predate it. Repeat-area searches are cache-served either way.
+- **GeoRoutes cost parity** between matrix pairs and per-leg requests is likely
+  but was never confirmed numerically (pricing figures sit behind AWS's
+  JS-rendered calculator).
+- AWS Location TPS quota (~50 req/s account default) should be raised before
+  scaling parallel geocode wider; adaptive retries cushion bursts today.
 
 ## Reproduce
 
-- `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against` for correctness).
+- `scripts/bench_padus_load.py` — PAD-US load + lookup benchmark (`--verify-against`).
 - `scripts/profile_find_nearby.py` — per-phase profile across cities (warm + `--cold`).
 - `scripts/diag_geocode_waste.py` — classify reverse-geocode probes (kept/duplicate/water).
 - `scripts/profile_parallel_geocode.py` — offline serial-vs-parallel A/B (stubbed latency).
-- `scripts/profile_aws.sh` + `scripts/aws_one_search.py` — run one search against the real
-  aws backend with profiling (needs an authenticated session).
+- `scripts/bench_dome_detection.py` — dome-detection benchmark on real windows.
+- `scripts/profile_aws.sh` + `scripts/aws_one_search.py` — real-backend profiled search.
 
-## Rasterio → tiled-grid lookup latency (2026-06-11)
+---
 
-Removing rasterio/GDAL replaced the COG `/vsis3` reads with our own S3 byte-range reads of
-the tiled raw-binary grids (`gridraster`). A/B over **40 identical random points**, host →
-S3 (us-east-1) over WAN — relative numbers are the signal; absolute is WAN-inflated vs an
-in-region Lambda:
+## Appendix A — investigation log (2026-06-09 → 2026-07-12)
+
+One variable at a time; before/after numbers preserved.
+
+### 2026-06-09 — baseline & root causes
+
+`find_nearby` was network-bound on cold searches: ~85–95% of wall time was reverse
+geocoding + an Overpass call that always timed out.
+
+Local backend, radius 60 mi, city-centre origins:
+
+| Origin | Wall | cache hit-rate | Note |
+|---|---:|---:|---|
+| Los Angeles | 28.9 s | 0% | cold |
+| New York | 26.4 s | 9% | |
+| Chicago | 27.5 s | 8% | |
+| Denver | 1.3 s | 50% | Overpass result cached |
+| Phoenix | 62.0 s | 2% | 42 geocode misses |
+| Atlanta | 36.0 s | 5% | |
+| LA (repeat, warm) | 1.3 s | 92% | everything cached |
+
+LA cold breakdown (28.9 s): `overpass join` 15007 ms (timeout every call),
+`jit geocode candidates` 9421 ms (9 Nominatim misses × ~1.1 s), `padus index load`
+2306 ms (one-time), `light dome detection` 937 ms, raster reads ~280 ms.
+
+Root causes: (1) dead Overpass endpoint `overpass.private.coffee` — guaranteed 15 s
+join timeout and zero natural-area names; only `overpass-api.de` responded
+(~7.6 s). (2) Duplicate-dominated reverse geocoding — on Phoenix, 36 of 43 probes
+returned duplicate town names (median 5.3 mi apart).
+
+**Tier-0 fixes shipped:** Overpass URL reverted to `overpass-api.de` (local
+backend only); 8-mi geocode pre-dedup (Phoenix cold probes 43 → 25); parallel
+reverse-geocode on the aws backend; pooled boto3 `location` client.
+
+**In-region validation** (throwaway `proftest` worker, x86_64/2 GB): AWS Location
+≈ 87 ms/call; parallel geocode ≈ 4× (`jit geocode candidates` 1746 → 339 ms).
+New dominant cold cost: `padus index load` = 5–24 s per cold container.
+
+### 2026-06-09 — PAD-US index: dict build → columnar uint64 + binary search
+
+Replaced the ~1.37M-entry string-keyed dict build with a sorted `uint64` cell
+array + parallel name/blacklist arrays via `np.searchsorted`.
+
+| Metric | Before (dict) | After (columnar) |
+|---|---:|---:|
+| Index load, median (laptop) | 1787.7 ms | 53.7 ms (~33×) |
+| Lookup | 0.85 µs/pt | 2.54 µs/pt (≈0.3 ms/search — negligible) |
+| Index size | 10.6 MB | 3.5 MB |
+| Correctness | — | 0 mismatches over 50,006 checks |
+
+In-region steady cold-container load ≈ 450 ms (down from 15–24 s, ~35×). The
+first-ever container after an image deploy paid a one-time ~17 s image lazy-load
+tax — a container-era artifact that disappeared when the worker became a zip
+Lambda (see `docs/RASTERIO_REPLACEMENT.md`).
+
+### 2026-06-09 — vectorized dome detection + naming parallelism + B8–9 suppression
+
+97–98% of `_find_light_domes_from_array` was the per-blob centroid loop
+(O(blobs × pixels)). Replaced with batched `np.bincount` + scipy
+`center_of_mass`/`maximum` with `index=` — output-identical.
+
+| Origin (≈1.3M-px window) | Before | After |
+|---|---:|---:|
+| Los Angeles (315 domes) | 928 ms | 79 ms |
+| New York (829 domes) | 2547 ms | 84 ms |
+| Phoenix (in-region) | ~1726 ms | 207 ms |
+| Dallas (in-region) | ~4516 ms | 185 ms |
+
+Dome **naming** parallelised on aws (~7×: 1451 → 214 ms on Sedona), and the whole
+dome pipeline gated on `origin_bortle <= 7` (a dome must be ≥ origin+2 and the
+brightest blob is B9, so B8–9 origins can never qualify — was pure waste).
+
+### 2026-06-10 — non-blocking prewarm + memory A/B
+
+The worker ran `_prewarm_rasters()` synchronously at module init, blowing Lambda's
+10 s init budget (`INIT_REPORT … Status: timeout`). Moved to a daemon thread and
+extended to rasters + PAD-US + DynamoDB pool + ephemeris. Init 10 s-timeout →
+~4.4–5.8 s; PAD-US in-job → 0 ms; first cold-job TOTAL ~3.1–3.5 s.
+
+Memory A/B (2 GB vs 3008 MB): init flat, invoke −0.3 s, +47% GB-s → decision at
+the time was to stay at 2 GB. (Both Lambdas later moved to 3008 MB as their
+workload grew; that is the deployed config today.)
+
+### 2026-06-11 — rasterio → tiled-grid lookup latency A/B
+
+40 identical random points, host → S3 over WAN (relative numbers are the signal):
 
 | | cold open | warm sample (median / p90 / max / mean) |
 |---|---|---|
 | OLD rasterio `/vsis3` COG | 368 ms | 154 / 292 / 562 / 164 ms |
-| NEW gridraster S3 (host) | ~310 ms* | 181 / 277 / 360 / 195 ms |
+| NEW gridraster S3 (host) | ~310 ms | 181 / 277 / 360 / 195 ms |
 | NEW in throwaway container | 313 ms | 198 / 333 / 589 / 224 ms |
 
-\* A first run showed a 6.3 s cold open; decomposition (boto3 import 130 ms, client create
-46 ms, cold-TLS GET 202 ms, `open_s3` w/ reused client 59 ms) proved it a one-off region/IMDS
-resolution stall, not reproducible. Production reuses one S3 client and warms both grids in
-`_prewarm`.
+Verdict: no meaningful lookup slowdown — single-pixel reads are S3-RTT-bound, and
+the new path reads 4 bytes instead of a whole COG tile with a better tail.
+Correctness: all 10 test cities identical SQM/Bortle/source across old/new/local.
 
-**Verdict: no meaningful lookup slowdown.** Single-pixel reads are S3-RTT-bound (~150–200 ms
-over WAN; <5 ms in-region), so old vs new is a wash — new reads 4 bytes vs a whole COG tile,
-and has a better tail. Cold open is equal/better. Correctness: all 10 test cities
-(VIIRS + Falchi paths) returned identical SQM/Bortle/source vs local-grid == rasterio.
-Image: worker **1.28 GB** (rasterio/GDAL absent). Harness: `out/profile_baseline.py` (host
-old-vs-new A/B), `out/city_probe.py` (profiled 10-city probe; run in-container with
-`PYNIGHTSKY_BACKEND=aws`).
+### 2026-06-16 — lifecycle profile, worker keep-warm, drive-time caching
 
-## 2026-06-16 — Lifecycle profile + worker keep-warm + drive-time caching
+In-region warm profile (throwaway worker cloned from the deployed artifact,
+per-phase ms):
 
-End-to-end `/nearby` is **worker-bound**. API enqueue + polls are warm 2–15 ms (kept warm by
-the existing `/warmup` rule); the SQS worker was **not** kept warm and dominates latency.
-
-**In-region warm profile** (throwaway worker cloned from the deployed artifact, `PROFILE=1`,
-3 synthetic invokes, torn down). Per-phase ms `[cold+cachecold | warm+cachecold | warm+cachewarm]`:
-
-| phase | cold+cold | warm+cold | warm+warm |
+| phase | cold+cachecold | warm+cachecold | warm+cachewarm |
 |---|--:|--:|--:|
-| **drive times (aws)** *(uncached)* | 1961 | 934 | **1978** |
+| drive times (aws, uncached) | 1961 | 934 | 1978 |
 | viirs window read (S3) | 562 | 928 | 347 |
 | falchi window read (S3) | 378 | 371 | 200 |
 | extract+cluster+dome-detect (CPU) | 656 | 558 | 543 |
@@ -272,66 +204,41 @@ the existing `/warmup` rule); the SQS worker was **not** kept warm and dominates
 | origin settlement+lookup | 1385 | 377 | 9 |
 | **TOTAL handler** | **5499** (+Init 4454) | **4340** | **3158** |
 
-**Headline:** even fully cache-warm the worker is 3.16 s, and `drive times` ≈ 1.98 s (~63%)
-— the dominant phase, and uncached. (A laptop-harness run had shown drive-times at only
-~303 ms — misleading; the in-region throwaway is authoritative.)
+Headline: even fully cache-warm, drive times ≈ 63% of the job. Shipped: the
+worker keep-warm EventBridge rule (rate 4 min, synchronous prewarm on warmup
+events; verified cold ping Init 4.93 s + 1.56 s prewarm off the user path) and the
+per-leg drive-time cache (`route_drive|…` keys) so only cache-missing legs hit
+the routing API.
 
-**Shipped:**
-- **Worker keep-warm** (PR #28): `WorkerWarmupRule` (EventBridge rate(4 min) → worker with
-  `{"warmup":true}`); handler runs prewarm synchronously on a Record-less event. Verified:
-  cold ping Init 4.93 s + 1.56 s prewarm off the user path; next ping warm 4.8 ms. Real jobs
-  skip the ~4.6 s cold Init.
-- **Drive-time per-leg cache**: `_aws_drive_times` now caches each origin→dest leg
-  (`route_drive|{olat:.3f}|{olon:.3f}|{dlat:.3f}|{dlon:.3f}`, 90-day TTL); only cache-missing
-  legs hit `calculate_route_matrix`; failures aren't cached. The call was already a single
-  batched matrix request (server-parallel), so the win is from skipping it on repeat areas,
-  not from parallelising. Projected warm-warm 3.16 s → ~1.2 s.
+### 2026-07-12 — CalculateRouteMatrix → CalculateRoutes (ferry/dirt-road detection)
 
-## 2026-07-12 — switched CalculateRouteMatrix → CalculateRoutes (ferry/dirt-road detection)
+The "warn on ferry-bridged / unpaved routes" feature (#107) didn't work in prod.
+Two confirmed problems with `CalculateRouteMatrix`, verified with live calls
+against the exact Juneau, AK coordinates from the bug report:
 
-**Why:** shipped a "warn on ferry-bridged / unpaved routes" feature (#107) built on a
-wrong assumption, and initially misdiagnosed why it didn't work. Two real, confirmed
-problems with `CalculateRouteMatrix`, verified with live authenticated AWS CLI calls
-against the exact Juneau, AK coordinates from the bug report (not just docs):
+1. `RouteMatrixEntry` carries only `{Distance, Duration, Error}` — no `Notices`,
+   no `Legs` — so a ferry/dirt-road violation can't be read off it structurally.
+2. **The primary cause:** passing `Avoid` with `TravelMode=Car` imposes an
+   undocumented **60 km cap** per origin–destination pair; exceeding it raises
+   `ValidationException` for the *entire batched request*. At this app's 60/120 mi
+   radii that's routine, so every candidate's drive time in the search silently
+   failed (blanket `except Exception` + the frontend's ≥1-successful-leg gate) —
+   every place fell back to a plain unlabeled Maps link, exactly the prod symptom.
 
-1. `RouteMatrixEntry` is only `{Distance, Duration, Error}` — no `Notices`, no `Legs` — so
-   a ferry/dirt-road violation can't be read off it structurally. (First diagnosis: this
-   alone was treated as the whole story, which was incomplete.)
-2. **The actual primary cause of the prod symptom:** passing `Avoid` with `TravelMode=Car`
-   imposes an undocumented **60 km cap** between origin and each destination — exceeding
-   it raises `ValidationException` for the *entire batched request*, not just that leg.
-   Reproduced live: the same 3 Juneau-area destinations (78–145 km out) succeed fine
-   *without* `Avoid` (plain `Duration: 13653s` ≈ 3h48m, the exact deceptive-ETA number
-   from the original report) and fail outright *with* `Avoid={Ferries,DirtRoads}` — the
-   same config PR #107 shipped. At this app's 60/120mi search radii that's routine, so
-   the whole matrix call — and therefore every candidate's drive time in that search, not
-   just ferry detection — silently failed via `_aws_drive_times`'s blanket
-   `except Exception: log.debug(...)`. Combined with the frontend's `routingActive` gate
-   (needs ≥1 successful leg to show a warning), every place fell back to a plain,
-   unlabeled Maps link — exactly what was observed in prod.
+Fix (PR #108): `_aws_drive_times` calls `CalculateRoutes` once per missing leg,
+client-parallel (bounded pool, ≤11 legs/search). No 60 km cap (confirmed live: a
+77.8 km Juneau leg with the same `Avoid` succeeds and returns the `Ferry`-typed
+leg). Ferry detection uses the structural `Legs[].Type == "Ferry"` signal. The
+24 h per-leg cache is unchanged. Cost parity with the matrix API is likely
+(both bill per route) but unconfirmed numerically; in-region latency for
+first-visit searches not yet re-profiled.
 
-Also corrected a factual error from the first pass: `ViolatedAvoidFerry` **does** exist as
-a notice code — just under `Legs[].FerryLegDetails.Notices[]`, a shape that wasn't
-checked before concluding "no such code exists anywhere." The structural
-`Legs[].Type == "Ferry"` check (used below) catches it regardless and doesn't depend on
-notice-shape details, so it's kept as the primary signal.
+## Appendix B — raw data
 
-**Change:** `_aws_drive_times` now calls `CalculateRoutes` once per missing leg, in
-parallel (`ThreadPoolExecutor`, bounded by `_GEOCODE_MAX_WORKERS`, same pattern as the
-parallel geocode prefetch), instead of one batched `CalculateRouteMatrix` call.
-`CalculateRoutes` has no 60 km cap (confirmed: the same 77.8km Juneau leg with the same
-`Avoid` succeeds and correctly returns the `Ferry`-typed leg). The 24h per-leg cache is
-unchanged, so repeat-area searches still pay nothing for this phase.
-
-**Cost caveats (surfaced, not yet fully closed):**
-- *Monetary:* per AWS's routes-pricing docs, `CalculateRouteMatrix` already bills
-  per origin-destination pair (`Number of Routes = Origins × Destinations`), and
-  `CalculateRoutes` bills per request = 1 route. Both are "Core" bucket for `Car`/no-tolls,
-  so N matrix pairs and N point-to-point requests are likely billed at parity — but the
-  exact per-unit $ figures are behind AWS's JS-rendered pricing calculator and weren't
-  confirmed numerically here.
-- *Latency:* this phase was previously "one server-parallel batched call" (~2 s in-region
-  uncached, per the 2026-06-16 log above). It's now N client-parallel calls bounded to
-  ≤11/search (`_MAX_RESULTS=10` + `best_available`). Not yet re-profiled in-region after
-  this change — do that before trusting the phase-timing numbers above for first-visit
-  searches; repeat-area searches are unaffected (cache-served either way).
+`docs/perf_runs/findnearby_funnel_2026-06-09.jsonl` — the 5-city AWS in-region
+funnel/profile run (per-phase wall times, candidate-funnel counts, surfaced
+coordinates) captured with the funnel logging + `PYNIGHTSKY_NO_CACHE=1` on a warm
+2 GB worker. Steady-state per-phase medians from that run: raster window reads
+~110–410 ms each, extract ~220–300 ms, dome detection ~180–210 ms, drive times
+~180–780 ms, TOTAL 1.5–4.7 s across San Diego / Sedona / Knolls / Roswell /
+Atlantic City.
