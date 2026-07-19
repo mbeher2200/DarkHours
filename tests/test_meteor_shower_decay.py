@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from PyNightSkyPredictor.targets import (
+from darkhours.targets import (
     _days_from_peak,
     _gate_half_window_days,
     _meteor_shower_note,

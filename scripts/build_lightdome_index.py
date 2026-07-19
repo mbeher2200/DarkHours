@@ -37,7 +37,7 @@ from shapely.geometry import box, mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("PYNIGHTSKY_BACKEND", "local")
-from PyNightSkyPredictor.light_dome import DIRS_8, LightDomeAnalyzer  # noqa: E402
+from darkhours.light_dome import DIRS_8, LightDomeAnalyzer  # noqa: E402
 
 RESOLUTION = 6                              # ~36.1 km^2/cell — matches the runtime lookup
 CONUS = (24.4, 49.4, -125.0, -66.9)         # min_lat, max_lat, min_lon, max_lon

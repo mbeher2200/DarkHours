@@ -38,7 +38,7 @@ def _stage_warmer_code() -> str:
     if stage.exists():
         shutil.rmtree(stage)
     _ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "de421.bsp", ".DS_Store")
-    shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=_ignore)
+    shutil.copytree(_REPO / "darkhours", stage / "darkhours", ignore=_ignore)
     (stage / "apps").mkdir(parents=True)
     shutil.copy(_REPO / "apps" / "__init__.py", stage / "apps" / "__init__.py")
     shutil.copytree(_REPO / "apps" / "warmer", stage / "apps" / "warmer", ignore=_ignore)

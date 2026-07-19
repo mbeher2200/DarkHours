@@ -10,7 +10,7 @@ from pathlib import Path
 
 os.environ["PYNIGHTSKY_PROFILE"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from PyNightSkyPredictor import cache, darksky, ports  # noqa: E402
+from darkhours import cache, darksky, ports  # noqa: E402
 
 LAT, LON, RADIUS = 33.4484, -112.0740, 60   # Phoenix, AZ
 

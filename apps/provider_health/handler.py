@@ -4,7 +4,7 @@ Runs on a schedule (EventBridge → Lambda) to poll the providers the engine
 depends on (Open-Meteo, 7Timer, WAQI, NOAA SWPC) and record UP/DOWN status +
 latency to DynamoDB, so an SRE can alarm on sustained provider outages
 independently of user traffic. Zero third-party imports beyond boto3 (ships
-with the runtime) — this Lambda never touches the PyNightSkyPredictor engine,
+with the runtime) — this Lambda never touches the darkhours engine,
 so it stays a tiny zip with no rasterio/GDAL tax.
 
 Deliberately NOT monitored here: Celestrak. It has specific access-timing

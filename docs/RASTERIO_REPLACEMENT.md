@@ -12,7 +12,7 @@ that led here is in the appendix.
 ```
 build time (offline, rasterio):
   source GeoTIFF ──scripts/build_raster_grid.py──▶ <prefix>.bin + <prefix>.json
-                    (thin CLI over PyNightSkyPredictor/gridbuild.py)
+                    (thin CLI over darkhours/gridbuild.py)
 
 runtime (numpy only, via the ports.py RasterSource seam):
   local backend:  LocalRasterSource → gridraster.open_local()  → memmap reads
@@ -21,9 +21,9 @@ runtime (numpy only, via the ports.py RasterSource seam):
                   (nothing is ever downloaded; the .bin is range-read in place)
 ```
 
-- **Runtime reader:** `PyNightSkyPredictor/gridraster.py` (`GridArray` with
+- **Runtime reader:** `darkhours/gridraster.py` (`GridArray` with
   `sample(lat, lon)` and `read_window(bbox, out_shape=None)`).
-- **Builder:** `PyNightSkyPredictor/gridbuild.py` (`build()`, tile size default 512),
+- **Builder:** `darkhours/gridbuild.py` (`build()`, tile size default 512),
   wrapped by `scripts/build_raster_grid.py`. This is the only rasterio import in the
   package, and it raises a clear "install requirements-build.txt" error if rasterio
   is absent.

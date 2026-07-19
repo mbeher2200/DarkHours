@@ -53,11 +53,11 @@ def _make_points(coords):
 
 class TestClusterPoints:
     def test_empty(self):
-        from PyNightSkyPredictor.darksky import _cluster_points
+        from darkhours.darksky import _cluster_points
         assert _cluster_points([]) == []
 
     def test_single(self):
-        from PyNightSkyPredictor.darksky import _cluster_points
+        from darkhours.darksky import _cluster_points
         pts = _make_points([(40.1, -105.1, 3)])
         result = _cluster_points(pts)
         assert len(result) == 1
@@ -65,7 +65,7 @@ class TestClusterPoints:
     def test_identical_output_to_reference_loop_50_points(self):
         """Vectorised result must be identical to the reference O(N²) loop."""
         import random
-        from PyNightSkyPredictor.darksky import _cluster_points
+        from darkhours.darksky import _cluster_points
 
         rng = random.Random(42)
         coords = [
@@ -84,14 +84,14 @@ class TestClusterPoints:
         assert fast_coords == ref_coords, "cluster centres differ between vectorised and reference"
 
     def test_no_merging_when_far_apart(self):
-        from PyNightSkyPredictor.darksky import _cluster_points
+        from darkhours.darksky import _cluster_points
         # Two points ~200 miles apart; should never merge at 8-mile threshold.
         pts = _make_points([(40.0, -105.0, 2), (42.0, -105.0, 3)])
         result = _cluster_points(pts, merge_miles=8.0)
         assert len(result) == 2
 
     def test_adjacent_points_merge(self):
-        from PyNightSkyPredictor.darksky import _cluster_points
+        from darkhours.darksky import _cluster_points
         # Two points < 1 mile apart; the darker one (bortle 1) must survive.
         pts = _make_points([(40.0, -105.0, 1), (40.001, -105.001, 3)])
         result = _cluster_points(pts, merge_miles=8.0)
@@ -108,7 +108,7 @@ class TestPlanTripParallel:
         """When all (loc, date) results come from cache (fast), the output set is
         identical regardless of future completion order — verifies no race condition."""
         from unittest.mock import patch, MagicMock
-        from PyNightSkyPredictor.trip import plan_trip, NightSummary, TripReport
+        from darkhours.trip import plan_trip, NightSummary, TripReport
         from datetime import date
 
         def _fake_fetch_night(lat, lon, d, tz, display_name, fetch_weather, weather_horizon_days=None):
@@ -129,7 +129,7 @@ class TestPlanTripParallel:
         d_start = date(2026, 7, 1)
         d_end   = date(2026, 7, 7)
 
-        with patch("PyNightSkyPredictor.trip.fetch_night", side_effect=_fake_fetch_night):
+        with patch("darkhours.trip.fetch_night", side_effect=_fake_fetch_night):
             result = plan_trip(locs, d_start, d_end, fetch_weather=False)
 
         assert isinstance(result, TripReport)
@@ -147,7 +147,7 @@ class TestPlanTripParallel:
 class TestBtCloudFrac:
     def _make_weather_points(self, n=48):
         """48 hourly WeatherPoint-like objects starting at midnight UTC."""
-        from PyNightSkyPredictor.weather import WeatherPoint
+        from darkhours.weather import WeatherPoint
         base = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)
         pts = []
         for i in range(n):
@@ -163,7 +163,7 @@ class TestBtCloudFrac:
         return pts
 
     def test_bisect_matches_linear_for_all_samples(self):
-        from PyNightSkyPredictor.milky_way import bt_cloud_frac
+        from darkhours.milky_way import bt_cloud_frac
         pts = self._make_weather_points()
         base = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -179,7 +179,7 @@ class TestBtCloudFrac:
             t += timedelta(minutes=15)
 
     def test_empty_returns_zero(self):
-        from PyNightSkyPredictor.milky_way import bt_cloud_frac
+        from darkhours.milky_way import bt_cloud_frac
         t = datetime(2026, 8, 1, 6, 0, tzinfo=timezone.utc)
         assert bt_cloud_frac(t, []) == 0.0
         assert bt_cloud_frac(t, [], wx_epochs=[]) == 0.0

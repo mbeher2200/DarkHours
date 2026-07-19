@@ -164,7 +164,7 @@ def _run_case(case: dict, verbose: bool) -> list[str]:
     from zoneinfo import ZoneInfo
 
     from skyfield.api import load, wgs84
-    from PyNightSkyPredictor.targets import visible_targets, milky_way_arch_summary
+    from darkhours.targets import visible_targets, milky_way_arch_summary
 
     lat, lon     = case["lat"], case["lon"]
     target_date  = case["date"]
@@ -172,7 +172,7 @@ def _run_case(case: dict, verbose: bool) -> list[str]:
     tz = ZoneInfo("UTC")
 
     # Compute night bounds
-    from PyNightSkyPredictor.sky_events import sky_events, moon_phase_info, find_event
+    from darkhours.sky_events import sky_events, moon_phase_info, find_event
     events = sky_events(lat, lon, target_date)
 
     sunset   = find_event(events, "Sunset",   after=datetime(target_date.year,  target_date.month,  target_date.day,  tzinfo=timezone.utc))

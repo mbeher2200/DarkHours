@@ -184,11 +184,11 @@ def _bortle_at(lat: float, lon: float) -> "int | None":
     if _lookup_fn is None:
         try:
             # Running as a script puts scripts/ on sys.path, not the repo root — add it so
-            # `PyNightSkyPredictor` imports. lookup() reads the local grids relative to cwd.
+            # `darkhours` imports. lookup() reads the local grids relative to cwd.
             _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if _repo not in sys.path:
                 sys.path.insert(0, _repo)
-            from PyNightSkyPredictor import darksky as _ds
+            from darkhours import darksky as _ds
             _lookup_fn = _ds.lookup
             if _ds.lookup(0.0, 0.0) is None and _ds.lookup(39.0, -105.0) is None:
                 # Grids genuinely unavailable (both ocean and a known-land point return None).

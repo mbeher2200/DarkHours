@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from PyNightSkyPredictor import weather as wx
+from darkhours import weather as wx
 
 
 def _pt():

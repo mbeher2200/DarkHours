@@ -24,7 +24,7 @@ def _candidate(lat: float = 40.0, lon: float = -100.0, distance: float = 10.0) -
 
 @pytest.fixture(autouse=True)
 def _disable_padus_autoload():
-    with patch("PyNightSkyPredictor.darksky._load_padus_h3_index", return_value=None):
+    with patch("darkhours.darksky._load_padus_h3_index", return_value=None):
         yield
 
 
@@ -34,7 +34,7 @@ def _disable_padus_autoload():
 
 def test_jit_loop_stops_at_max_results():
     """All unique names: assert exactly 10 geocode calls and 10 results."""
-    from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+    from darkhours.darksky import _jit_geocode_candidates
 
     candidates = [
         {
@@ -49,7 +49,7 @@ def test_jit_loop_stops_at_max_results():
         for i in range(500)
     ]
 
-    with patch("PyNightSkyPredictor.darksky._settlement",
+    with patch("darkhours.darksky._settlement",
                side_effect=lambda lat, lon: f"City {lat:.2f}") as mock_settlement:
         result = _jit_geocode_candidates(candidates, max_results=10)
 
@@ -63,7 +63,7 @@ def test_jit_loop_stops_at_max_results():
 
 def test_jit_loop_deduplicates_names():
     """Same name, same 40-mile bucket: duplicates are dropped within the bucket."""
-    from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+    from darkhours.darksky import _jit_geocode_candidates
 
     # All 50 candidates within 0–39 miles (bucket 0)
     candidates = _make_candidates(50, distance_start=0.0)
@@ -73,7 +73,7 @@ def test_jit_loop_deduplicates_names():
             return "Metropolis"  # 5 candidates, same name, same distance bucket
         return f"City {lat}"     # rest are unique
 
-    with patch("PyNightSkyPredictor.darksky._settlement",
+    with patch("darkhours.darksky._settlement",
                side_effect=_rg_with_dupes) as mock_settlement:
         result = _jit_geocode_candidates(candidates, max_results=10)
 
@@ -86,7 +86,7 @@ def test_jit_loop_deduplicates_names():
 
 def test_jit_loop_same_name_deduped_regardless_of_distance():
     """Same name at any distance → only the nearest result is kept."""
-    from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+    from darkhours.darksky import _jit_geocode_candidates
 
     candidates = [
         {"lat": 35.0, "lon": -112.0, "distance_miles": 5.0},
@@ -94,7 +94,7 @@ def test_jit_loop_same_name_deduped_regardless_of_distance():
         {"lat": 37.0, "lon": -112.0, "distance_miles": 90.0},
     ]
 
-    with patch("PyNightSkyPredictor.darksky._settlement",
+    with patch("darkhours.darksky._settlement",
                return_value="Coconino, AZ"):
         result = _jit_geocode_candidates(candidates, max_results=10)
 
@@ -104,7 +104,7 @@ def test_jit_loop_same_name_deduped_regardless_of_distance():
 
 def test_jit_loop_keeps_rural_candidates():
     """None returns (remote rural areas) get a coordinate fallback and are NOT dropped."""
-    from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+    from darkhours.darksky import _jit_geocode_candidates
 
     candidates = [
         {"lat": float(i), "lon": -112.0, "distance_miles": float(i)}
@@ -117,7 +117,7 @@ def test_jit_loop_keeps_rural_candidates():
             return None
         return f"City {lat}"
 
-    with patch("PyNightSkyPredictor.darksky._settlement",
+    with patch("darkhours.darksky._settlement",
                side_effect=_rg_with_nones):
         result = _jit_geocode_candidates(candidates, max_results=10)
 
@@ -140,11 +140,11 @@ class TestPadusTier:
 
     def test_blacklisted_candidate_discarded(self):
         """Blacklisted PAD-US cell → candidate is silently dropped; no network calls."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup",
+        with patch("darkhours.darksky._padus_h3_lookup",
                    return_value=("Restricted Area", True)), \
-             patch("PyNightSkyPredictor.darksky._settlement") as mock_settle:
+             patch("darkhours.darksky._settlement") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10, padus_index=self._FAKE_INDEX
             )
@@ -154,12 +154,12 @@ class TestPadusTier:
 
     def test_good_name_skips_all_network_calls(self):
         """Non-blacklisted hit with good Unit_Nm → neither Overpass nor geocoder called."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup",
+        with patch("darkhours.darksky._padus_h3_lookup",
                    return_value=("Grand Canyon National Park", False)), \
-             patch("PyNightSkyPredictor.darksky._settlement") as mock_settle, \
-             patch("PyNightSkyPredictor.darksky._best_area_name_for_cluster") as mock_ov:
+             patch("darkhours.darksky._settlement") as mock_settle, \
+             patch("darkhours.darksky._best_area_name_for_cluster") as mock_ov:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10,
                 natural_areas=[{"name": "some area"}],
@@ -173,11 +173,11 @@ class TestPadusTier:
 
     def test_junk_name_falls_to_settlement(self):
         """Non-blacklisted hit with short Unit_Nm → _settlement() provides the name."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup",
+        with patch("darkhours.darksky._padus_h3_lookup",
                    return_value=("Park", False)), \
-             patch("PyNightSkyPredictor.darksky._settlement",
+             patch("darkhours.darksky._settlement",
                    return_value="Flagstaff, AZ") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10, padus_index=self._FAKE_INDEX
@@ -189,12 +189,12 @@ class TestPadusTier:
 
     def test_no_padus_hit_overpass_match_uses_area_name(self):
         """PAD-US miss + Overpass match → Overpass area name used directly."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup", return_value=None), \
-             patch("PyNightSkyPredictor.darksky._best_area_name_for_cluster",
+        with patch("darkhours.darksky._padus_h3_lookup", return_value=None), \
+             patch("darkhours.darksky._best_area_name_for_cluster",
                    return_value="Coconino National Forest"), \
-             patch("PyNightSkyPredictor.darksky._settlement") as mock_settle:
+             patch("darkhours.darksky._settlement") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10,
                 natural_areas=[{}],
@@ -207,12 +207,12 @@ class TestPadusTier:
 
     def test_no_padus_hit_overpass_miss_falls_to_settlement(self):
         """PAD-US miss + Overpass miss → _settlement() called; candidate NOT discarded."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup", return_value=None), \
-             patch("PyNightSkyPredictor.darksky._best_area_name_for_cluster",
+        with patch("darkhours.darksky._padus_h3_lookup", return_value=None), \
+             patch("darkhours.darksky._best_area_name_for_cluster",
                    return_value=None), \
-             patch("PyNightSkyPredictor.darksky._settlement",
+             patch("darkhours.darksky._settlement",
                    return_value="Brawley, CA") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10,
@@ -226,10 +226,10 @@ class TestPadusTier:
 
     def test_no_padus_hit_overpass_none_falls_to_settlement(self):
         """PAD-US miss + natural_areas=None (Overpass disabled) → _settlement() called."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup", return_value=None), \
-             patch("PyNightSkyPredictor.darksky._settlement",
+        with patch("darkhours.darksky._padus_h3_lookup", return_value=None), \
+             patch("darkhours.darksky._settlement",
                    return_value="Some Town") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10,
@@ -243,11 +243,11 @@ class TestPadusTier:
 
     def test_lookup_exception_treated_as_miss(self):
         """Exception in _padus_h3_lookup is caught; candidate falls through to Tier 3."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
-        with patch("PyNightSkyPredictor.darksky._padus_h3_lookup",
+        with patch("darkhours.darksky._padus_h3_lookup",
                    side_effect=RuntimeError("h3 failure")), \
-             patch("PyNightSkyPredictor.darksky._settlement",
+             patch("darkhours.darksky._settlement",
                    return_value="Recovered Town") as mock_settle:
             result = _jit_geocode_candidates(
                 [_candidate()], max_results=10,
@@ -261,7 +261,7 @@ class TestPadusTier:
 
     def test_origin_name_excluded(self):
         """Candidates whose name matches the origin settlement are filtered out."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
         candidates = [
             {"lat": 36.7, "lon": -119.8, "distance_miles": 5.0},   # resolves to origin
@@ -270,7 +270,7 @@ class TestPadusTier:
         def _settle(lat, lon):
             return "Fresno, CA" if lat < 37.0 else "Clovis, CA"
 
-        with patch("PyNightSkyPredictor.darksky._settlement", side_effect=_settle):
+        with patch("darkhours.darksky._settlement", side_effect=_settle):
             result = _jit_geocode_candidates(
                 candidates, max_results=10,
                 exclude={"Fresno, CA"},
@@ -281,14 +281,14 @@ class TestPadusTier:
 
     def test_padus_index_none_preserves_original_behavior(self):
         """padus_index=None → pipeline identical to pre-refactor (all Tier 3)."""
-        from PyNightSkyPredictor.darksky import _jit_geocode_candidates
+        from darkhours.darksky import _jit_geocode_candidates
 
         # Unique lat per candidate so dedup doesn't collapse them.
         candidates = [
             {"lat": 40.0 + i, "lon": -100.0, "distance_miles": float(i)}
             for i in range(5)
         ]
-        with patch("PyNightSkyPredictor.darksky._settlement",
+        with patch("darkhours.darksky._settlement",
                    side_effect=lambda lat, lon: f"Town {lat:.0f}") as mock_settle:
             result = _jit_geocode_candidates(candidates, max_results=10, padus_index=None)
 
@@ -325,7 +325,7 @@ class TestPadusTier:
     (None,                                 False),
 ])
 def test_is_good_padus_name(name, expected):
-    from PyNightSkyPredictor.darksky import _is_good_padus_name
+    from darkhours.darksky import _is_good_padus_name
     assert _is_good_padus_name(name) == expected
 
 
@@ -344,5 +344,5 @@ def test_is_good_padus_name(name, expected):
     (0.0,     0.0,   False),  # Gulf of Guinea
 ])
 def test_is_in_us(lat, lon, expected):
-    from PyNightSkyPredictor.darksky import _is_in_us
+    from darkhours.darksky import _is_in_us
     assert _is_in_us(lat, lon) is expected

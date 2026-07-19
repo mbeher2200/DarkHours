@@ -1,6 +1,6 @@
 """format_ctx.py — per-request formatting context and pure display helpers.
 
-FormatCtx replaces the module-level _TZ / _units globals in pynightsky.py.
+FormatCtx replaces the module-level _TZ / _units globals in darkhours.py.
 Instantiate once per CLI invocation or per web request; pass it into any
 renderer that needs timezone or unit conversions.
 
@@ -46,7 +46,7 @@ def detect_units() -> str:
 class FormatCtx:
     """Timezone + unit system bundled into a single object.
 
-    Replaces the pynightsky.py globals _TZ and _units.  Safe to instantiate
+    Replaces the darkhours.py globals _TZ and _units.  Safe to instantiate
     once per request in a web context (no shared mutable state).
     """
     tz:    ZoneInfo

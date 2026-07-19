@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from PyNightSkyPredictor.sky_events import dark_moon_intervals, find_event, find_last_event
+from darkhours.sky_events import dark_moon_intervals, find_event, find_last_event
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ class TestPhaseNameFromAngle:
         (360.0, "New Moon"),
     ])
     def test_angle_bands(self, angle, expected):
-        from PyNightSkyPredictor.sky_events import phase_name_from_angle
+        from darkhours.sky_events import phase_name_from_angle
         assert phase_name_from_angle(angle) == expected
 
 
@@ -202,7 +202,7 @@ class TestPhaseNameFromAngle:
 @pytest.mark.eph
 class TestMoonPhaseInfo:
     def test_known_full_moon_2026_05_31(self):
-        from PyNightSkyPredictor.sky_events import moon_phase_info
+        from darkhours.sky_events import moon_phase_info
         # Full moon on 2026-05-31; check at 12:00 UTC (near peak illumination)
         t = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
         phase_name, illum = moon_phase_info(t)
@@ -210,7 +210,7 @@ class TestMoonPhaseInfo:
         assert "Full" in phase_name, f"Expected 'Full' in phase name, got {phase_name!r}"
 
     def test_known_new_moon_2026_06_14(self):
-        from PyNightSkyPredictor.sky_events import moon_phase_info
+        from darkhours.sky_events import moon_phase_info
         t = datetime(2026, 6, 14, 12, 0, tzinfo=timezone.utc)
         phase_name, illum = moon_phase_info(t)
         assert illum < 2.0, f"Expected new moon illumination < 2%, got {illum}%"
@@ -223,7 +223,7 @@ class TestSkyEventsIntegration:
     LON = -112.1129
 
     def test_sunset_grand_canyon_2026_03_02(self):
-        from PyNightSkyPredictor.sky_events import sky_events, find_event
+        from darkhours.sky_events import sky_events, find_event
         from zoneinfo import ZoneInfo
         d = date(2026, 3, 2)
         tz = ZoneInfo("America/Phoenix")
@@ -241,7 +241,7 @@ class TestSkyEventsIntegration:
 
     def test_eclipse_night_has_moonrise_and_moonset(self):
         """The night of 2026-03-02 (total lunar eclipse ~11:33 UTC March 3) has moonrise and moonset."""
-        from PyNightSkyPredictor.sky_events import sky_events
+        from darkhours.sky_events import sky_events
         d = date(2026, 3, 2)
         events = sky_events(self.LAT, self.LON, d)
         labels = {e["label"] for e in events}
@@ -279,7 +279,7 @@ class TestLunarCycleDarkAnalysis:
 
     @pytest.fixture(autouse=True)
     def _isolate(self, monkeypatch):
-        import PyNightSkyPredictor.sky_events as se
+        import darkhours.sky_events as se
         # Fresh in-process state per test, and no real cache/network I/O.
         monkeypatch.setattr(se, "_mem_dark_cycle", {})
         monkeypatch.setattr(se, "_dark_cycle_locks", {})
@@ -287,7 +287,7 @@ class TestLunarCycleDarkAnalysis:
         monkeypatch.setattr(se._cache, "set", lambda k, v, **kw: None)
 
     def test_overlapping_target_dates_reuse_one_computation(self, monkeypatch):
-        import PyNightSkyPredictor.sky_events as se
+        import darkhours.sky_events as se
         from datetime import timedelta
 
         calls = []
@@ -313,7 +313,7 @@ class TestLunarCycleDarkAnalysis:
         import threading
         import time as _t
         from datetime import timedelta
-        import PyNightSkyPredictor.sky_events as se
+        import darkhours.sky_events as se
 
         calls = []
         calls_lock = threading.Lock()
@@ -353,7 +353,7 @@ class TestLunarCycleDarkAnalysis:
         LocalFileCache-style round trip through json.dumps/loads, not just an
         in-memory dict, so a missed conversion would actually surface here."""
         import json as _json
-        import PyNightSkyPredictor.sky_events as se
+        import darkhours.sky_events as se
 
         base = date(2026, 7, 2)
         window_start = base - timedelta(days=14)
@@ -375,7 +375,7 @@ class TestLunarCycleDarkAnalysis:
         """The returned 'tonight' dict must be safe to mutate — it's read from a
         cache entry (_mem_dark_cycle) shared across every concurrent caller for
         overlapping dates. Mutating it must not corrupt what the next caller sees."""
-        import PyNightSkyPredictor.sky_events as se
+        import darkhours.sky_events as se
 
         def fake_compute(lat, lon, target_date, tz):
             window_start = target_date - timedelta(days=14)

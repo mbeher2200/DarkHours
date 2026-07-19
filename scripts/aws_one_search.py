@@ -10,7 +10,7 @@ import argparse
 import logging
 import time
 
-from PyNightSkyPredictor import cache, darksky, ports
+from darkhours import cache, darksky, ports
 
 
 def main():

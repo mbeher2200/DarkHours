@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PyNightSkyPredictor import darksky, sky_events as se, weather as wx, trip as _trip  # noqa: E402
+from darkhours import darksky, sky_events as se, weather as wx, trip as _trip  # noqa: E402
 
 _timings: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])  # name -> [total_ms, calls]
 _percall: dict[str, list[float]] = defaultdict(list)  # name -> [ms, ms, ...] in call order

@@ -4,7 +4,7 @@
 Runs the analyzer at the default 150-mile radius for a set of sites whose darkness class
 is known a priori, and prints the worst-direction score distribution per class. At 150 mi
 darkness is a continuum (distant-metro glow reaches almost everywhere), so the MINOR/MAJOR
-constants in ``PyNightSkyPredictor/light_dome.py`` are not separating two clean clusters:
+constants in ``darkhours/light_dome.py`` are not separating two clean clusters:
 MAJOR is set below the close-metro floor (sky-degrading), MINOR just above premier
 dark-sky-park glow so a real-but-low distant metro dome still flags.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from PyNightSkyPredictor.light_dome import LightDomeAnalyzer  # noqa: E402
+from darkhours.light_dome import LightDomeAnalyzer  # noqa: E402
 
 # class: 'pristine' (genuinely remote even within 150 mi — should stay near zero),
 #        'domed'    (a metro within ~120 mi — should flag a dome in the city direction).
@@ -67,7 +67,7 @@ def main() -> None:
         print()
         print(f"pristine ceiling={max(pristine):.3f}  ->  domed floor={min(domed):.3f} "
               "(continuum at 150 mi — these may overlap)")
-        from PyNightSkyPredictor.light_dome import MINOR_DOME_THRESHOLD, MAJOR_DOME_THRESHOLD
+        from darkhours.light_dome import MINOR_DOME_THRESHOLD, MAJOR_DOME_THRESHOLD
         print(f"current constants: MINOR_DOME_THRESHOLD={MINOR_DOME_THRESHOLD}, "
               f"MAJOR_DOME_THRESHOLD={MAJOR_DOME_THRESHOLD}")
 

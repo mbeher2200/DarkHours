@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 import pytest
 
-from PyNightSkyPredictor.predictor import _apply_condition_vectors, _CLOUD_BLOCK_PCT, _MIN_VIABLE_MIN
-from PyNightSkyPredictor.targets import TargetWindow, VisibleTarget
-from PyNightSkyPredictor.weather import WeatherPoint
+from darkhours.predictor import _apply_condition_vectors, _CLOUD_BLOCK_PCT, _MIN_VIABLE_MIN
+from darkhours.targets import TargetWindow, VisibleTarget
+from darkhours.weather import WeatherPoint
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from unittest import mock
 
 import pytest
 
-from PyNightSkyPredictor import aqicn as q
+from darkhours import aqicn as q
 
 # Query point used throughout: Minneapolis, MN.
 _QLAT, _QLON = 44.98, -93.27

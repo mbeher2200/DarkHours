@@ -8,7 +8,7 @@ import { LD_DIRS, LD_THETA_K, LD_THETA_FLOOR_DEG, LD_THETA_DEFAULT_DEG, LD_SIZE,
 // 360° horizon, N at top. Each direction's horizon glow blooms upward by that
 // dome's apparent height, so a distant low metro dome hugs the rim while a near one
 // reaches higher. Mirrors the engine: glow(az,alt) = score(az)/(1+(alt/θ(az))²)
-// (PyNightSkyPredictor/light_dome.py glow_toward).
+// (darkhours/light_dome.py glow_toward).
 // LD constants and utility functions (LD_DIRS, ldTent, glowToward, etc.) live in
 // ./glow so this panel, MilkyWayDome, and the targets table share one model.
 

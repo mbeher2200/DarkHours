@@ -9,7 +9,7 @@ single-pixel exactness, multi-tile assembly, out_shape bilinear, and None-on-err
 import numpy as np
 import pytest
 
-from PyNightSkyPredictor import gridraster
+from darkhours import gridraster
 
 
 def make_grid(arr, *, nodata=None, tile=4,
@@ -126,7 +126,7 @@ def test_window_out_shape_resamples():
 def test_float32_bortle_agrees_with_float64():
     """S4: float32 raster output must produce the same Bortle class as float64
     for pixels near each SQM class boundary — the precision-sensitive case."""
-    import PyNightSkyPredictor.darksky as ds
+    import darkhours.darksky as ds
 
     # SQM boundary values (lower edge of each Bortle class)
     sqm_boundaries = [22.0, 21.7, 21.3, 20.8, 20.0, 19.1, 18.0, 17.0]

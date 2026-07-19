@@ -24,8 +24,8 @@ WORKDIR /app
 COPY requirements.txt requirements-worker.txt ./
 RUN pip install -r requirements-worker.txt
 
-# App code — includes PyNightSkyPredictor/de421.bsp (ephemeris) which plan_trip needs.
-COPY PyNightSkyPredictor/ ./PyNightSkyPredictor/
+# App code — includes darkhours/de421.bsp (ephemeris) which plan_trip needs.
+COPY darkhours/ ./darkhours/
 COPY apps/ ./apps/
 COPY cache/darkhours_padus_h3.npz ./cache/darkhours_padus_h3.npz
 COPY cache/osm_pois.npz ./cache/osm_pois.npz

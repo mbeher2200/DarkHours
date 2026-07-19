@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from PyNightSkyPredictor import darksky  # noqa: E402
+from darkhours import darksky  # noqa: E402
 
 ORIGINS = [
     ("Los Angeles, CA", 34.0522, -118.2437),

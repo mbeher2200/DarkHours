@@ -9,9 +9,9 @@ serializers that already live in trip.py.
 import dataclasses
 from datetime import date, datetime
 
-from PyNightSkyPredictor import trip as _trip
-from PyNightSkyPredictor.predictor import NightReport
-from PyNightSkyPredictor.trip import TripReport
+from darkhours import trip as _trip
+from darkhours.predictor import NightReport
+from darkhours.trip import TripReport
 
 
 def _to_jsonable(obj):

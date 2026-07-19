@@ -7,7 +7,7 @@ import math
 import numpy as np
 import pytest
 
-from PyNightSkyPredictor.light_dome import (
+from darkhours.light_dome import (
     DIRS_8,
     LightDomeAnalyzer,
     glow_toward,

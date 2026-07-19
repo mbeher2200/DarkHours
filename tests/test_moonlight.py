@@ -3,7 +3,7 @@ Tests for moonlight.py — Krisciunas & Schaefer (1991) model (pure math, no dep
 """
 
 import pytest
-from PyNightSkyPredictor.moonlight import (
+from darkhours.moonlight import (
     ks_delta_mag,
     ks_moon_credit,
     moon_wash_severity,
@@ -172,7 +172,7 @@ class TestMoonWashSeverity:
 class TestWinklerModel:
     def test_aod_none_equals_reference_aod(self):
         """aod=None must be exactly the reference clear sky (_AOD_REF)."""
-        from PyNightSkyPredictor.moonlight import _AOD_REF
+        from darkhours.moonlight import _AOD_REF
         for illum, sep, alt in [(30, 45, 20), (80, 10, 60), (100, 120, 45)]:
             assert ks_delta_mag(illum, sep, alt) == ks_delta_mag(illum, sep, alt, aod=_AOD_REF)
 
@@ -221,15 +221,15 @@ class TestWinklerModel:
 
 class TestHelpers:
     def test_k_ext_from_aod_reference(self):
-        from PyNightSkyPredictor.moonlight import k_ext_from_aod
+        from darkhours.moonlight import k_ext_from_aod
         assert k_ext_from_aod(None) == pytest.approx(0.172, abs=1e-12)
 
     def test_k_ext_from_aod_monotonic(self):
-        from PyNightSkyPredictor.moonlight import k_ext_from_aod
+        from darkhours.moonlight import k_ext_from_aod
         assert k_ext_from_aod(0.5) > k_ext_from_aod(0.1) > k_ext_from_aod(0.0)
 
     def test_nelm_known_points(self):
-        from PyNightSkyPredictor.moonlight import nelm_from_sqm
+        from darkhours.moonlight import nelm_from_sqm
         assert nelm_from_sqm(22.0) == pytest.approx(6.62, abs=0.02)   # pristine sky
         assert nelm_from_sqm(18.0) == pytest.approx(3.97, abs=0.02)   # Bortle 8
         assert nelm_from_sqm(22.0) > nelm_from_sqm(20.0) > nelm_from_sqm(18.0)

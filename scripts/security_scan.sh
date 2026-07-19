@@ -6,7 +6,7 @@
 #
 # Same checks the CI workflow runs (.github/workflows/security.yml). Exits non-zero
 # if any check fails. Accepted findings are suppressed at their source with a
-# documented reason (e.g. PyNightSkyPredictor/_http.py: validated-egress urlopen).
+# documented reason (e.g. darkhours/_http.py: validated-egress urlopen).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,7 +18,7 @@ run() {  # run "<label>" cmd...
 }
 
 # 1. Bandit — Python SAST (medium+ severity)
-run "Bandit (SAST)" bandit -r PyNightSkyPredictor apps -ll -q
+run "Bandit (SAST)" bandit -r darkhours apps -ll -q
 
 # 2. pip-audit — known CVEs in the runtime (image) dependencies
 run "pip-audit (deps)" pip-audit -r requirements-api.txt
@@ -26,7 +26,7 @@ run "pip-audit (deps)" pip-audit -r requirements-api.txt
 # 3. Semgrep — community python + security-audit + secrets rulesets
 run "Semgrep (SAST)" semgrep --error -q --metrics off \
   --config p/python --config p/security-audit --config p/secrets \
-  PyNightSkyPredictor apps pynightsky.py tripbuilder.py
+  darkhours apps darkhours.py tripbuilder.py
 
 # 4. gitleaks — secrets across the full git history (needs full clone / fetch-depth 0)
 run "gitleaks (secret history)" docker run --rm -v "$PWD:/repo" \

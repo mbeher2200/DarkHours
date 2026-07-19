@@ -14,7 +14,7 @@ import pytest
 def _reset_location_client():
     """darksky caches one process-wide boto3 'location' client; drop it between tests
     so each test's patched boto3.client is the one actually used."""
-    import PyNightSkyPredictor.darksky as _darksky
+    import darkhours.darksky as _darksky
     _darksky._reset_location_client()
     yield
     _darksky._reset_location_client()
@@ -66,7 +66,7 @@ class TestGeocodeViaAws:
         mock_client.search_place_index_for_text.return_value = _forward_response(-104.9903, 39.7392)
 
         with patch("boto3.client", return_value=mock_client):
-            from PyNightSkyPredictor.location import _geocode_via_aws
+            from darkhours.location import _geocode_via_aws
             result = _geocode_via_aws("Denver, CO", "Denver, CO")
 
         assert result["lat"] == pytest.approx(39.7392)
@@ -86,7 +86,7 @@ class TestGeocodeViaAws:
         mock_client.search_place_index_for_text.return_value = {"Results": []}
 
         with patch("boto3.client", return_value=mock_client):
-            from PyNightSkyPredictor.location import _geocode_via_aws
+            from darkhours.location import _geocode_via_aws
             result = _geocode_via_aws("Nonexistent Place XYZ", "Nonexistent Place XYZ")
 
         assert result is None
@@ -97,7 +97,7 @@ class TestGeocodeViaAws:
         mock_client.search_place_index_for_text.side_effect = RuntimeError("network error")
 
         with patch("boto3.client", return_value=mock_client):
-            from PyNightSkyPredictor.location import _geocode_via_aws
+            from darkhours.location import _geocode_via_aws
             with pytest.raises(RuntimeError, match="Geocoding error"):
                 _geocode_via_aws("Denver", "Denver")
 
@@ -107,7 +107,7 @@ class TestGeocodeViaAws:
         mock_client.search_place_index_for_text.return_value = _forward_response(-104.9903, 39.7392)
 
         with patch("boto3.client", return_value=mock_client):
-            from PyNightSkyPredictor.location import _geocode_via_aws
+            from darkhours.location import _geocode_via_aws
             _geocode_via_aws("Denver", "Denver")
 
         call_kwargs = mock_client.search_place_index_for_text.call_args[1]
@@ -119,7 +119,7 @@ class TestGeocodeViaAws:
 class TestResolveDispatch:
     def test_aws_backend_calls_aws_geocoder(self, monkeypatch):
         _aws_env(monkeypatch)
-        import PyNightSkyPredictor.location as loc_mod
+        import darkhours.location as loc_mod
         monkeypatch.setattr(loc_mod, "_mem_geocode", {})
 
         # Isolate: patch both geocoders + the geocode store so no real I/O
@@ -131,14 +131,14 @@ class TestResolveDispatch:
         mock_store = MagicMock()
         mock_store.load.return_value = {}
 
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
-        with patch("PyNightSkyPredictor.location._geocode_via_aws", mock_aws_geo), \
-             patch("PyNightSkyPredictor.location._geocode_via_nominatim", mock_nom_geo), \
-             patch("PyNightSkyPredictor.location._load", return_value={}), \
-             patch("PyNightSkyPredictor.location._save"):
-            from PyNightSkyPredictor.location import resolve
+        with patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
+             patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
+             patch("darkhours.location._load", return_value={}), \
+             patch("darkhours.location._save"):
+            from darkhours.location import resolve
             lat, lon, disp, tz = resolve("Denver, CO")
 
         mock_aws_geo.assert_called_once()
@@ -147,7 +147,7 @@ class TestResolveDispatch:
 
     def test_local_backend_calls_nominatim(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")
-        import PyNightSkyPredictor.location as loc_mod
+        import darkhours.location as loc_mod
         monkeypatch.setattr(loc_mod, "_mem_geocode", {})
 
         mock_nom_geo = MagicMock(return_value={
@@ -156,14 +156,14 @@ class TestResolveDispatch:
         })
         mock_aws_geo = MagicMock()
 
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
-        with patch("PyNightSkyPredictor.location._geocode_via_nominatim", mock_nom_geo), \
-             patch("PyNightSkyPredictor.location._geocode_via_aws", mock_aws_geo), \
-             patch("PyNightSkyPredictor.location._load", return_value={}), \
-             patch("PyNightSkyPredictor.location._save"):
-            from PyNightSkyPredictor.location import resolve
+        with patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
+             patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
+             patch("darkhours.location._load", return_value={}), \
+             patch("darkhours.location._save"):
+            from darkhours.location import resolve
             resolve("Denver, CO")
 
         mock_nom_geo.assert_called_once()
@@ -171,9 +171,9 @@ class TestResolveDispatch:
 
     def test_cache_hit_skips_geocoding(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")
-        import PyNightSkyPredictor.location as loc_mod
+        import darkhours.location as loc_mod
         monkeypatch.setattr(loc_mod, "_mem_geocode", {})
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
         cached = {
@@ -185,11 +185,11 @@ class TestResolveDispatch:
         mock_aws_geo = MagicMock()
         mock_nom_geo = MagicMock()
 
-        with patch("PyNightSkyPredictor.location._geocode_via_nominatim", mock_nom_geo), \
-             patch("PyNightSkyPredictor.location._geocode_via_aws", mock_aws_geo), \
-             patch("PyNightSkyPredictor.location._load", return_value=cached), \
-             patch("PyNightSkyPredictor.location._save"):
-            from PyNightSkyPredictor.location import resolve
+        with patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
+             patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
+             patch("darkhours.location._load", return_value=cached), \
+             patch("darkhours.location._save"):
+            from darkhours.location import resolve
             lat, lon, disp, tz = resolve("Denver, CO")
 
         mock_nom_geo.assert_not_called()
@@ -206,16 +206,16 @@ class TestAwsLocationSettlement:
         monkeypatch.setenv("PYNIGHTSKY_PLACE_INDEX", "test-index")
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")   # cache module needs a backend
         monkeypatch.setenv("PYNIGHTSKY_CACHE_TABLE", "x")
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
     def _call(self, boto_response):
         mock_client = MagicMock()
         mock_client.search_place_index_for_position.return_value = boto_response
         with patch("boto3.client", return_value=mock_client), \
-             patch("PyNightSkyPredictor.darksky.cache") as mock_cache:
+             patch("darkhours.darksky.cache") as mock_cache:
             mock_cache.get.return_value = None  # force cache miss
-            from PyNightSkyPredictor.darksky import _aws_location_settlement
+            from darkhours.darksky import _aws_location_settlement
             return _aws_location_settlement(39.7392, -104.9903), mock_client, mock_cache
 
     def test_us_city_returns_city_state(self):
@@ -233,16 +233,16 @@ class TestAwsLocationSettlement:
     def test_empty_results_returns_over_water(self):
         resp = {"Results": []}
         result, _, mock_cache = self._call(resp)
-        from PyNightSkyPredictor.darksky import _OVER_WATER
+        from darkhours.darksky import _OVER_WATER
         assert result == _OVER_WATER
 
     def test_cache_hit_skips_boto3(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_PLACE_INDEX", "test-index")
         mock_client = MagicMock()
         with patch("boto3.client", return_value=mock_client), \
-             patch("PyNightSkyPredictor.darksky.cache") as mock_cache:
+             patch("darkhours.darksky.cache") as mock_cache:
             mock_cache.get.return_value = "Denver, CO"
-            from PyNightSkyPredictor.darksky import _aws_location_settlement
+            from darkhours.darksky import _aws_location_settlement
             result = _aws_location_settlement(39.7392, -104.9903)
         assert result == "Denver, CO"
         mock_client.search_place_index_for_position.assert_not_called()
@@ -251,9 +251,9 @@ class TestAwsLocationSettlement:
         mock_client = MagicMock()
         mock_client.search_place_index_for_position.side_effect = RuntimeError("timeout")
         with patch("boto3.client", return_value=mock_client), \
-             patch("PyNightSkyPredictor.darksky.cache") as mock_cache:
+             patch("darkhours.darksky.cache") as mock_cache:
             mock_cache.get.return_value = None
-            from PyNightSkyPredictor.darksky import _aws_location_settlement
+            from darkhours.darksky import _aws_location_settlement
             result = _aws_location_settlement(39.7392, -104.9903)
         assert result is None
 
@@ -263,15 +263,15 @@ class TestAwsLocationSettlement:
 class TestSettlementDispatch:
     def test_aws_backend_calls_aws(self, monkeypatch):
         _aws_env(monkeypatch)
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
         mock_aws = MagicMock(return_value="Denver, CO")
         mock_nom = MagicMock()
 
-        with patch("PyNightSkyPredictor.darksky._aws_location_settlement", mock_aws), \
-             patch("PyNightSkyPredictor.darksky._nominatim_settlement", mock_nom):
-            from PyNightSkyPredictor.darksky import _settlement
+        with patch("darkhours.darksky._aws_location_settlement", mock_aws), \
+             patch("darkhours.darksky._nominatim_settlement", mock_nom):
+            from darkhours.darksky import _settlement
             result = _settlement(39.7392, -104.9903)
 
         mock_aws.assert_called_once_with(39.7392, -104.9903)
@@ -280,15 +280,15 @@ class TestSettlementDispatch:
 
     def test_local_backend_calls_nominatim(self, monkeypatch):
         monkeypatch.setenv("PYNIGHTSKY_BACKEND", "local")
-        import PyNightSkyPredictor.ports as ports_mod
+        import darkhours.ports as ports_mod
         ports_mod.reset_backend()
 
         mock_aws = MagicMock()
         mock_nom = MagicMock(return_value="Denver, CO")
 
-        with patch("PyNightSkyPredictor.darksky._aws_location_settlement", mock_aws), \
-             patch("PyNightSkyPredictor.darksky._nominatim_settlement", mock_nom):
-            from PyNightSkyPredictor.darksky import _settlement
+        with patch("darkhours.darksky._aws_location_settlement", mock_aws), \
+             patch("darkhours.darksky._nominatim_settlement", mock_nom):
+            from darkhours.darksky import _settlement
             result = _settlement(39.7392, -104.9903)
 
         mock_nom.assert_called_once_with(39.7392, -104.9903)
@@ -308,8 +308,8 @@ class TestAwsDriveTimes:
     @pytest.fixture
     def _mem_cache(self, monkeypatch):
         store: dict = {}
-        monkeypatch.setattr("PyNightSkyPredictor.darksky.cache.get", lambda k: store.get(k))
-        monkeypatch.setattr("PyNightSkyPredictor.darksky.cache.set",
+        monkeypatch.setattr("darkhours.darksky.cache.get", lambda k: store.get(k))
+        monkeypatch.setattr("darkhours.darksky.cache.set",
                             lambda k, v, ttl_seconds=None: store.__setitem__(k, v))
         return store
 
@@ -335,7 +335,7 @@ class TestAwsDriveTimes:
         return _dispatch
 
     def test_miss_calls_routes_per_leg_and_caches(self, monkeypatch, _mem_cache):
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         client.calculate_routes.side_effect = self._by_destination({
             (-111.46, 35.41): self._route_resp(56, 56000),
@@ -357,7 +357,7 @@ class TestAwsDriveTimes:
             assert call.kwargs["Avoid"] == {"Ferries": True, "DirtRoads": True}
 
     def test_full_cache_hit_skips_api(self, monkeypatch, _mem_cache):
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = 56
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.23, -111.07)] = ds._DRIVE_NO_ROUTE
         client = MagicMock()
@@ -369,7 +369,7 @@ class TestAwsDriveTimes:
         client.calculate_routes.assert_not_called()
 
     def test_partial_miss_queries_only_uncached(self, monkeypatch, _mem_cache):
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = 56
         client = MagicMock()
         client.calculate_routes.return_value = self._route_resp(88, 88000)  # only the miss
@@ -384,7 +384,7 @@ class TestAwsDriveTimes:
         assert kwargs["Destination"] == [-111.07, 35.23]
 
     def test_api_failure_leaves_none_and_uncached(self, monkeypatch, _mem_cache):
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         client.calculate_routes.side_effect = RuntimeError("throttled")
         monkeypatch.setattr(ds, "_georoutes", lambda: client)
@@ -396,7 +396,7 @@ class TestAwsDriveTimes:
     def test_no_route_at_all_is_cached_as_no_route(self, monkeypatch, _mem_cache):
         """An empty Routes list (genuinely no path) collapses to the same sentinel as a
         ferry-only route — both are "not driveable", just for different reasons."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         client.calculate_routes.return_value = {"Routes": []}
         monkeypatch.setattr(ds, "_georoutes", lambda: client)
@@ -414,7 +414,7 @@ class TestAwsDriveTimes:
         signal to key off. Either way it's not an actual drivable route, so it must
         collapse to the same "no route" state as an outright routing failure, not
         silently report the deceptive ETA."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         client.calculate_routes.return_value = {"Routes": [{
             "Legs": [{"Type": "Vehicle"}, {"Type": "Ferry"}, {"Type": "Vehicle"}],
@@ -433,7 +433,7 @@ class TestAwsDriveTimes:
         """A non-fatal avoidance violation (unpaved road), reported via
         VehicleLegDetails.Notices on the leg, still yields a real ETA, but the caller
         gets a warning string to show the user rather than a silently-dropped flag."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         client.calculate_routes.return_value = self._route_resp(45, 20000, dirt_road=True)
         monkeypatch.setattr(ds, "_georoutes", lambda: client)
@@ -452,7 +452,7 @@ class TestAwsDriveTimes:
         (drive_minutes/drive_miles stay populated), but the gap between the requested
         destination and the actual arrival point (>1km) must surface as tail_miles rather
         than being silently dropped."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         # destination is the island; arrival snaps ~0.02 deg (~1.38 mi) south on the mainland
         client.calculate_routes.return_value = self._route_resp(
@@ -468,7 +468,7 @@ class TestAwsDriveTimes:
     def test_normal_road_snap_does_not_trigger_tail_gap(self, monkeypatch, _mem_cache):
         """A routine few-meters snap to the nearest driveway/road (every real destination
         gets one) must NOT be mistaken for an unreachable-destination gap."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         client = MagicMock()
         # ~0.0005 deg (~55m) south — well under the 1km threshold
         client.calculate_routes.return_value = self._route_resp(
@@ -481,7 +481,7 @@ class TestAwsDriveTimes:
     def test_cached_warnings_round_trip(self, monkeypatch, _mem_cache):
         """A dict cache entry with a 'w' warnings list and no 't' key (older cache
         schema) is unpacked back onto the cluster without error."""
-        import PyNightSkyPredictor.darksky as ds
+        import darkhours.darksky as ds
         _mem_cache[ds._drive_cache_key(35.2, -111.6, 35.41, -111.46)] = \
             {"m": 45, "mi": 12, "w": ["Dirt roads"]}
         client = MagicMock()

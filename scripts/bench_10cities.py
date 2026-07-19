@@ -139,13 +139,13 @@ def main():
         handlers=[logging.StreamHandler(sys.stderr)],  # progress to stderr
     )
 
-    from PyNightSkyPredictor import cache as cache_mod, darksky, ports
+    from darkhours import cache as cache_mod, darksky, ports
     _ = ports.get_backend()  # force backend init
 
     os.environ["PYNIGHTSKY_PROFILE"] = "1"
     # Re-import darksky so _PROFILE is picked up (it's module-level at import time)
     import importlib
-    import PyNightSkyPredictor.darksky as ds_module
+    import darkhours.darksky as ds_module
     importlib.reload(ds_module)
     darksky = ds_module
 

@@ -4,7 +4,7 @@ These are pure math functions: no mocking, no network, no ephemeris.
 """
 import pytest
 
-from PyNightSkyPredictor.moonlight import KS_CRESCENT_EXEMPTION_PCT, ks_moon_credit
+from darkhours.moonlight import KS_CRESCENT_EXEMPTION_PCT, ks_moon_credit
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +120,8 @@ class TestBortleScoreConversion:
 
 from datetime import datetime, timezone
 
-from PyNightSkyPredictor.predictor import _scope_wx_source
-from PyNightSkyPredictor.weather import WeatherPoint
+from darkhours.predictor import _scope_wx_source
+from darkhours.weather import WeatherPoint
 
 
 def _pt(seeing):

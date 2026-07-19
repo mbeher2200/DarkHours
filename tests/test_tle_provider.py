@@ -7,8 +7,8 @@ from unittest import mock
 
 import pytest
 
-from PyNightSkyPredictor import tle_provider as tle_mod
-from PyNightSkyPredictor.tle_provider import (
+from darkhours import tle_provider as tle_mod
+from darkhours.tle_provider import (
     _filter_train_tles,
     _parse_launch_date,
     _parse_mean_motion,

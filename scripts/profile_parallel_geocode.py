@@ -19,7 +19,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("PYNIGHTSKY_PLACE_INDEX", "test-index")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PyNightSkyPredictor import darksky, ports  # noqa: E402
+from darkhours import darksky, ports  # noqa: E402
 
 SETTLE_LATENCY_S = 0.10   # simulated AWS Location round-trip
 _calls = {"n": 0}
