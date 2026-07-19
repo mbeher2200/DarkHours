@@ -5,10 +5,13 @@ pipeline: a fast, offline, no-network first pass that either names a dark-sky ca
 (public land) or eliminates it (restricted land) before any Overpass/Nominatim call.
 
 - **Source of truth:** USGS PAD-US 4.1 Geodatabase.
-- **Artifact:** `cache/darkhours_padus_h3.parquet` — **committed** (a `.gitignore`
-  exception; the Docker images copy it). ~3.5 MB, 1,374,391 cells.
+- **Runtime artifact:** `cache/darkhours_padus_h3.npz` — **committed** (~3.1 MB,
+  1,374,391 cells; staged into the API and worker Lambda zips). The intermediate
+  `cache/darkhours_padus_h3.parquet` (~3.5 MB) is also committed for
+  re-conversion via `scripts/convert_padus_parquet_to_npz.py`.
 - **Builder:** `scripts/build_padus_index.py` (offline; needs `requirements-build.txt`).
-- **Runtime:** `darksky._load_padus_h3_index` / `_padus_h3_lookup`.
+- **Runtime:** `darksky._load_padus_h3_index` / `_padus_h3_lookup` — a numpy-only
+  `.npz` read (no pyarrow at runtime).
 
 ## Why it exists
 
@@ -20,14 +23,17 @@ zero network:
   reverse geocoder entirely.
 - **No cell hit** → fall through to Tier 2/3 (Overpass/geocoder).
 
-## File format (current — columnar uint64)
+## File format (current — columnar uint64 `.npz`)
 
 | Column | Type | Notes |
 |---|---|---|
 | `h3_cell` | **uint64**, **sorted ascending** | H3 cell at resolution 7 (~5 km hex), as the native 64-bit id |
-| `Unit_Nm` | large_string | Park/unit name |
-| `Mang_Name` | large_string | Manager code (NPS, USFS, BLM, FWS, …) |
+| `Unit_Nm` | string array | Park/unit name |
+| `Mang_Name` | string array | Manager code (NPS, USFS, BLM, FWS, …) |
 | `is_blacklisted` | bool | True = restricted → eliminate the candidate |
+
+`scripts/convert_padus_parquet_to_npz.py::encode_padus_npz` is the single source of
+truth for the on-disk layout (shared by the builder).
 
 Counts: **1,374,391** unique cells — 1,297,603 viable, 76,788 blacklisted.
 
@@ -41,17 +47,16 @@ Counts: **1,374,391** unique cells — 1,297,603 viable, 76,788 blacklisted.
 ## Runtime path (`PyNightSkyPredictor/darksky.py`)
 
 - `_load_padus_h3_index()` — lazy-loads once per process into a `_PadusIndex`
-  (sorted `uint64` cell array + parallel Arrow name array + bool blacklist array).
-  Cached in the `_padus_h3_cache` module global; returns `None` (cached) if h3/pyarrow
-  is missing or the file can't be read → callers degrade to Tier 2/3.
+  (sorted `uint64` cell array + parallel name/blacklist arrays) from the `.npz` with
+  numpy only. Cached in the `_padus_h3_cache` module global; returns `None` (cached)
+  if h3/numpy is missing or the file can't be read → callers degrade to Tier 2/3.
 - `_padus_h3_lookup(lat, lon, index)` — `np.searchsorted` on the cell array; returns
   `(Unit_Nm, is_blacklisted)` or `None`. Names are materialised from Arrow only on a hit.
 - `_is_good_padus_name(unit_nm)` — rejects empty, `< 5` chars, and names containing
   `unknown`/`unnamed`/`office`, and pure-numeric ids. A non-blacklisted cell with a junk
   name still counts as "PAD-US-verified land" but falls to Tier 3 for naming.
 - File resolution order (`_padus_h3_path`): `PYNIGHTSKY_PADUS_H3_PATH` env override →
-  `<repo>/cache/darkhours_padus_h3.parquet` → `/app/cache/darkhours_padus_h3.parquet`
-  (the Lambda image path).
+  `<repo>/cache/darkhours_padus_h3.npz` → the Lambda-zip layout path.
 
 ## Blacklist rules (`_blacklisted` in the build script)
 
@@ -71,13 +76,13 @@ On a cell with conflicting sources, **blacklisted wins** (dedup keeps the blackl
 2. Unzip into `Temp/` so the path is `Temp/PADUS4_1Geodatabase/PADUS4_1Geodatabase.gdb`
    (the `Temp/` raw data is gitignored — do not commit it). Update `GDB_PATH`/`LAYER` in
    the build script if the version/layer name changes.
-3. `pip install -r requirements-build.txt` (geopandas, pyarrow, fiona, h3).
-4. `python scripts/build_padus_index.py` → writes `cache/darkhours_padus_h3.parquet`
-   (uint64, sorted, zstd). Pipeline: read `PADUS4_1Fee` → flag blacklist → reproject to
+3. `pip install -r requirements-build.txt` (geopandas, pyarrow, h3).
+4. `python scripts/build_padus_index.py` → writes `cache/darkhours_padus_h3.npz`
+   (uint64, sorted). Pipeline: read `PADUS4_1Fee` → flag blacklist → reproject to
    EPSG:4326 → H3 polyfill at res 7 (`h3.geo_to_cells`, centroid fallback for sub-hex
    polygons) → dedup (blacklist wins) → encode `h3_cell` to uint64 + sort → write.
 5. Verify + benchmark: `python scripts/bench_padus_load.py` (load time + sample lookups).
-6. Commit the regenerated parquet (it's a tracked `.gitignore` exception). Pre-commit
+6. Commit the regenerated index files (tracked `.gitignore` exceptions). Pre-commit
    `check-added-large-files` allows up to 17 MB.
 
 ## Migrating an existing string-keyed parquet (no source GDB needed)

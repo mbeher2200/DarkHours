@@ -43,7 +43,7 @@ This project was developed with substantial assistance from:
 - **Overpass API**: OpenStreetMap query API used to fetch named protected and natural areas (national parks, wilderness areas, nature reserves) for the `--show-nearby` feature
   - https://overpass-api.de/
   - Data © OpenStreetMap contributors, licensed under ODbL
-- **PAD-US 4.1 (Protected Areas Database of the United States)**: U.S. Geological Survey (USGS) national inventory of protected and conserved lands, used to build the DarkHours public-lands spatial index (`darkhours_padus_h3.parquet`)
+- **PAD-US 4.1 (Protected Areas Database of the United States)**: U.S. Geological Survey (USGS) national inventory of protected and conserved lands, used to build the DarkHours public-lands spatial index (`cache/darkhours_padus_h3.npz`)
   - Published by: U.S. Geological Survey Gap Analysis Project
   - Version: 4.1 (2023)
   - https://www.sciencebase.gov/catalog/item/652d4fc5d34e44db0e2ee45e
@@ -68,17 +68,23 @@ This project was developed with substantial assistance from:
 
 ## Python Dependencies
 
+Runtime (`requirements.txt`):
 - **skyfield** - Astronomical calculations (MIT License)
 - **geopy** - Geocoding library (MIT License)
 - **timezonefinder** - Timezone lookups (MIT License)
-- **rasterio** - GeoTIFF raster I/O (BSD License)
-- **geopandas** - Geospatial data processing (BSD License) — build-time only
-- **h3** - Uber H3 hexagonal spatial indexing (Apache 2.0) — build-time only
-- **fiona** - OGR/GDAL vector I/O (BSD License) — build-time only
-- **pyarrow** - Apache Arrow columnar format / Parquet I/O (Apache 2.0) — build-time only
+- **boto3** - AWS SDK (Apache 2.0)
+- **global-land-mask** - Land/water masking (MIT License)
+- **h3** - Uber H3 hexagonal spatial indexing (Apache 2.0)
+
+Build-time only (`requirements-build.txt` — the runtime reads pure-numpy grid/index
+files instead; see [RASTERIO_REPLACEMENT.md](RASTERIO_REPLACEMENT.md)):
+- **rasterio** - GeoTIFF raster I/O when building the light-pollution grids (BSD License)
+- **geopandas** - Geospatial data processing (BSD License)
+- **pyarrow** - Apache Arrow columnar format / Parquet I/O (Apache 2.0)
+- **osmium (pyosmium)** - OSM .pbf parsing for the POI index builder (BSD License)
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](../LICENSE) for details.
 
 External data sources retain their original licenses as specified above.

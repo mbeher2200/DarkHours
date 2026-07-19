@@ -266,32 +266,29 @@ python pynightsky.py --location "Sedona, AZ" --show-nearby 40
 python pynightsky.py --location "Denver, CO" --show-nearby 95
 ```
 
-Scans a grid of sample points (up to 16 bearings × 11 distance rings, out to 150 miles), clusters them by proximity, and reports darker sky areas and light domes.
+Reads the VIIRS and Falchi raster windows covering the search area (light domes are always searched out to 150 miles regardless of radius), extracts dark pixels directly from the arrays (land-masked, **POI-first** via the routable OSM POI index in the US), clusters them, and reports darker sky areas and light domes.
 
 ### Dark sky areas
 
-Clusters qualify if they are:
-- At least **2 Bortle classes darker** than the origin
-- No worse than **Bortle 4** (Rural/suburban transition) — prevents suburban parks with locally low radiance readings from appearing as "dark sky" destinations
+Candidates qualify if they are **at least one Bortle class darker** than the origin, capped at **Bortle 3** — so a Bortle 7 origin surfaces Bortle ≤ 3 sky, while an already-dark Bortle 3 origin still surfaces the reachable Bortle 2 areas nearby (a Bortle ≤ 2 origin requires Bortle 1). Candidates are band-selected across the distance range, then up to **10** areas are named and shown, re-sorted for display (drive-time order on the web).
 
-Up to 6 areas are shown, selected darkest-first (nearest tiebreak), then re-sorted by distance for display.
-
-Naming uses two sources in order:
-1. **OpenStreetMap Overpass API** — a single batch query fetches all named protected and natural areas (national parks, wilderness areas, nature reserves, state/national forests) whose bounding box intersects the search radius. Each cluster is matched to the highest-priority area that contains it.
-2. **Nominatim reverse-geocoding** — fallback when no OSM area match is found; returns county or settlement name.
+Naming uses these sources in order:
+1. **Routable OSM POI index** (`cache/osm_pois.npz`) — named, reachable destinations (trailhead parking, viewpoints, campsites, observatories, …) sitting on dark pixels; pre-named, no reverse-geocode needed.
+2. **PAD-US H3 index** (`cache/darkhours_padus_h3.npz`) — named public/protected lands.
+3. **OpenStreetMap Overpass API** (local backend only) — named protected and natural areas intersecting the search radius.
+4. **Reverse geocoding** — Nominatim (local) or AWS Location (cloud) fallback; returns county or settlement name.
 
 ### Light domes
 
-A grid point qualifies as a light dome if:
-- Bortle class is **strictly brighter** than the origin
-- At least **2 Bortle classes above** the origin (threshold capped at 9 — Bortle-8 origins can surface Bortle-9 domes)
-- At least **5 miles away** (15 miles if the origin is a dark site, Bortle ≤ 5)
+Searched only when the origin is **Bortle ≤ 7** (a dome must be ≥ 2 classes brighter than the origin and the brightest possible blob is Bortle 9, so brighter origins can never qualify). Contiguous blobs of Bortle ≥ 8 pixels qualify as domes if they are:
+- **Strictly brighter** than the origin and at least **2 Bortle classes above** it
+- At least **5 miles away**
 
-Not shown when origin is already at Bortle 9.
+Up to 10 domes are named and shown.
 
 ### Performance & caching
 
-Results are cached per origin + radius for 90 days. First run: ~4–6 seconds (one Overpass query + Nominatim calls for unnamed clusters). Subsequent runs: ~1 second.
+Geocoded names are cached for 90 days; drive-time legs (cloud) for 24 hours. On the cloud deployment `/nearby` runs as an async job on the worker Lambda — typically ~1–3 s warm; see [PERF_FINDNEARBY.md](PERF_FINDNEARBY.md). On the CLI, first runs in a new area are dominated by Overpass/Nominatim calls; repeat runs are cache-fast.
 
 A spinner is shown during computation when stdout is a terminal.
 
@@ -399,4 +396,4 @@ Astronomical events are always shown regardless of date. Weather data for past d
 
 ## Target Catalog
 
-Targets are defined in [`targets.json`](targets.json). The schema is documented in [`TARGETS.md`](TARGETS.md). Global observation thresholds and defaults are in [`config.json`](config.json).
+Targets are defined in [`targets.json`](../PyNightSkyPredictor/targets.json). The schema is documented in [`TARGETS.md`](TARGETS.md). Global observation thresholds and defaults are in [`config.json`](../PyNightSkyPredictor/config.json).

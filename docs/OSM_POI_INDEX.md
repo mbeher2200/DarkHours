@@ -7,8 +7,8 @@ and carries a real coordinate to route — instead of a raw, often-unreachable w
 pixel.
 
 - **Source of truth:** OpenStreetMap (a Geofabrik US `.osm.pbf` extract).
-- **Artifact:** `cache/osm_pois.npz` — **committed** (a `.gitignore` exception; the Docker
-  images copy it). ~0.6 MB, ~39k POIs.
+- **Artifact:** `cache/osm_pois.npz` — **committed** (a `.gitignore` exception; staged
+  into the worker Lambda zip). ~0.7 MB, ~39k POIs.
 - **Builder:** `scripts/osm_poi_builder.py` (offline; needs `requirements-build.txt`).
 - **Refresh:** `scripts/update_pois.sh` (download → build → clean up the `.pbf`).
 - **Runtime:** `darksky._load_poi_h3_index` / `_extract_poi_candidates`.
@@ -93,7 +93,7 @@ So the builder filters up front:
   on a PAD-US blacklist cell — never route onto military/tribal land).
 - `_aws_drive_times` routes only `is_poi` candidates.
 - File resolution order (`_poi_h3_path`): `PYNIGHTSKY_POI_H3_PATH` env override →
-  `<repo>/cache/osm_pois.npz` → `/app/cache/osm_pois.npz` (the Lambda image path).
+  `<repo>/cache/osm_pois.npz` → the Lambda-zip layout path.
 
 ## Rebuilding from source
 
@@ -117,6 +117,6 @@ Manual (when you already have a `.pbf`):
 ## Related
 
 - Performance context (POI-first is primarily a *relevance* change; the latency win is
-  first-visit-only): [PERF_FINDNEARBY.md](PERF_FINDNEARBY.md) and `memory/find_nearby_perf`.
+  first-visit-only): [PERF_FINDNEARBY.md](PERF_FINDNEARBY.md).
 - The naming tiers it feeds: `_jit_geocode_candidates` / `_offline_tier_name`; PAD-US is the
   US public-lands tier ([PADUS_INDEX.md](PADUS_INDEX.md)).

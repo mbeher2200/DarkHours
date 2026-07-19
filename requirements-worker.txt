@@ -1,6 +1,8 @@
-# Async job worker (M6.3) dependencies: the engine runtime (rasterio/GDAL, skyfield,
-# boto3, …) — NO FastAPI/uvicorn, the worker is SQS-triggered, not HTTP — plus the
-# AWS Lambda Runtime Interface Client so an AL2023 image runs as a Lambda handler.
+# Async job worker dependencies: the engine runtime (skyfield, boto3, numpy grids —
+# no rasterio/GDAL; see docs/RASTERIO_REPLACEMENT.md) — NO FastAPI/uvicorn, the
+# worker is SQS-triggered, not HTTP. The deployed worker is a zip Lambda; awslambdaric
+# is only exercised when the container image (Dockerfile.worker) is used for the
+# Trivy scan or the throwaway in-region perf-test recipe.
 -r requirements.txt
 awslambdaric==4.0.1
 python-json-logger==4.1.0

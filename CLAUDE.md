@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Guidance for AI assistants working in this repo. Read this first, then the relevant
-`memory/` notes and `docs/` for the area you're touching.
+`docs/` file for the area you're touching.
 
 ## What this is
 
@@ -21,7 +21,8 @@ through `ports.py`. The same engine runs against local files (CLI) or cloud serv
 (prod). Don't bypass the seam:
 - cache → `LocalFileCache` | `DynamoCache`
 - geocode store → local json | DynamoDB
-- rasters → local GeoTIFF | S3 COG via GDAL `/vsis3`
+- rasters → local tiled grid (memmap) | S3 tiled grid via `gridraster.py` byte-range reads
+  (no GDAL at runtime — see `docs/RASTERIO_REPLACEMENT.md`)
 - reverse-geocode/routing → Nominatim+Overpass (local) | AWS Location (aws)
 
 ## Ways of working (these produced the good results — keep them)
@@ -35,7 +36,7 @@ through `ports.py`. The same engine runs against local files (CLI) or cloud serv
 - **Clean up experiments.** Tear down any throwaway AWS resources and temp files you create.
 - **Surface caveats, don't bury them.** "the bump won't help", "first-container image
   tax", correctness gates — call these out explicitly.
-- **Persist context.** Update the relevant `memory/` note and `docs/` file as you go;
+- **Persist context.** Update the relevant `docs/` file as you go;
   that's how the next session inherits this one.
 
 ## Tests
@@ -46,7 +47,8 @@ through `ports.py`. The same engine runs against local files (CLI) or cloud serv
 - `live` — hits real provider APIs; runs only with `PYNIGHTSKY_LIVE=1`
   (`tests/test_provider_smoke.py` covers Open-Meteo, 7Timer, Celestrak, Nominatim, AWS Location).
 
-A default run stays offline and deterministic (currently 390 passed, ~7 skipped).
+A default run stays offline and deterministic (803 tests collected as of 2026-07-18;
+aws/live auto-skip). Per-file inventory: `tests/README.md`.
 
 ## Ship flow (CI/CD)
 
@@ -83,7 +85,9 @@ rather than hardcoding:
 
 ### In-region perf validation (throwaway test worker)
 
-To measure a worker change on real infra without touching the deployed worker:
+To measure a worker change on real infra without touching the deployed worker
+(note: the *deployed* Lambdas are zip packages — this container exists only for
+test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 1. `docker build -f Dockerfile.worker --platform linux/arm64 --provenance=false -t <repo>/pynightsky-worker:proftest .`
    (single-platform manifest — Lambda rejects buildx attestation lists; arm64 matches deployed arch).
 2. ECR login, push the `:proftest` tag.
@@ -97,11 +101,16 @@ To measure a worker change on real infra without touching the deployed worker:
    under `job|<job_id>`.
 6. **Tear down:** delete the function, the `:proftest` ECR image, and the log group.
 
-## Key docs & memory
+## Key docs
 
-- `docs/PERF_FINDNEARBY.md` — `find_nearby` profiling results, fixes, and benchmark log.
+- `docs/AUDIT_2026-07-18.md` — docs-vs-code audit: what was reconciled and where.
+- `docs/PERF_FINDNEARBY.md` — `find_nearby` performance: current state + investigation log.
+- `docs/RASTERIO_REPLACEMENT.md` — the rasterio-free tiled raster grid pipeline.
 - `docs/PADUS_INDEX.md` — PAD-US H3 index: format, build, blacklist rules, regeneration.
+- `docs/OSM_POI_INDEX.md` — routable OSM POI H3 index for POI-first `find_nearby`.
+- `docs/TARGETS.md` — target catalog schema + meteor-shower ZHR decay model.
 - `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
   X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
-- `memory/` — running project notes (cloud migration, find_nearby perf, PAD-US, etc.).
-- `docs/PYNIGHTSKY.md`, `PRODUCT.md`, `README.md` — product/engine overview.
+- `docs/FEATURES.md` — user-facing feature list (validated against code).
+- `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
+- `docs/PYNIGHTSKY.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.
