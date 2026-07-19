@@ -71,7 +71,7 @@ The `—` in the Weather column appears for dates beyond the 16-day forecast win
 Trip Builder uses the same Night Quality Score formula as the single-night report (weighted geometric mean of Lunar, Dark Hours, Bortle, and Weather). The behavior for weather:
 
 - **Within the 16-day forecast window** — weather data is fetched and the full four-factor score is used
-- **Beyond 16 days** — weather is not available; Lunar, Dark Hours, and Bortle are rescaled to sum to 100% (40%, 35%, 25% respectively). The `~` marker appears next to scored-with-weather cells in the matrix.
+- **Beyond 16 days** — weather is not available; the remaining weights (Lunar 25 / Dark Hours 25 / Bortle 10) are renormalized proportionally to ≈41.7%, 41.7%, and 16.7%. The `~` marker appears next to scored-with-weather cells in the matrix.
 - **`--no-weather`** — forces the no-weather weighting for all dates; useful for a pure astronomical comparison across a longer range
 
 Because both near and far dates use the same weight-redistribution logic, scores for different dates within the same run are directly comparable.

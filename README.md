@@ -4,7 +4,7 @@ This tool provides extensive night sky trip planning for astrophotographers look
 
 Most tools treat moonrise as a binary. Moon up, night ruined. A 5% crescent above the horizon produces 0.06 Δmag of sky brightening at your target — imperceptible. A 75% gibbous produces 1.73 Δmag — severe.
 
-PyNightSkyPredictor uses the Krisciunas & Schaefer (1991) photometric model to compute sky brightening at every target's position throughout the night, and clips each imaging window at the point where scattered moonlight exceeds the contrast threshold for that object type.
+PyNightSkyPredictor computes sky brightening at every target's position throughout the night with a hybrid moonlight model — Krisciunas & Schaefer (1991) lunar photometry driven through a Winkler (2022) single-scatter kernel (two-component Rayleigh + Henyey–Greenstein phase function) with **live aerosol optical depth** from Open-Meteo CAMS and an inverse-square Earth–Moon distance correction — and clips each imaging window at the point where scattered moonlight exceeds the contrast threshold for that object type. Details: [docs/PYNIGHTSKY.md](docs/PYNIGHTSKY.md).
 
 The Night Quality Score (1–10) combines:
 * Lunar interference (25%) — K&S sky-brightening credit, not raw illumination percentage
@@ -26,10 +26,10 @@ Beyond the score:
 
 Built on open data: NOAA (SWPC space weather, NWS), Open-Meteo, NASA/VIIRS, Falchi, 7Timer, OpenStreetMap, Celestrak, WAQI, and USGS PAD-US.
 
-The two CLI scripts are:
+The engine ships with two surfaces:
 
-* `pynightsky.py` — Single-night reports, monthly calendars, and nearby dark-sky search.
-* `tripbuilder.py` — Multi-location score matrix and ranked best nights across a date range.
+* **Two CLI scripts** — `pynightsky.py` (single-night reports, monthly calendars, nearby dark-sky search) and `tripbuilder.py` (multi-location score matrix and ranked best nights across a date range).
+* **DarkHours**, a React web app ([darkhours.app](https://darkhours.app)) serving the same engine through a FastAPI/Lambda backend, with features the terminal can't render — a 360° simulated sky dome, an all-sky light-dome panel, a 30-day outlook heatmap, and a red night-vision mode. See [apps/web/README.md](apps/web/README.md) and the full feature list in [docs/FEATURES.md](docs/FEATURES.md).
 
 ## pynightsky.py
 
@@ -320,9 +320,9 @@ pip install -r requirements.txt          # runtime dependencies
 pip install -r requirements-dev.txt      # + pytest, for running the test suite
 ```
 
-`requirements.txt` holds only the runtime libraries; `requirements-dev.txt` layers the test toolchain on top. The additional files `requirements-api.txt`, `requirements-worker.txt`, and `requirements-security.txt` are used by the cloud deployment (API server, background worker, and security-scanning CI respectively) and are not needed for local CLI use.
+`requirements.txt` holds only the runtime libraries; `requirements-dev.txt` layers the test toolchain on top. The additional files `requirements-api.txt`, `requirements-worker.txt`, and `requirements-security.txt` are used by the cloud deployment (API server, background worker, and security-scanning CI respectively), and `requirements-build.txt` holds the offline index/grid builders (rasterio lives there, and only there) — none of these are needed for local CLI use.
 
-Container builds: see `Dockerfile`, `Dockerfile.lambda`, and `Dockerfile.worker` — cloud deployment documentation is in progress.
+There is no application container: both cloud Lambdas deploy as zip packages (see [Cloud Deployment](#cloud-deployment)). The only Dockerfile in the repo, `Dockerfile.worker`, exists for the Trivy image scan in CI and the throwaway in-region perf-test recipe.
 
 ---
 
@@ -339,13 +339,16 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/predictor.py` | Assembles `NightReport` from all data sources |
 | `PyNightSkyPredictor/scoring.py` | Night and weather score calculations |
 | `PyNightSkyPredictor/sky_events.py` | Sun/moon events, dark intervals, moon phase |
-| `PyNightSkyPredictor/moonlight.py` | Krisciunas & Schaefer (1991) moonlight model |
+| `PyNightSkyPredictor/moonlight.py` | Scattered-moonlight model — K&S (1991) × Winkler (2022) hybrid with live AOD |
 | `PyNightSkyPredictor/moon_events.py` | Lunar distance, eclipse detection, supermoon/micromoon |
 | `PyNightSkyPredictor/milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
 | `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
 | `PyNightSkyPredictor/targets.json` | Curated target catalog |
 | `PyNightSkyPredictor/config.py` | Configuration loader — merges `PyNightSkyPredictor/config.json` over built-in defaults (see [Configuration](#configuration) below) |
-| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource` adapter |
+| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource`/`S3RasterSource` adapters |
+| `PyNightSkyPredictor/light_dome.py` | Directional horizon light-dome analysis (Walker d^-2.5 kernel) + precomputed H3 index |
+| `PyNightSkyPredictor/gridraster.py` | Pure-numpy tiled raster grid reader (local memmap / S3 byte-range) — no GDAL |
+| `PyNightSkyPredictor/gridbuild.py` | Build-time GeoTIFF → grid converter (the package's only rasterio import) |
 | `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
 | `PyNightSkyPredictor/aqicn.py` | Live haze cross-check — WAQI real-time station PM2.5/PM10, ±1 day window, distance-filtered against far-away "nearest" stations |
 | `PyNightSkyPredictor/aurora.py` | Aurora visibility forecast — NOAA SWPC 3-day Kp forecast + 27-day outlook, dipole geomagnetic-latitude viewline model |
@@ -353,7 +356,8 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 | `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
 | `PyNightSkyPredictor/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
 | `PyNightSkyPredictor/trip.py` | Trip planning engine |
-| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache` adapter |
+| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache`/`DynamoCache` adapters |
+| `PyNightSkyPredictor/provider_health.py` | In-process registry of observed third-party provider health (feeds `/healthz`) |
 | `PyNightSkyPredictor/ports.py` | I/O backend interfaces (`Cache`, `GeocodeStore`, `RasterSource`) + `PYNIGHTSKY_BACKEND` selector |
 | `PyNightSkyPredictor/_http.py` | Security-restricted HTTP wrapper — all outbound fetches go through here; blocks non-HTTP(S) schemes (guards against CWE-22 file:// injection) |
 
@@ -402,7 +406,7 @@ All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/
 
 ### Offline Spatial Index (PADUS)
 
-The DarkHours Lambda uses a pre-built H3 spatial index (`cache/darkhours_padus_h3.parquet`) as a fast first-pass filter before calling Overpass. This file is **not distributed** in the repository — it must be generated once locally.
+`find_nearby()` uses a pre-built H3 spatial index of USGS PAD-US public lands as a fast first-pass filter. The runtime artifact is `cache/darkhours_padus_h3.npz` (~3.1 MB, columnar sorted-uint64, **committed** — nothing to build for normal use); the intermediate `cache/darkhours_padus_h3.parquet` is also committed. Regenerating from scratch is only needed when the PAD-US source data changes:
 
 **1. Download the source geodatabase**
 
@@ -430,7 +434,7 @@ pip install -r requirements-build.txt
 python scripts/build_padus_index.py
 ```
 
-Output: `cache/darkhours_padus_h3.parquet` (~10 MB). Both `Temp/` and `cache/` are gitignored.
+Output: the `cache/darkhours_padus_h3.*` pair. Format, blacklist rules, and the uint64-sorted invariant: [docs/PADUS_INDEX.md](docs/PADUS_INDEX.md). `Temp/` is gitignored; the built indexes under `cache/` are committed.
 
 ### Offline Spatial Index (OSM POIs)
 
@@ -476,26 +480,40 @@ Any key you omit falls back to the default shown above. The file is optional —
 
 ## Cloud Deployment
 
-The repository includes an optional cloud-native deployment that exposes the engine as an HTTP JSON API with a React/TypeScript web frontend.
+The repository includes an optional cloud-native deployment that exposes the engine as an HTTP JSON API with a React/TypeScript web frontend (the DarkHours app).
 
 **Stack:**
-- **Compute** — FastAPI on AWS Lambda (container image) fronted by CloudFront with WAFv2 rate limiting
-- **Storage** — DynamoDB for cache and geocode store; S3 for the VIIRS/Falchi rasters as Cloud-Optimized GeoTIFFs
-- **Routing & geocoding** — Amazon Location **GeoRoutes** (`CalculateRoutes`, historical traffic for cache-consistent ETAs) computes drive time + road distance to each reachable POI in `find_nearby`, and flags ferry-only/unpaved-road legs; AWS Location place index handles reverse-geocoding. Per-leg results are cached for 24h
+- **Compute** — FastAPI on AWS Lambda, deployed as a **zip package** (Python 3.13, arm64; dependencies pip-installed by CDK asset bundling at deploy time — no application container), fronted by CloudFront with WAFv2 rate limiting. Async jobs run on a second zip Lambda fed by SQS (with a dead-letter queue)
+- **Storage** — DynamoDB for cache and geocode store; S3 for the VIIRS/Falchi rasters as tiled raw-binary grids, range-read in place by `gridraster.py` (no GDAL at runtime — see [docs/RASTERIO_REPLACEMENT.md](docs/RASTERIO_REPLACEMENT.md))
+- **Routing & geocoding** — Amazon Location **GeoRoutes** (`CalculateRoutes`) computes drive time + road distance to each reachable POI in `find_nearby`, and flags ferry-only/unpaved-road legs; an AWS Location place index handles geocoding, suggestions, and reverse-geocoding. Per-leg results are cached for 24h
 - **Frontend** — React/TypeScript SPA (Vite) served from S3 via CloudFront. The nearby-results view orders sites by drive time, shows road distance, and links Google Maps driving directions (origin → site) for each
-- **Resilience** — scheduled Lambda warmer for satellite TLEs; SQS + worker Lambda for async calendar/trip jobs (the worker also runs `find_nearby` and ships the PAD-US + OSM POI indexes)
-- **Observability** — structured JSON logs, X-Ray tracing, CloudWatch metric alarms
+- **Resilience** — EventBridge keep-warm pings (every 4 min) for both Lambdas; a separate scheduled warmer Lambda refreshes satellite TLEs every 6h; a provider-health Lambda probes the upstream weather/space-weather APIs every 5 min
+- **Observability** — structured JSON logs, X-Ray tracing, CloudWatch dashboard + metric alarms with SNS notification, CloudWatch RUM on the frontend (see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md))
+
+**HTTP API** (served same-origin behind CloudFront; long computations return `202` + a job id):
+
+| Endpoint | Mode | Purpose |
+|---|---|---|
+| `GET /night` | sync | Full single-night report (`location` or `lat`+`lon`, `date`, optional `targets`/`satellites`; `date_only=true` refetches just the date-dependent fields) |
+| `GET /suggest?q=` | sync | Place-name typeahead suggestions |
+| `GET /nearby` | async (202 + job) | Dark-sky search, radius 5–120 mi |
+| `GET /calendar` | async (202 + job) | Multi-night outlook, up to 30 days |
+| `GET /jobs/{job_id}` | sync | Poll an async job (`pending` / `done` / `error`) |
+| `GET /healthz` | sync | Cache round-trip + provider health snapshot |
+| `POST /warmup` | sync | Keep-warm ping target (EventBridge) |
+
+The CLI's `--show-nearby` accepts up to 150 mi; the web API caps the radius at 120 mi.
 
 **Repository layout:**
-- `cdk/` — Python CDK stacks (Lambda API, CloudFront distribution, WAF, warmer, CI/CD)
-- `apps/api/` — FastAPI application
-- `apps/worker/` — async job worker
-- `apps/web/` — React SPA
-- `Dockerfile.lambda`, `Dockerfile.worker` — container images
+- `cdk/` — Python CDK stacks: `PyNightSkyLambda` (API + worker + CloudFront + WAF + queues + alarms), `PyNightSkyCicd` (GitHub OIDC deploy role), `PyNightSkyWarmer` (TLE refresh), `PyNightSkyProviderHealth` (provider probes)
+- `apps/api/` — FastAPI application (Mangum ASGI adapter)
+- `apps/worker/` — async job worker (SQS-triggered)
+- `apps/web/` — the DarkHours React SPA ([apps/web/README.md](apps/web/README.md))
+- `Dockerfile.worker` — used only for the Trivy security scan and the throwaway perf-test recipe; not part of the deployment
 
-**CI/CD** — GitHub Actions deploys via OIDC (no long-lived AWS keys); the pipeline builds and pushes container images to ECR, then runs `cdk deploy`.
+**CI/CD** — push to `main` runs the test suite, assumes the deploy role via GitHub OIDC (no long-lived AWS keys), builds the SPA, and runs `cdk deploy PyNightSkyLambda`. No Docker build or registry push is involved. A separate `security.yml` workflow runs Bandit, pip-audit, Semgrep, gitleaks, and Trivy on every branch.
 
-To run your own instance, deploy the CDK stacks against your own AWS account with `PYNIGHTSKY_BACKEND=aws`.
+To run your own instance, deploy the CDK stacks against your own AWS account with `PYNIGHTSKY_BACKEND=aws`. Resource names (bucket, table, place index, queue URL) are injected via environment variables and are deliberately absent from the source.
 
 ---
 
@@ -504,41 +522,12 @@ To run your own instance, deploy the CDK stacks against your own AWS account wit
 Requires the dev dependencies (`pip install -r requirements-dev.txt`).
 
 ```bash
-python -m pytest                  # Full suite — 423 tests
+python -m pytest                  # Full suite — 803 tests across 36 files
 python -m pytest -m "not eph"     # Fast suite — no ephemeris file needed
 python -m pytest -v               # Verbose output
 ```
 
-**Core engine tests** (pure math, no network, no ephemeris unless noted):
-
-| Test file | Coverage |
-|-----------|----------|
-| `test_moonlight.py` | `ks_delta_mag` (including distance correction), `ks_moon_credit`, `moon_wash_severity` |
-| `test_scoring.py` | `rate_night` formula, weight redistribution, weather score |
-| `test_milky_way.py` | `gal_to_radec` IAU matrix, `mw_max_visible`, core geometry |
-| `test_moon_events.py` | `classify_full_moon` thresholds, eclipse integration against known 2026 events |
-| `test_sky_events.py` | `dark_moon_intervals`, moon phase, sunset timing (ephemeris) |
-| `test_mw_geometry.py` | Five-location Milky Way geometry regression (Whitehorse → Ushuaia) |
-| `test_predictor_formulas.py` | Moon score, Bortle conversion, crescent exemption — pure math from `predictor.py` |
-| `test_darksky_formulas.py` | SQM-from-radiance conversions, Bortle classification boundaries |
-| `test_targets_helpers.py` | Coordinate parsing, visibility window detection — pure helpers from `targets.py` |
-| `test_tle_provider.py` | TLE parsing, Starlink filter, `get_tle()` state machine — fully hermetic |
-| `test_weather_conditions.py` | `rate_conditions()`, Open-Meteo parser, 7Timer merge — pure logic |
-| `test_weather_fallback.py` | Provider fallback behaviour — network stubbed |
-
-**Adapter & cloud tests** (require moto / FastAPI TestClient; AWS smoke tests need real credentials):
-
-| Test file | Coverage |
-|-----------|----------|
-| `test_adapters.py` | `LocalFileCache` vs `DynamoCache`, `LocalGeocodeStore` vs `DynamoGeocodeStore` contract parity (DynamoDB mocked via moto) |
-| `test_api.py` | HTTP API endpoints via FastAPI TestClient — healthz, error paths, `/night` success |
-| `test_aws_location.py` | AWS Location geocoding + GeoRoutes drive-time matrix (DepartNow, per-leg cache) — all boto3 calls mocked |
-| `test_poi_index.py` | POI-first `find_nearby` — OSM POI index loader/encoder round-trip, dark-mask intersection, naming/drive-time gates, dark-threshold |
-| `test_aws_smoke.py` | Opt-in integration smoke against real AWS (skipped unless `PYNIGHTSKY_BACKEND=aws` + credentials set) |
-| `test_warmer.py` | TLE warmer Lambda handler — `tle_provider` mocked, no network |
-| `test_jobs.py` | Async job lifecycle — in-memory cache, `run_job` and SQS mocked |
-
-Tests marked `@pytest.mark.eph` require the bundled `de421.bsp`; skipped by `-m "not eph"`. All other core tests are pure math with no network or file dependencies.
+A default run stays offline and deterministic. Three opt-in markers (`pytest.ini`) gate the exceptions: `eph` (needs the bundled `de421.bsp`), `aws` (real AWS integration — needs `PYNIGHTSKY_BACKEND=aws` + credentials + resource env vars), and `live` (real provider APIs — needs `PYNIGHTSKY_LIVE=1`). The full per-file inventory lives in [tests/README.md](tests/README.md).
 
 ---
 

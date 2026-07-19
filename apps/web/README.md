@@ -1,73 +1,83 @@
-# React + TypeScript + Vite
+# DarkHours — the web frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The DarkHours single-page app ([darkhours.app](https://darkhours.app)): a React 19 +
+TypeScript SPA (Vite) that renders the PyNightSkyPredictor engine's night reports.
+In production it is built to static assets, served from S3 behind the same
+CloudFront distribution as the API, and calls the API with **relative paths**
+(same-origin — no CORS, no base URL baked into the bundle). Free, no account,
+no cookies.
 
-Currently, two official plugins are available:
+User-facing feature descriptions: [docs/FEATURES.md](../../docs/FEATURES.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Development
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd apps/web
+npm install
+npm run dev        # Vite dev server (CI=true suppresses the interactive shortcuts UI)
+npm run build      # tsc -b && vite build → dist/
+npm run lint       # eslint
+npm run preview    # serve the production build locally
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+In dev there is no CloudFront, so the Vite dev server proxies the API paths
+(`/night`, `/suggest`, `/healthz`, `/calendar`, `/trip`, `/jobs`, `/nearby`) to a
+live API origin read from `VITE_API_ORIGIN` in a gitignored `.env.local` (see
+`.env.example`) — the deployed URL stays out of the repo. Without it, API calls
+simply fail and the shell still renders.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Deployment is automatic: `deploy.yml` builds `dist/` and CDK's `BucketDeployment`
+publishes it with the `PyNightSkyLambda` stack.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Architecture
+
+No router and no state library — one state-driven view.
+
+| Path | Role |
+|---|---|
+| `src/App.tsx` | Shell: search form (place typeahead + recent history, coordinate mode, geolocation), date picker + day nav, red-mode toggle, report scope, empty-state panel, URL-param permalinks (`?q=`/`?lat=&lon=&date=`) |
+| `src/api.ts` | All API calls. Sync `GET /night` (+ `date_only=true` partial refetch); async `GET /nearby` / `GET /calendar` → `202` + job id → polled `GET /jobs/{id}` with backoff |
+| `src/ReportCard.tsx` | Report orchestrator: score card, factor rows, alert banners (aurora/meteor, sorted by strength), moon phase, section nav, units toggle, copy-link, clear-dark-hours computation, 30-min promise caches for auto-fetched outlook/nearby |
+| `src/report/NightTimeline.tsx` | Hour-by-hour weather table clipped to the night, sky-event dividers, live "▶ Now" row (30 s tick) with the WAQI live-haze badge, provenance footer |
+| `src/report/Targets.tsx` | Prime-target table with viability blockers (clouded out / moon washout / lost in light dome / low radiant), effective windows with clip markers, meteor-shower card |
+| `src/report/MilkyWay.tsx` | Milky Way card: local score, arch window, core altitude/azimuth, arch angle, galactic-plane waypoints accordion |
+| `src/report/skydome/` | 360° sky dome: `SkyDome.tsx` (canvas + SVG overlay, drag-pan, time scrubber), `astro.ts` (GMST/alt-az/galactic math), `catalog.ts` (star catalog loader), `model.ts` (sky-brightness/visibility formulas), `render.ts` + `mwtex.ts` (canvas renderer, Milky Way texture) |
+| `src/report/LightDomePanel.tsx` | All-sky fisheye horizon-glow heatmap mirroring the backend light-dome model |
+| `src/report/Nearby.tsx` | Nearby dark-site results: drive-time sort, POI badges, Google Maps directions links, light-dome list |
+| `src/report/Satellites.tsx` | ISS/Hubble/Tiangong passes + Starlink trains, visibility flags, moon separation |
+| `src/report/Aurora.tsx` | Aurora card + banner: Kp, tier, look direction, peak window |
+| `src/OutlookTelemetryRibbon.tsx` | 30-day outlook contribution-calendar heatmap with per-night drill-in |
+| `src/format.ts`, `src/report/icons.tsx`, `src/shared.tsx` | Formatting/units, weather + moon iconography, shared widgets |
+| `src/rum.ts` | CloudWatch RUM telemetry (performance/errors/http; no cookies) |
+| `src/styles/01…11-*.css` | Layered hand-written CSS (tokens → red mode → per-section → responsive) |
+
+### Static assets & generators
+
+| Asset | Generated by |
+|---|---|
+| `public/stars.v1.bin` | `scripts/build_star_catalog.py` — ~12k-star binary catalog (HYG-derived, mag ≤ 6.7, RA/dec/mag/color quantized) |
+| `public/mw.v1.png` | `scripts/build_mw_texture.py` — Milky Way band texture (ESO/S. Brunier panorama-derived) |
+| `public/moon-phases/` | Moon-phase imagery (NASA SVS) |
+
+### Red night-vision mode
+
+Toggled via a `.red-mode` class on `<html>` (persisted in `localStorage`). Two
+mechanisms: (1) `src/styles/02-red-mode.css` remaps every CSS color variable to
+pure red channels so no blue/green light spoils dark adaptation; (2) an inline SVG
+`feColorMatrix` luminance→red filter handles raster images the variables can't
+reach. The favicon swaps to a red variant. **Every new UI element needs explicit
+red-mode CSS** — check both themes before shipping.
+
+## What the web app does NOT do
+
+Multi-location **trip planning is CLI-only** (`tripbuilder.py`). The `/trip` entry
+in the dev-proxy list is vestigial; no SPA code calls it.
+
+## Attribution surface
+
+The footer credits the data sources the SPA renders: Falchi et al. 2016, NASA
+VIIRS, Open-Meteo, 7Timer, WAQI, NOAA SWPC, CelesTrak, JPL DE421, NASA SVS, and
+OpenStreetMap (ODbL — attribution must stay visible wherever OSM-derived data
+appears). The star catalog derives from the HYG database (CC BY-SA); the Milky
+Way texture from ESO/S. Brunier (CC BY). Full list:
+[docs/ACKNOWLEDGMENTS.md](../../docs/ACKNOWLEDGMENTS.md).
