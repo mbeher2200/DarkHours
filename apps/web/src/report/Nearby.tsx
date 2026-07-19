@@ -15,8 +15,8 @@ export function nearbyBortleClass(bortleClass: number | null): string {
 }
 
 export function NearbyResults(
-  { data, imperial, originLat, originLon }:
-  { data: NearbyResult; imperial: boolean; originLat: number; originLon: number },
+  { data, imperial, originLat, originLon, onSelectLocation }:
+  { data: NearbyResult; imperial: boolean; originLat: number; originLon: number; onSelectLocation?: (lat: number, lon: number) => void },
 ) {
   const { origin_bortle, origin_sqm, radius_miles, results, light_domes, best_available } = data
   const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(1)})` : ''
@@ -53,8 +53,35 @@ export function NearbyResults(
     summer_camp: 'Summer camp', firepit: 'Fire pit', beach_resort: 'Beach resort',
     historic: 'Historic site',
   }
-  // Render a place name with a category badge (routable POIs) or a "Remote" tag (off-road
-  // fallbacks), plus a Google Maps driving-directions link on every result.
+  // A Google Maps driving-directions link, or a "no road access" notice when routing
+  // was attempted but couldn't reach this POI (e.g. a ferry-only crossing).
+  const mapLinkNode = (p: NearbyPlace) =>
+    routingActive && p.is_poi && p.drive_minutes == null ? (
+      <span className="poi-unroutable" title="No direct road access — routing avoided a ferry-only crossing">No road access</span>
+    ) : (
+      <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions" onClick={(e) => e.stopPropagation()}><Navigation size={12} strokeWidth={2} /></a>
+    )
+  // Category badge (routable POIs) or "Remote" tag (off-road fallbacks), any routing
+  // warnings, and a Maps link — shared by the prose call sites and the results table.
+  // `showMapLink` is false for the table, which renders its own Maps link in the Dir
+  // column instead, next to the drive-time estimate.
+  const poiMeta = (p: NearbyPlace, showMapLink: boolean) => (
+    <span className="poi-type-link">
+      {p.is_poi
+        ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
+        : <span className="poi-remote">Remote</span>}
+      {p.warnings?.map((warn, idx) => (
+        <span key={idx} className="poi-warning">{warn}</span>
+      ))}
+      {p.tail_miles != null && (
+        <span className="poi-warning">Last {fmtMi(p.tail_miles)} not drivable</span>
+      )}
+      {showMapLink && mapLinkNode(p)}
+    </span>
+  )
+  // Render a place name (as a link) with its category badge/warnings and a Maps link —
+  // used by the prose highlight/empty-state lines, which have no table row to attach a
+  // click handler to and so keep the original click-through-to-app-link behavior.
   const placeNode = (p: NearbyPlace) => {
     // No name/area passed here — the destination report re-derives the same POI name
     // itself from lat/lon against the trusted local index (darkhours.location
@@ -64,22 +91,7 @@ export function NearbyResults(
       <>
         <a className="poi-namelink" href={appLink}>{placeStr(p)}</a>
         {p.area_name && <span className="poi-area">{p.area_name}</span>}
-        <span className="poi-type-link">
-          {p.is_poi
-            ? (p.poi_type && <span className="poi-badge">{POI_TYPE_LABEL[p.poi_type] ?? p.poi_type}</span>)
-            : <span className="poi-remote">Remote</span>}
-          {p.warnings?.map((warn, idx) => (
-            <span key={idx} className="poi-warning">{warn}</span>
-          ))}
-          {p.tail_miles != null && (
-            <span className="poi-warning">Last {fmtMi(p.tail_miles)} not drivable</span>
-          )}
-          {routingActive && p.is_poi && p.drive_minutes == null ? (
-            <span className="poi-unroutable" title="No direct road access — routing avoided a ferry-only crossing">No road access</span>
-          ) : (
-            <a className="poi-maplink" href={dirLink(p)} target="_blank" rel="noopener noreferrer" aria-label="Directions"><Navigation size={12} strokeWidth={2} /></a>
-          )}
-        </span>
+        {poiMeta(p, true)}
       </>
     )
   }
@@ -185,18 +197,35 @@ export function NearbyResults(
                       if (bd == null) return -1
                       return ad - bd || a.bortle_class - b.bortle_class
                     })
-                    .map((p, i) => (
-                      <tr key={i}>
-                        <td className={`${nearbyBortleClass(p.bortle_class)} nearby-area-td`}>
-                          <div className="nearby-area-inner">{placeNode(p)}</div>
-                        </td>
-                        <td className={`wx-num nearby-bortle-col ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
-                        <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
-                        <td className="wx-num nearby-dist-col">{distOf(p)}</td>
-                        {routingActive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
-                        <td className="wx-num nearby-dir-col">{p.direction}</td>
-                      </tr>
-                    ))}
+                    .map((p, i) => {
+                      const activate = () => onSelectLocation?.(p.lat, p.lon)
+                      return (
+                        <tr
+                          key={i}
+                          className="nearby-row-clickable"
+                          onClick={activate}
+                          tabIndex={0}
+                          role="link"
+                          aria-label={`View night report for ${placeStr(p)}`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate() }
+                          }}
+                        >
+                          <td className={`${nearbyBortleClass(p.bortle_class)} nearby-area-td`}>
+                            <div className="nearby-area-inner">
+                              <span className="poi-namelink">{placeStr(p)}</span>
+                              {p.area_name && <span className="poi-area">{p.area_name}</span>}
+                              {poiMeta(p, false)}
+                            </div>
+                          </td>
+                          <td className={`wx-num nearby-bortle-col ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
+                          <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
+                          <td className="wx-num nearby-dist-col">{distOf(p)}</td>
+                          {routingActive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
+                          <td className="wx-num nearby-dir-col">{p.direction} {mapLinkNode(p)}</td>
+                        </tr>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>

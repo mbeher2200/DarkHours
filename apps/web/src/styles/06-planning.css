@@ -117,6 +117,20 @@
 .wx-table td.nearby-bortle-good      { color: var(--good); }
 .wx-table td.nearby-bortle-fair      { color: var(--fair); }
 .wx-table td.nearby-bortle-poor      { color: var(--poor); }
+/* Whole-row navigation: clicking anywhere in a result row jumps to that location
+   (see App.tsx's selectNearbyLocation). The shared .wx-table hover rule already
+   applies here (nearby-table carries the wx-table class); strengthen it slightly
+   since these rows are actionable, unlike the read-only weather table. */
+.nearby-table tbody tr.nearby-row-clickable {
+  cursor: pointer;
+}
+.nearby-table tbody tr.nearby-row-clickable:hover td {
+  background: rgba(var(--tint-rgb), 0.10);
+}
+.nearby-table tbody tr.nearby-row-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .nearby-domes {
   font-size: 13px;
   display: flex;
@@ -328,7 +342,7 @@
   border: none;
   border-radius: 0;
   background-color: var(--card);
-  background-image: linear-gradient(rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)), rgba(var(--dh-wash-rgb), var(--cell-alpha, 0)));
+  background-image: linear-gradient(rgba(var(--cell-wash-rgb, var(--dh-wash-rgb)), var(--cell-alpha, 0)), rgba(var(--cell-wash-rgb, var(--dh-wash-rgb)), var(--cell-alpha, 0)));
   color: var(--text-h);
   font-family: var(--mono);
   cursor: pointer;

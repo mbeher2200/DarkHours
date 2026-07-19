@@ -34,6 +34,7 @@ export default function App() {
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
   const [date, setDate] = useState(tonightIso())
+  const [scopeOpen, setScopeOpen] = useState(true)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
   const [redMode, setRedMode] = useState<boolean>(() => localStorage.getItem('redMode') === '1')
@@ -98,6 +99,7 @@ export default function App() {
   })()
 
   async function runQuery(q: NightQuery) {
+    setScopeOpen(false)
     setLoading(true)
     setError(null)
     try {
@@ -204,6 +206,17 @@ export default function App() {
       q.lon = lo
     }
     runQuery(q)
+  }
+
+  // Jump to an alternate location (e.g. a "Find Sky Nearby" result) without losing
+  // the currently-viewed date or doing a full page reload — reuses the same
+  // runQuery path as every other in-app query trigger.
+  function selectNearbyLocation(la: number, lo: number) {
+    setMode('coords')
+    setLat(String(la))
+    setLon(String(lo))
+    const { wxUnavail, satUnavail } = availabilityFor(date)
+    runQuery({ lat: la, lon: lo, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
   }
 
   // Bubble-up target for ReportCard's "View Details" drill-in (a date-only
@@ -383,7 +396,7 @@ export default function App() {
                 type="text"
                 placeholder="e.g. Cherry Springs State Park"
                 value={place}
-                onChange={(e) => { setPlace(e.target.value); setActiveIndex(-1); setPlaceDropdown(true) }}
+                onChange={(e) => { setPlace(e.target.value); setActiveIndex(-1); setPlaceDropdown(true); setScopeOpen(true) }}
                 onFocus={() => setPlaceDropdown(true)}
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowDown' && showDropdown) {
@@ -486,7 +499,7 @@ export default function App() {
                 step="any"
                 placeholder="40.7"
                 value={lat}
-                onChange={(e) => setLat(e.target.value)}
+                onChange={(e) => { setLat(e.target.value); setScopeOpen(true) }}
               />
             </label>
             <label className="field">
@@ -496,7 +509,7 @@ export default function App() {
                 step="any"
                 placeholder="-74.0"
                 value={lon}
-                onChange={(e) => setLon(e.target.value)}
+                onChange={(e) => { setLon(e.target.value); setScopeOpen(true) }}
               />
             </label>
           </div>
@@ -504,14 +517,24 @@ export default function App() {
 
         <div className="field">
           <label htmlFor="dp-trigger" className="field-label">Date</label>
-          <DatePicker value={date} min="1900-01-01" max="2050-12-31" onChange={setDate} />
+          <div className="date-nav-row">
+            <button type="button" className="day-nav" onClick={() => shiftDay(-1)} disabled={loading || locating} aria-label="Previous day">
+              <ChevronLeft size={18} strokeWidth={2.5} />
+            </button>
+            <DatePicker value={date} min="1900-01-01" max="2050-12-31" onChange={(d) => { setDate(d); setScopeOpen(true) }} />
+            <button type="button" className="day-nav" onClick={() => shiftDay(1)} disabled={loading || locating} aria-label="Next day">
+              <ChevronRight size={18} strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
 
         <div className="scope-row">
-          {/* Scope indicators read as config noise before first use — collapsed
-              by default, with any availability diagnostic kept visible in the
-              summary line so date-range limits still surface without expanding. */}
-          <details className="scope-details">
+          {/* Expanded by default so the system's assumptions are visible before the
+              user commits to a search; collapses once a query actually fires
+              (see runQuery) and re-expands when the query target — date or
+              place/coords — changes, keeping the availability diagnostic reachable
+              without permanently cluttering the form. */}
+          <details className="scope-details" open={scopeOpen} onToggle={(e) => setScopeOpen(e.currentTarget.open)}>
             <summary className="scope-summary">
               Report scope
               {(wxForecastUnavailable || satUnavailable) && (
@@ -544,17 +567,9 @@ export default function App() {
           </details>
         </div>
 
-        <div className="submit-row">
-          <button type="button" className="day-nav" onClick={() => shiftDay(-1)} disabled={loading || locating} aria-label="Previous day">
-            <ChevronLeft size={18} strokeWidth={2.5} />
-          </button>
-          <button type="submit" className="submit" disabled={loading}>
-            {loading ? 'Scoring…' : 'Score the night'}
-          </button>
-          <button type="button" className="day-nav" onClick={() => shiftDay(1)} disabled={loading || locating} aria-label="Next day">
-            <ChevronRight size={18} strokeWidth={2.5} />
-          </button>
-        </div>
+        <button type="submit" className="submit" disabled={loading}>
+          {loading ? 'Scoring…' : 'Score the night'}
+        </button>
       </form>
 
       {error && <div className="card error">{error}</div>}
@@ -642,6 +657,8 @@ export default function App() {
           imperial={imperial}
           onToggleUnits={toggleUnits}
           onDateDetail={handleDateDetail}
+          onSelectLocation={selectNearbyLocation}
+          redMode={redMode}
         />
       )}
 

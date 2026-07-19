@@ -74,6 +74,8 @@ export default function ReportCard({
   imperial = false,
   onToggleUnits,
   onDateDetail,
+  onSelectLocation,
+  redMode,
 }: {
   report: NightReport
   showWeather?: boolean
@@ -82,6 +84,8 @@ export default function ReportCard({
   imperial?: boolean
   onToggleUnits?: (imp: boolean) => void
   onDateDetail?: (next: NightReport, date: string) => void
+  onSelectLocation?: (lat: number, lon: number) => void
+  redMode?: boolean
 }) {
   const [nearbyState, setNearbyState] = useState<
     | { phase: 'idle' }
@@ -578,7 +582,7 @@ export default function ReportCard({
                 <p className="sat-notice">{nearbyState.message}</p>
               )}
               {nearbyState.phase === 'done' && (
-                <NearbyResults data={nearbyState.data} imperial={imperial} originLat={report.lat} originLon={report.lon} />
+                <NearbyResults data={nearbyState.data} imperial={imperial} originLat={report.lat} originLon={report.lon} onSelectLocation={onSelectLocation} />
               )}
             </div>
           </div>
@@ -599,6 +603,7 @@ export default function ReportCard({
                   onViewDetails={handleViewDetails}
                   isFetchingDetails={isFetchingDetails}
                   viewDetailsError={dateFetch.phase === 'error' ? dateFetch.message : null}
+                  redMode={redMode}
                 />
               )}
             </div>
