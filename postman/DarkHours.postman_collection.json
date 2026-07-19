@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "PyNightSky API",
+    "name": "DarkHours API",
     "_postman_id": "a1b2c3d4-0000-4000-8000-pynightsky01",
     "description": "Night-sky quality scoring API (FastAPI). All endpoints are GET, no auth (CloudFront→Lambda is signed by OAC, transparent to the client).\n\n## Setup\nSet the `baseUrl` variable via an Environment:\n- Local:  http://localhost:8080  (run: `uvicorn apps.api.main:app --reload --port 8080`)\n- AWS:    the CloudFront URL (kept out of the repo — paste it into a Postman environment)\n\n## Notes\n- **Weather/forecast horizon:** `weather=true` only fills in once the date is within ~7 days of today; further out you'll see `wx_pending: true` (not an error). Past dates use the ERA5 archive (no seeing).\n- **CloudFront caching:** responses are cached ~5 min keyed on the full query string. To force a fresh Lambda hit, enable the disabled `_` (cache-bust) param on a request.\n- **Validation:** bad/missing inputs return 4xx with a JSON `detail` message — see the 'Validation (expect 4xx)' folder.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
