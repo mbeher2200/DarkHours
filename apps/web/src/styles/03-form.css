@@ -205,6 +205,15 @@
   flex-direction: column;
   gap: 6px;
 }
+.date-nav-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.date-nav-row .dp-wrap {
+  flex: 1;
+  min-width: 0;
+}
 .field > span {
   font-size: 10px;
   font-family: var(--mono);
@@ -426,14 +435,6 @@ html.red-mode .info-tip-bubble {
   border: none;
 }
 
-.submit-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-.submit-row .submit {
-  flex: 1;
-}
 .submit {
   padding: 13px;
   border: 0;

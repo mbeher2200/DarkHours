@@ -22,15 +22,42 @@ function dateParts(iso: string): { dow: string; mmdd: string; long: string; long
   return { dow: DOW[d.getDay()], mmdd: `${mm}/${dd}`, long, longWithYear }
 }
 
-// Monochromatic luminance map: the raw score alone drives the cell wash's
-// opacity (continuous, not banded) — hue never changes, and higher scores
-// are darker/more saturated. A score of 0 is fully clear (no tint at all —
-// just the plain card background); opacity scales linearly up to ~15% for
-// the best possible night, maintaining contrast while preventing the pure
-// black wash from reading too heavily.
+// The raw score alone drives the cell wash's opacity (continuous, not banded).
+// A score of 0 is fully clear (no tint at all — just the plain card background);
+// opacity scales linearly up to ~15% for the best possible night, maintaining
+// contrast while preventing the wash from reading too heavily.
 function cellAlpha(score: number): number {
-  const clamped = Math.max(0, Math.min(9, score))
-  return (clamped / 9) * 0.15
+  const clamped = Math.max(0, Math.min(10, score))
+  return (clamped / 10) * 0.15
+}
+
+// Astronomy-themed hue gradient for the wash color itself: deep red (poor, score 0)
+// through amber (fair) to deep star-field green (excellent, score 10), interpolated
+// continuously rather than banded into four flat colors. Stops reuse the app's
+// existing semantic score tokens (--poor/--fair/--excellent) so the hue matches what
+// those words mean elsewhere in the UI. Red mode never sees this — it keeps the
+// neutral --dh-wash-rgb wash, which 02-red-mode.css already force-remaps to pure red;
+// this function's output is only wired up for the non-red-mode case (see below).
+const WASH_STOPS: [number, [number, number, number]][] = [
+  [0, [200, 86, 86]],    // --poor #C85656
+  [5, [217, 155, 65]],   // --fair #D99B41
+  [10, [58, 135, 114]],  // --excellent #3A8772
+]
+
+function cellWashColor(score: number): string {
+  const clamped = Math.max(0, Math.min(10, score))
+  let [loScore, loRgb] = WASH_STOPS[0]
+  let [hiScore, hiRgb] = WASH_STOPS[WASH_STOPS.length - 1]
+  for (let i = 0; i < WASH_STOPS.length - 1; i++) {
+    if (clamped >= WASH_STOPS[i][0] && clamped <= WASH_STOPS[i + 1][0]) {
+      ;[loScore, loRgb] = WASH_STOPS[i]
+      ;[hiScore, hiRgb] = WASH_STOPS[i + 1]
+      break
+    }
+  }
+  const t = hiScore === loScore ? 0 : (clamped - loScore) / (hiScore - loScore)
+  const rgb = loRgb.map((c, i) => Math.round(c + (hiRgb[i] - c) * t))
+  return rgb.join(', ')
 }
 
 /**
@@ -42,13 +69,14 @@ function cellAlpha(score: number): number {
  * factor in.
  */
 export default function OutlookTelemetryRibbon({
-  data, startExpanded, onViewDetails, isFetchingDetails, viewDetailsError,
+  data, startExpanded, onViewDetails, isFetchingDetails, viewDetailsError, redMode,
 }: {
   data: CalendarResult
   startExpanded?: boolean
   onViewDetails: (date: string) => void
   isFetchingDetails?: boolean
   viewDetailsError?: string | null
+  redMode?: boolean
 }) {
   const nights = useMemo(() => [...data.nights].sort((a, b) => a.date.localeCompare(b.date)), [data.nights])
   const best = data.ranked[0] as CalendarNight | undefined
@@ -119,7 +147,10 @@ export default function OutlookTelemetryRibbon({
                       isSelected ? 'selected' : '',
                       isBest ? 'best' : '',
                     ].filter(Boolean).join(' ')}
-                    style={n.score != null ? ({ '--cell-alpha': cellAlpha(n.score) } as CSSProperties) : undefined}
+                    style={n.score != null ? ({
+                      '--cell-alpha': cellAlpha(n.score),
+                      ...(redMode ? {} : { '--cell-wash-rgb': cellWashColor(n.score) }),
+                    } as CSSProperties) : undefined}
                     onClick={() => setSelectedDate(n.date)}
                     aria-pressed={isSelected}
                     title={`${dow} ${mmdd} — ${n.score != null ? n.score.toFixed(1) : 'N/A'}${isBest ? ' (best night)' : ''} · ${n.phase_name}${n.meteor_shower ? ` · ${n.meteor_shower.name} meteor shower (${n.meteor_shower.note})` : ''}${n.aurora ? ` · Aurora Kp ${n.aurora.kp_max}${n.aurora.noaa_scale ? ` (${n.aurora.noaa_scale})` : ''} — ${AURORA_TIER_LABELS[n.aurora.tier]}` : ''}`}
