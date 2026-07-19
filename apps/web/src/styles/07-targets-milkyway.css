@@ -834,12 +834,35 @@ html.red-mode .tg-blocked-toggle:hover { color: var(--text); }
 .cond-glow { font-size: 11px; }
 
 .colophon {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   text-align: center;
-  color: var(--text-dim);
   font-size: 12px;
   line-height: 1.6;
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px solid rgba(0, 0, 0, 0.10);
   box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.70);
+}
+.colophon-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  opacity: 0.65;
+}
+.colophon-sources {
+  color: var(--text-dim);
+}
+.colophon-tagline {
+  margin: 0;
+  color: var(--text-h);
+}
+.colophon-legal {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.7;
 }
