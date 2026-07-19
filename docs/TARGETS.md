@@ -104,7 +104,7 @@ Uses a fixed radiant point (the position in the sky the meteors appear to origin
 
 ## Meteor Shower ZHR Decay Model
 
-A shower's ZHR isn't constant across its active window — it peaks on `peak_day` and falls off on either side. `PyNightSkyPredictor/targets.py` (`effective_zhr()`) models this with the same double-exponential (asymmetric log-linear) profile used throughout meteor science literature:
+A shower's ZHR isn't constant across its active window — it peaks on `peak_day` and falls off on either side. `darkhours/targets.py` (`effective_zhr()`) models this with the same double-exponential (asymmetric log-linear) profile used throughout meteor science literature:
 
 ```
 ZHR(t) = ZHR_peak · 10^(−B·|t|)
@@ -143,7 +143,7 @@ Before running the full geometry pass for a shower on a given night, `_gate_half
 - Northern/Southern Taurids fit `Bm ≈ 0` (a genuinely flat, broad plateau, consistent with their well-known low-level long tail) — substituted with the `b_rise` value since a literal 0 is degenerate for the decay formula (implies the shower never decays). A modeling choice, not a literature value.
 - `peak_hour_utc` is pinned to the 2026/2027 apparition specifically and will drift a few hours in other years (leap-year solar-longitude cycle) — the same order of imprecision this catalog already accepts for the fixed `peak_month`/`peak_day` fields, just one level deeper.
 - These values were extracted from the primary sources via automated tooling, not manually cross-checked cell-by-cell — a spot-check against arXiv:1904.06370 Table 5 is a reasonable follow-up before leaning on exact figures for anything beyond "roughly how fast does this decay."
-- The CLI (`pynightsky.py`) does not yet surface `zhr_effective` / `local_rate_at_peak` — only the web app's report does. This is a known parity gap.
+- The CLI (`darkhours.py`) does not yet surface `zhr_effective` / `local_rate_at_peak` — only the web app's report does. This is a known parity gap.
 
 ---
 

@@ -28,7 +28,7 @@ os.environ.setdefault("PYNIGHTSKY_PROFILE", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PyNightSkyPredictor import cache, darksky, ports  # noqa: E402
+from darkhours import cache, darksky, ports  # noqa: E402
 
 darksky._PROFILE = True  # force on even if env was set late
 
@@ -68,7 +68,7 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     # Quiet the noisy per-pixel/per-call debug logs; we only want [profile] lines.
-    logging.getLogger("PyNightSkyPredictor.darksky").setLevel(logging.INFO)
+    logging.getLogger("darkhours.darksky").setLevel(logging.INFO)
 
     print(f"Backend: {ports.get_backend()._name}   "
           f"PROFILE={darksky._PROFILE}   radius={args.radius} mi")

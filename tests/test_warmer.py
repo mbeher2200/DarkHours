@@ -1,6 +1,6 @@
 """TLE warmer handler (M6.2) — hermetic (tle_provider mocked, no network/AWS)."""
 from apps.warmer import handler as h
-from PyNightSkyPredictor import tle_provider as tle
+from darkhours import tle_provider as tle
 
 
 def test_warm_all_ok(monkeypatch):

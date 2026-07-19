@@ -831,7 +831,7 @@ def is_prime(target, min_peak_alt: float, min_window_hours: float,
 
 # K&S model and sky-brightness constants live in moonlight.py.
 # MW arch functions live in milky_way.py.
-# Re-export the names that pynightsky.py and predictor.py currently import
+# Re-export the names that darkhours.py and predictor.py currently import
 # directly from targets, so their import lines stay unchanged.
 from .moonlight import (
     ks_moon_credit,

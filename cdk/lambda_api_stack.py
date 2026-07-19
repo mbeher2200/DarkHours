@@ -53,7 +53,7 @@ def _stage_worker_src() -> str:
     The runtime is GDAL/scipy/pyarrow-free (light-pollution rasters are read from S3
     as raw-binary grids with numpy+boto3; the PAD-US index is a numpy .npz), so the
     worker fits a zip Lambda (~169 MB unzipped < 250 MB). We ship the engine source,
-    apps (minus the web SPA), the de421.bsp ephemeris (inside PyNightSkyPredictor/),
+    apps (minus the web SPA), the de421.bsp ephemeris (inside darkhours/),
     the PAD-US + OSM-POI .npz indexes, and requirements.txt; bundling pip-installs the
     deps on top.
     """
@@ -62,7 +62,7 @@ def _stage_worker_src() -> str:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     ig = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", "node_modules", "web", "dist")
-    shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
+    shutil.copytree(_REPO / "darkhours", stage / "darkhours", ignore=ig)
     shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
     (stage / "cache").mkdir()
     for _npz in ("darkhours_padus_h3.npz", "osm_pois.npz", "lightdome_h3.npz"):
@@ -83,7 +83,7 @@ def _stage_api_src() -> str:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     ig = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", "node_modules", "web", "dist")
-    shutil.copytree(_REPO / "PyNightSkyPredictor", stage / "PyNightSkyPredictor", ignore=ig)
+    shutil.copytree(_REPO / "darkhours", stage / "darkhours", ignore=ig)
     shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
     (stage / "cache").mkdir()
     for _npz in ("darkhours_padus_h3.npz", "lightdome_h3.npz"):
@@ -140,7 +140,7 @@ class LambdaApiStack(Stack):
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements-api.txt "
                         "-t /asset-output "
-                        "&& cp -r PyNightSkyPredictor apps cache /asset-output/",
+                        "&& cp -r darkhours apps cache /asset-output/",
                     ],
                 ),
             ),
@@ -272,7 +272,7 @@ class LambdaApiStack(Stack):
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements.txt "
                         "python-json-logger aws-xray-sdk -t /asset-output "
-                        "&& cp -r PyNightSkyPredictor apps cache /asset-output/",
+                        "&& cp -r darkhours apps cache /asset-output/",
                     ],
                 ),
             ),

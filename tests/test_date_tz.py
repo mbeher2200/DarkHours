@@ -15,7 +15,7 @@ import re
 # Source trees that run in the Lambda / API process.
 _SOURCE_DIRS = [
     pathlib.Path("apps/api"),
-    pathlib.Path("PyNightSkyPredictor"),
+    pathlib.Path("darkhours"),
 ]
 
 _PATTERN = re.compile(r'\bdate\.today\(\)')

@@ -5,7 +5,7 @@ Builds a tiny synthetic .npz and exercises load/lookup — no raster, no S3, no 
 import numpy as np
 import pytest
 
-import PyNightSkyPredictor.light_dome as ld
+import darkhours.light_dome as ld
 
 h3 = pytest.importorskip("h3")
 RES = ld.LIGHTDOME_H3_RESOLUTION

@@ -19,9 +19,9 @@ import os
 import uuid
 from datetime import date
 
-from PyNightSkyPredictor import cache as _cache
-from PyNightSkyPredictor import trip as _trip
-from PyNightSkyPredictor.darksky import find_nearby as _find_nearby
+from darkhours import cache as _cache
+from darkhours import trip as _trip
+from darkhours.darksky import find_nearby as _find_nearby
 from apps.api.serializers import trip_report_to_dict
 
 _JOB_PREFIX = "job|"

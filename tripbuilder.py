@@ -4,10 +4,10 @@
 import logging
 from datetime import date
 
-from PyNightSkyPredictor import location as loc
-from PyNightSkyPredictor.format_ctx import detect_units
-from PyNightSkyPredictor.render_trip import print_matrix, print_ranked
-from PyNightSkyPredictor.trip import plan_trip
+from darkhours import location as loc
+from darkhours.format_ctx import detect_units
+from darkhours.render_trip import print_matrix, print_ranked
+from darkhours.trip import plan_trip
 
 log = logging.getLogger(__name__)
 

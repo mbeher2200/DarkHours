@@ -38,14 +38,14 @@ def _require_live():
 # ── Weather providers ────────────────────────────────────────────────────────
 
 def test_open_meteo_live():
-    from PyNightSkyPredictor import weather
+    from darkhours import weather
     points = weather.OpenMeteoProvider().forecast(_DENVER_LAT, _DENVER_LON)
     assert points, "Open-Meteo returned no forecast points"
     assert points[0].cloud_cover_pct is not None
 
 
 def test_seventimer_live():
-    from PyNightSkyPredictor import weather
+    from darkhours import weather
     points = weather.SevenTimerProvider().forecast(_DENVER_LAT, _DENVER_LON)
     assert points, "7Timer returned no forecast points"
 
@@ -53,7 +53,7 @@ def test_seventimer_live():
 # ── Celestrak (TLE) ──────────────────────────────────────────────────────────
 
 def test_celestrak_live():
-    from PyNightSkyPredictor import tle_provider
+    from darkhours import tle_provider
     raw = tle_provider._fetch_tle_raw(_ISS_NORAD)
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert any(ln.startswith("1 ") for ln in lines), "no TLE line 1 from Celestrak"
@@ -63,7 +63,7 @@ def test_celestrak_live():
 # ── NOAA SWPC (aurora) ───────────────────────────────────────────────────────
 
 def test_swpc_kp_live():
-    from PyNightSkyPredictor import aurora
+    from darkhours import aurora
     rows = aurora._parse_kp_json(aurora._fetch_url(aurora.KP_URL))
     assert rows, "SWPC returned no Kp forecast rows"
     assert all(isinstance(r["kp"], float) for r in rows)
@@ -71,7 +71,7 @@ def test_swpc_kp_live():
 
 
 def test_swpc_27day_live():
-    from PyNightSkyPredictor import aurora
+    from darkhours import aurora
     outlook = aurora._parse_27day_text(aurora._fetch_url(aurora.OUTLOOK_URL))
     assert len(outlook) >= 20, f"27-day outlook parsed only {len(outlook)} dates"
     assert all(0 <= kp <= 9 for kp in outlook.values())
@@ -80,7 +80,7 @@ def test_swpc_27day_live():
 # ── Location providers ───────────────────────────────────────────────────────
 
 def test_nominatim_live():
-    from PyNightSkyPredictor import location
+    from darkhours import location
     entry = location._geocode_via_nominatim("Denver, CO", "Denver, CO")
     assert entry is not None, "Nominatim returned no result for Denver, CO"
     assert entry["lat"] == pytest.approx(_DENVER_LAT, abs=0.4)
@@ -97,7 +97,7 @@ def test_aws_location_live():
             + ", ".join(required)
             + " (and AWS creds) to run the AWS Location smoke"
         )
-    from PyNightSkyPredictor import ports, location
+    from darkhours import ports, location
     ports.reset_backend()
     try:
         entry = location._geocode_via_aws("Denver, CO", "Denver, CO")

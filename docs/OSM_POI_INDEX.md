@@ -78,7 +78,7 @@ So the builder filters up front:
 > routing destination, so we keep its real lat/lon. A res-7 cell center can be ~3 km off
 > the actual lot — useless for routing. float32 ≈ 1.4 m precision, ample for a road snap.
 
-## Runtime path (`PyNightSkyPredictor/darksky.py`)
+## Runtime path (`darkhours/darksky.py`)
 
 - `_load_poi_h3_index()` — lazy-loads once per process into a `_PoiIndex`; cached in the
   `_poi_h3_cache` module global; returns `None` (cached) if h3/numpy is missing or the file

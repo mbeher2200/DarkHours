@@ -13,7 +13,7 @@ python3 -m pytest -q
 python3 -m pytest -q -m "not eph"
 
 # Coverage report
-python3 -m pytest --cov=PyNightSkyPredictor --cov-report=term-missing -q
+python3 -m pytest --cov=darkhours --cov-report=term-missing -q
 
 # Real AWS integration tests (opt-in, requires credentials + resource env vars)
 PYNIGHTSKY_BACKEND=aws python3 -m pytest -q -m aws

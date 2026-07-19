@@ -10,7 +10,7 @@ from unittest import mock
 
 import pytest
 
-from PyNightSkyPredictor import aurora as a
+from darkhours import aurora as a
 
 
 # ---------------------------------------------------------------------------
@@ -321,11 +321,11 @@ class TestAuroraForNight:
 
 class TestTripAurora:
     def test_cache_key_bumped_to_v6(self):
-        from PyNightSkyPredictor import trip
+        from darkhours import trip
         assert "night_v6" in trip._cache_key(45.0, -93.0, date(2026, 8, 1), True)
 
     def test_aurora_survives_dict_round_trip(self):
-        from PyNightSkyPredictor import trip
+        from darkhours import trip
         s = trip.NightSummary(
             date=date(2026, 8, 1), display_name="x", lat=45.0, lon=-93.0,
             score=7.0, score_components={}, phase_name="New Moon",
@@ -341,7 +341,7 @@ class TestTripAurora:
 
     def test_missing_aurora_key_defaults_none(self):
         # Old cached night_v4-era dicts (or v5 dicts without the key) → None
-        from PyNightSkyPredictor import trip
+        from darkhours import trip
         d = trip._to_dict(trip.NightSummary(
             date=date(2026, 8, 1), display_name="x", lat=45.0, lon=-93.0,
             score=7.0, score_components={}, phase_name="New Moon",

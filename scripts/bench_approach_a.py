@@ -25,8 +25,8 @@ from skyfield import almanac
 from skyfield.api import load, wgs84
 
 sys.path.insert(0, ".")
-from PyNightSkyPredictor import sky_events as se
-from PyNightSkyPredictor.sky_events import (
+from darkhours import sky_events as se
+from darkhours.sky_events import (
     _compute_dark_hours_cycle,
     _dark_stats,
     dark_moon_intervals,

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from PyNightSkyPredictor.milky_way import (
+from darkhours.milky_way import (
     gal_to_radec,
     milky_way_arch_summary,
     mw_max_visible,

@@ -109,4 +109,4 @@ python tripbuilder.py \
   --top 2
 ```
 
-Trip Builder is the right tool when you're choosing *between* dates or locations. For a single confirmed night at a confirmed location, `pynightsky.py` gives the full detail — weather table, targets, nearby skies.
+Trip Builder is the right tool when you're choosing *between* dates or locations. For a single confirmed night at a confirmed location, `darkhours.py` gives the full detail — weather table, targets, nearby skies.

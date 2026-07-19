@@ -34,7 +34,7 @@ def _prewarm() -> None:
     # S3 grids: open (fetch the tiny .json) + sample one pixel (a few-byte ranged
     # GET) to prime each dataset's GridArray, cutting cold raster I/O on the first job.
     try:
-        from PyNightSkyPredictor import ports as _p
+        from darkhours import ports as _p
         src = _p.get_backend().raster_source
         for dataset in ("viirs", "falchi"):
             src.sample(dataset, 0.0, 0.0)
@@ -42,25 +42,25 @@ def _prewarm() -> None:
         log.debug("Raster pre-warm failed: %s", _e)
     # PAD-US H3 index (columnar load) used by find_nearby Tier 1.
     try:
-        from PyNightSkyPredictor import darksky as _ds
+        from darkhours import darksky as _ds
         _ds._load_padus_h3_index()
     except Exception as _e:
         log.debug("PAD-US pre-warm failed: %s", _e)
     # Routable OSM POI index (columnar load) used by find_nearby's POI-first extraction.
     try:
-        from PyNightSkyPredictor import darksky as _ds
+        from darkhours import darksky as _ds
         _ds._load_poi_h3_index()
     except Exception as _e:
         log.debug("OSM POI pre-warm failed: %s", _e)
     # DynamoDB connection pool (same warmup call the API uses).
     try:
-        from PyNightSkyPredictor import ports as _p
+        from darkhours import ports as _p
         _p.get_backend().cache.get("__warmup__")
     except Exception as _e:
         log.debug("Cache pre-warm failed: %s", _e)
     # Ephemeris (mmap de421.bsp) — needed by trip/calendar jobs.
     try:
-        from PyNightSkyPredictor import sky_events as _se
+        from darkhours import sky_events as _se
         _se._ephemeris()
     except Exception as _e:
         log.debug("Ephemeris pre-warm failed: %s", _e)

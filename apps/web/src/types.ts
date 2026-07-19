@@ -213,7 +213,7 @@ export interface MilkyWaySummary {
 }
 
 // ── Light dome (horizon glow) ─────────────────────────────────────────────────
-// Mirrors summarize_horizons() in PyNightSkyPredictor/light_dome.py. The per-direction
+// Mirrors summarize_horizons() in darkhours/light_dome.py. The per-direction
 // horizon-glow analysis served on the initial /night response (drives the score-card
 // fisheye panel; null outside CONUS coverage). Distinct from the find_nearby `light_domes`
 // list below, which names the actual bright cities (VIIRS blobs) you can see glowing.
@@ -322,7 +322,7 @@ export type DateOnlyNightReport = Omit<NightReport, LocationFields>
 
 // ── Nearby dark-sky search ────────────────────────────────────────────────────
 
-// poi_type values mirror PyNightSkyPredictor _POI_TYPE_LABELS / osm_poi_builder.
+// poi_type values mirror darkhours _POI_TYPE_LABELS / osm_poi_builder.
 export type PoiType =
   | 'parking' | 'viewpoint' | 'camp_site' | 'rest_area'
   | 'caravan_site' | 'picnic_site' | 'ranger_station' | 'observatory' | 'attraction'

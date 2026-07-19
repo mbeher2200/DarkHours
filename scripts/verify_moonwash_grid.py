@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PyNightSkyPredictor import moonlight as m  # noqa: E402
+from darkhours import moonlight as m  # noqa: E402
 
 # --- frozen legacy model (verbatim pre-Winkler ks_delta_mag) -----------------
 

@@ -20,7 +20,7 @@ def _offline_aurora(request, monkeypatch):
     if request.module.__name__.rpartition(".")[2] in _AURORA_OPT_OUT:
         yield
         return
-    from PyNightSkyPredictor import aurora as _aurora
+    from darkhours import aurora as _aurora
     monkeypatch.setattr(_aurora, "fetch_kp_forecast", lambda: ([], False))
     monkeypatch.setattr(_aurora, "fetch_27day_outlook", lambda: ({}, False))
     yield

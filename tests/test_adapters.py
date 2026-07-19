@@ -30,14 +30,14 @@ def _moto_env(monkeypatch):
 @pytest.fixture(params=["local", "dynamo"])
 def cache_impl(request, tmp_path, monkeypatch):
     if request.param == "local":
-        from PyNightSkyPredictor.cache import LocalFileCache
+        from darkhours.cache import LocalFileCache
         yield LocalFileCache(cache_dir=tmp_path)
         return
     moto = pytest.importorskip("moto")
     _moto_env(monkeypatch)
     with moto.mock_aws():
         _make_moto_table()
-        from PyNightSkyPredictor.cache import DynamoCache
+        from darkhours.cache import DynamoCache
         yield DynamoCache(table_name="test-cache")
 
 
@@ -97,14 +97,14 @@ def test_clear_expired_removes_only_expired_nonsystem(cache_impl):
 @pytest.fixture(params=["local", "dynamo"])
 def geocode_impl(request, tmp_path, monkeypatch):
     if request.param == "local":
-        from PyNightSkyPredictor.location import LocalGeocodeStore
+        from darkhours.location import LocalGeocodeStore
         yield LocalGeocodeStore(path=tmp_path / "locations.json")
         return
     moto = pytest.importorskip("moto")
     _moto_env(monkeypatch)
     with moto.mock_aws():
         _make_moto_table()
-        from PyNightSkyPredictor.location import DynamoGeocodeStore
+        from darkhours.location import DynamoGeocodeStore
         yield DynamoGeocodeStore(table_name="test-cache")
 
 
@@ -122,7 +122,7 @@ def test_geocode_save_load_roundtrip(geocode_impl):
 # ── S3RasterSource grid resolution (no AWS needed) ───────────────────────────
 
 def test_s3_resolves_grid_key_prefixes():
-    from PyNightSkyPredictor.darksky import S3RasterSource
+    from darkhours.darksky import S3RasterSource
     src = S3RasterSource(bucket="my-bucket")
     # Grid pair on S3 is {key}.bin / {key}.json (no GDAL /vsis3 URI anymore).
     assert src._KEYS["viirs"] == "viirs_2025"
@@ -130,14 +130,14 @@ def test_s3_resolves_grid_key_prefixes():
 
 
 def test_s3_unknown_dataset_raises():
-    from PyNightSkyPredictor.darksky import S3RasterSource
+    from darkhours.darksky import S3RasterSource
     # Unknown dataset is rejected before any S3/network access.
     with pytest.raises(ValueError):
         S3RasterSource(bucket="b").sample("nope", 0.0, 0.0)
 
 
 def test_s3_missing_bucket_raises_lazily(monkeypatch):
-    from PyNightSkyPredictor.darksky import S3RasterSource
+    from darkhours.darksky import S3RasterSource
     monkeypatch.delenv("PYNIGHTSKY_RASTER_BUCKET", raising=False)
     src = S3RasterSource()          # construction must NOT raise (lazy)
     with pytest.raises(RuntimeError):

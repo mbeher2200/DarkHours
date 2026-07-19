@@ -26,9 +26,9 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as _Request
 
-from PyNightSkyPredictor import location as _loc
-from PyNightSkyPredictor import trip as _trip
-from PyNightSkyPredictor.predictor import assemble_night
+from darkhours import location as _loc
+from darkhours import trip as _trip
+from darkhours.predictor import assemble_night
 
 from apps import jobs
 from .serializers import night_report_to_dict
@@ -60,17 +60,17 @@ async def lifespan(app: FastAPI):
 
         def _prewarm() -> None:
             try:
-                from PyNightSkyPredictor import sky_events as _se
+                from darkhours import sky_events as _se
                 _se._ephemeris()   # mmap de421.bsp into the process
             except Exception as _e:
                 logging.getLogger(__name__).debug("Ephemeris pre-warm failed: %s", _e)
             try:
-                from PyNightSkyPredictor import ports as _p
+                from darkhours import ports as _p
                 _p.get_backend().cache.get("__warmup__")   # open DynamoDB connection pool
             except Exception as _e:
                 logging.getLogger(__name__).debug("Cache pre-warm failed: %s", _e)
             try:
-                from PyNightSkyPredictor import light_dome as _ld
+                from darkhours import light_dome as _ld
                 _ld.load_lightdome_index()   # mmap/parse the ~MB light-dome H3 index once
             except Exception as _e:
                 logging.getLogger(__name__).debug("Light-dome index pre-warm failed: %s", _e)
@@ -149,8 +149,8 @@ def _check_cache_health() -> dict:
     if now - _cache_check_state["ts"] < _CACHE_CHECK_TTL:
         return _cache_check_state["result"]
     try:
-        from PyNightSkyPredictor import ports as _p
-        from PyNightSkyPredictor.cache import _CACHE_DIR
+        from darkhours import ports as _p
+        from darkhours.cache import _CACHE_DIR
         backend = _p.get_backend()
         cache = backend.cache
         cache.set("__health_probe__", 1, ttl_seconds=120)
@@ -232,7 +232,7 @@ def healthz():
 
     HTTP 503 when overall == error; 200 for ok or degraded.
     """
-    from PyNightSkyPredictor import provider_health as _ph
+    from darkhours import provider_health as _ph
     checks = {"cache": _check_cache_health(), **_ph.snapshot()}
     statuses = {c.get("status") for c in checks.values()}
     overall = ("error"    if "error"    in statuses else

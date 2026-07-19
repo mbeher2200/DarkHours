@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from PyNightSkyPredictor.weather import (
+from darkhours.weather import (
     WeatherPoint,
     _merge_7timer,
     _merge_air_quality,

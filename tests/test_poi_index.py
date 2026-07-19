@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from PyNightSkyPredictor import darksky as ds
+from darkhours import darksky as ds
 
 
 # Import the build-time encoder straight from the script (not a package) so the test
@@ -208,7 +208,7 @@ def test_offline_tier_name_poi_discarded_on_blacklist():
 
 
 # ── _poi_h3_lookup / _poi_reverse_name ────────────────────────────────────────
-# These back PyNightSkyPredictor.location.reverse_geocode's POI-aware naming for an
+# These back darkhours.location.reverse_geocode's POI-aware naming for an
 # arbitrary (lat, lon) — e.g. a coordinate a user navigates straight to via the URL.
 # The name always comes from this trusted, offline-built index, never from client
 # input, so a crafted URL can't put arbitrary text in another user's report header.

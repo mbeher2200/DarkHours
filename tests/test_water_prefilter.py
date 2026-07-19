@@ -11,7 +11,7 @@ candidate mask inside ``_extract_dark_sky_candidates``.  These tests verify:
 import numpy as np
 from unittest.mock import MagicMock
 
-import PyNightSkyPredictor.darksky as ds
+import darkhours.darksky as ds
 
 
 # ---------------------------------------------------------------------------

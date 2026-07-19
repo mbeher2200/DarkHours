@@ -23,14 +23,14 @@ def _require_aws_env():
     if missing or os.environ.get("PYNIGHTSKY_BACKEND") != "aws":
         pytest.skip("set PYNIGHTSKY_BACKEND=aws + "
                     + ", ".join(_REQUIRED) + " (and AWS creds) to run the AWS smoke")
-    from PyNightSkyPredictor import ports
+    from darkhours import ports
     ports.reset_backend()   # rebuild for the aws backend
     yield
     ports.reset_backend()
 
 
 def test_dynamo_cache_roundtrip_real():
-    from PyNightSkyPredictor import cache
+    from darkhours import cache
     cache.set("smoke_test_key", {"ok": True, "n": 1.25}, ttl_seconds=60)
     assert cache.get("smoke_test_key") == {"ok": True, "n": 1.25}
     cache.invalidate("smoke_test_key")
@@ -38,7 +38,7 @@ def test_dynamo_cache_roundtrip_real():
 
 
 def test_darksky_lookup_via_s3_real():
-    from PyNightSkyPredictor import darksky
+    from darkhours import darksky
     nyc = darksky.lookup(40.7128, -74.0060)        # bright → VIIRS
     assert nyc and nyc["source"] == "VIIRS 2025" and nyc["bortle_class"] == 9
     dark = darksky.lookup(37.2309, -112.6377)      # dark → Falchi fallback

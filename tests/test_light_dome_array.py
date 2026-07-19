@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
 
-import PyNightSkyPredictor.darksky as ds
+import darkhours.darksky as ds
 
 # ---------------------------------------------------------------------------
 # Helpers

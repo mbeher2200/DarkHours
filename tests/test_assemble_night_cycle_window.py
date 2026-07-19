@@ -1,7 +1,7 @@
 """Hermetic tests for assemble_night()'s use_cycle_window path — the calendar/
 trip lightweight branch that derives sunset/sunrise/night_start/night_end/
 dark_hours_tonight from lunar_cycle_dark_analysis()'s window instead of an
-independent sky_events() call (see PyNightSkyPredictor/sky_events.py). Mocks
+independent sky_events() call (see darkhours/sky_events.py). Mocks
 out darksky/light_dome/sky_events/moon_events entirely so this needs no
 rasters, ephemeris, or network — default pytest run stays offline.
 """
@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import PyNightSkyPredictor.predictor as predictor
-from PyNightSkyPredictor.moonlight import ks_moon_credit
+import darkhours.predictor as predictor
+from darkhours.moonlight import ks_moon_credit
 
 _BORTLE_INFO = {
     "sqm": 21.5, "bortle_class": 3, "bortle_desc": "Rural",

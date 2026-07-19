@@ -2,7 +2,7 @@
 """Offline CLI: convert an EPSG:4326 GeoTIFF into a tiled raw-binary grid
 (``<prefix>.bin`` + ``<prefix>.json``) for the rasterio-free runtime reader.
 
-Thin wrapper over ``PyNightSkyPredictor.gridbuild.build`` (which holds the logic
+Thin wrapper over ``darkhours.gridbuild.build`` (which holds the logic
 and is also called by the local backend to build on first use).  See that module
 for the on-disk layout.
 
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from PyNightSkyPredictor import gridbuild
+from darkhours import gridbuild
 
 
 def main(argv: list[str] | None = None) -> int:

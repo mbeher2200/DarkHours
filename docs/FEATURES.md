@@ -1,4 +1,4 @@
-# DarkHours / PyNightSkyPredictor — Features
+# DarkHours / darkhours — Features
 
 What the app actually does, in user terms. Every item below is derived from the
 current codebase (source modules noted in comments for future audits). Web
@@ -110,7 +110,7 @@ Shareable permalinks for any location and date, imperial/SI toggle, place
 autocomplete with recent searches, use-my-location, mobile-friendly layout. Free
 and open source; no account, no cookies.
 
-<!-- source: pynightsky.py, tripbuilder.py, weather.py (ERA5) — CLI only -->
+<!-- source: darkhours.py, tripbuilder.py, weather.py (ERA5) — CLI only -->
 ## Command-line extras
 The same engine runs fully offline-cached from the terminal: single-night
 reports, monthly calendars, satellite tables — plus **historical weather back to

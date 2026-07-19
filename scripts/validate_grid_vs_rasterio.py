@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PyNightSkyPredictor import gridraster
+from darkhours import gridraster
 
 
 def _rasterio_sample(ds, lat, lon):

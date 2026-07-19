@@ -25,7 +25,7 @@ requires_rasters = pytest.mark.skipif(
 
 
 def test_healthz(monkeypatch):
-    from PyNightSkyPredictor import provider_health as _ph
+    from darkhours import provider_health as _ph
     monkeypatch.setattr(main_mod, "_check_cache_health",
                         lambda: {"status": "ok", "backend": "local"})
     monkeypatch.setattr(_ph, "snapshot", lambda: {})
@@ -37,7 +37,7 @@ def test_healthz(monkeypatch):
 
 
 def test_healthz_cache_error_returns_503(monkeypatch):
-    from PyNightSkyPredictor import provider_health as _ph
+    from darkhours import provider_health as _ph
     monkeypatch.setattr(main_mod, "_check_cache_health",
                         lambda: {"status": "error", "detail": "DynamoDB unreachable"})
     monkeypatch.setattr(_ph, "snapshot", lambda: {})
@@ -47,7 +47,7 @@ def test_healthz_cache_error_returns_503(monkeypatch):
 
 
 def test_healthz_rate_limit_returns_degraded(monkeypatch):
-    from PyNightSkyPredictor import provider_health as _ph
+    from darkhours import provider_health as _ph
     monkeypatch.setattr(main_mod, "_check_cache_health",
                         lambda: {"status": "ok", "backend": "local"})
     monkeypatch.setattr(_ph, "snapshot",

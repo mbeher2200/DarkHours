@@ -44,7 +44,7 @@ Counts: **1,374,391** unique cells — 1,297,603 viable, 76,788 blacklisted.
 > ~1.4M-entry dict — that dominated Lambda cold starts; see
 > [PERF_FINDNEARBY.md](PERF_FINDNEARBY.md). Don't regress to strings.)
 
-## Runtime path (`PyNightSkyPredictor/darksky.py`)
+## Runtime path (`darkhours/darksky.py`)
 
 - `_load_padus_h3_index()` — lazy-loads once per process into a `_PadusIndex`
   (sorted `uint64` cell array + parallel name/blacklist arrays) from the `.npz` with

@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from PyNightSkyPredictor import darksky  # noqa: E402
+from darkhours import darksky  # noqa: E402
 
 # Mix of public land (expect hits), cities, and ocean (expect None).
 SAMPLE_PTS = [

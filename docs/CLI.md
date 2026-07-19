@@ -1,11 +1,11 @@
-# pynightsky.py — Reference Documentation
+# darkhours.py — Reference Documentation
 
 Single-night reports, monthly calendars, and nearby dark-sky search for a single location.
 
 ```bash
-python pynightsky.py --location "Grand Canyon Village, AZ" --date 2026-08-12 --targets --weather
-python pynightsky.py --location "Roswell, GA" --show-nearby
-python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
+python darkhours.py --location "Grand Canyon Village, AZ" --date 2026-08-12 --targets --weather
+python darkhours.py --location "Roswell, GA" --show-nearby
+python darkhours.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
 ```
 
 ---
@@ -63,7 +63,7 @@ The geometric mean means every factor influences the result proportionally, and 
 
 ## Moonlight Modeling (K&S 1991 × Winkler 2022 hybrid)
 
-PyNightSkyPredictor models scattered moonlight with a hybrid of two photometric models:
+darkhours models scattered moonlight with a hybrid of two photometric models:
 
 - **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* PASP 103(667), 1033–1039. [doi:10.1086/132921](https://doi.org/10.1086/132921) — the phase-dependent lunar luminosity and the optical-pathlength form.
 - **Winkler, H. (2022)**, *"A revised simplified scattering model for the moonlit sky brightness profile based on photometry at SAAO,"* MNRAS 514(1), 208–226. [doi:10.1093/mnras/stac1387](https://doi.org/10.1093/mnras/stac1387) — the single-scatter kernel with correct lunar-beam extinction, and the two-component Rayleigh + Henyey–Greenstein (g = 0.8) phase function.
@@ -95,7 +95,7 @@ The transition from negligible to severe is sharp — between roughly 20% and 30
 
 ### Proxy geometry for site-wide evaluation
 
-K&S is inherently directional — it depends on where you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. PyNightSkyPredictor uses **90° separation at 30° altitude** as the proxy:
+K&S is inherently directional — it depends on where you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. darkhours uses **90° separation at 30° altitude** as the proxy:
 
 - **90° separation** is the darkest accessible sky position: the scattering function reaches its minimum there (the cos²ρ term vanishes), representing the best realistic position when the moon is up
 - **30° altitude** is a representative mid-sky moon position over the course of an evening
@@ -112,7 +112,7 @@ For per-target evaluation, the actual moon–target separation, moon altitude, a
 
 **Light pollution interaction** — The site's SQM enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
 
-**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. PyNightSkyPredictor corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
+**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. darkhours corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
 
 **Meteor shower local rates** — `local_rate_at_peak` applies the standard IMO visual-rate correction on top of the decay model and radiant geometry: rate = ZHR_effective × sin(radiant alt) × min(1, r^(lm − 6.5)), where lm is the naked-eye limiting magnitude (NELM = 7.93 − 5·log₁₀(10^(4.316 − SQM/5) + 1)) under the moon-brightened site sky and r is the shower's magnitude-distribution (population) index from the catalog. Faint-meteor-rich showers (Delta Aquariids, r = 3.2) collapse under moonlight or city skies far harder than fireball-rich ones (Perseids, r = 2.2).
 
@@ -261,9 +261,9 @@ K&S sky-brightening is sampled at each waypoint's position throughout the night.
 ## Nearby Skies
 
 ```bash
-python pynightsky.py --location "Roswell, GA" --show-nearby
-python pynightsky.py --location "Sedona, AZ" --show-nearby 40
-python pynightsky.py --location "Denver, CO" --show-nearby 95
+python darkhours.py --location "Roswell, GA" --show-nearby
+python darkhours.py --location "Sedona, AZ" --show-nearby 40
+python darkhours.py --location "Denver, CO" --show-nearby 95
 ```
 
 Reads the VIIRS and Falchi raster windows covering the search area (light domes are always searched out to 150 miles regardless of radius), extracts dark pixels directly from the arrays (land-masked, **POI-first** via the routable OSM POI index in the US), clusters them, and reports darker sky areas and light domes.
@@ -297,9 +297,9 @@ A spinner is shown during computation when stdout is a terminal.
 ## Month Calendar
 
 ```bash
-python pynightsky.py --location "Grand Canyon Village, AZ" --calendar
-python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
-python pynightsky.py --location "Grand Canyon Village, AZ" --calendar --weather
+python darkhours.py --location "Grand Canyon Village, AZ" --calendar
+python darkhours.py --location "Grand Canyon Village, AZ" --calendar --date 2026-08
+python darkhours.py --location "Grand Canyon Village, AZ" --calendar --weather
 ```
 
 Shows one row per night across a calendar month. The **Moon** column shows the lunar interference score (0–10) and flags special events inline:
@@ -366,13 +366,13 @@ Geocoding results are cached — repeated lookups for the same name are instant.
 
 ```bash
 # Save coordinates under a name
-python pynightsky.py --coords 40.7128 -74.0060 --save-location "home"
+python darkhours.py --coords 40.7128 -74.0060 --save-location "home"
 
 # Use saved location
-python pynightsky.py --location "home"
+python darkhours.py --location "home"
 
 # List saved locations
-python pynightsky.py --list-locations
+python darkhours.py --list-locations
 ```
 
 ---
@@ -381,7 +381,7 @@ python pynightsky.py --list-locations
 
 ```bash
 # Past date with weather
-python pynightsky.py --location "Sedona, AZ" --date 2025-06-21 --weather
+python darkhours.py --location "Sedona, AZ" --date 2025-06-21 --weather
 ```
 
 Astronomical events are always shown regardless of date. Weather data for past dates:
@@ -396,4 +396,4 @@ Astronomical events are always shown regardless of date. Weather data for past d
 
 ## Target Catalog
 
-Targets are defined in [`targets.json`](../PyNightSkyPredictor/targets.json). The schema is documented in [`TARGETS.md`](TARGETS.md). Global observation thresholds and defaults are in [`config.json`](../PyNightSkyPredictor/config.json).
+Targets are defined in [`targets.json`](../darkhours/targets.json). The schema is documented in [`TARGETS.md`](TARGETS.md). Global observation thresholds and defaults are in [`config.json`](../darkhours/config.json).

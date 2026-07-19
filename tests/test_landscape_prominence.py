@@ -2,7 +2,7 @@
 
 import pytest
 
-from PyNightSkyPredictor.targets import (
+from darkhours.targets import (
     _landscape_suitability,
     _SB_DIFFUSE_THRESHOLD,
     _GALAXY_SB_THRESHOLD,

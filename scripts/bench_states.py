@@ -75,8 +75,8 @@ def main():
 
     logging.basicConfig(level=logging.DEBUG, handlers=[logging.StreamHandler(sys.stderr)], format="%(message)s")
 
-    import PyNightSkyPredictor.darksky as ds
-    from PyNightSkyPredictor import cache as cm, ports
+    import darkhours.darksky as ds
+    from darkhours import cache as cm, ports
     ports.get_backend()
 
     # Phase table header

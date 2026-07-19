@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from PyNightSkyPredictor.targets import _find_windows, _parse_dec, _parse_ra
+from darkhours.targets import _find_windows, _parse_dec, _parse_ra
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ class TestFindWindows:
 class TestRaDecPassthrough:
     def test_new_fields_default_to_none(self):
         """Defaulted fields keep every existing constructor call-site valid."""
-        from PyNightSkyPredictor.targets import VisibleTarget
+        from darkhours.targets import VisibleTarget
         vt = VisibleTarget(name="x", type="galaxy", windows=[], note=None)
         assert vt.ra_deg is None
         assert vt.dec_deg is None

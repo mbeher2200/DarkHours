@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from PyNightSkyPredictor import aurora as a
+from darkhours import aurora as a
 
 # ---------------------------------------------------------------------------
 # Fixtures — realistic but not live

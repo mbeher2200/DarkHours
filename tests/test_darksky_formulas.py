@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from PyNightSkyPredictor.darksky import (
+from darkhours.darksky import (
     luminance_to_sqm,
     radiance_to_sqm,
     sqm_to_bortle,

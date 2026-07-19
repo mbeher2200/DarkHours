@@ -15,7 +15,7 @@ That's why this Lambda can be a tiny rasterio-free zip. Env it expects:
 """
 import logging
 
-from PyNightSkyPredictor import tle_provider as _tle
+from darkhours import tle_provider as _tle
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
