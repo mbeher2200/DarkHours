@@ -65,7 +65,7 @@ except ImportError:
 # Data-source constants
 # ---------------------------------------------------------------------------
 
-_CACHE_DIR = Path.home() / ".pynightsky-predictor"
+_CACHE_DIR = Path.home() / ".darkhours"
 
 # VIIRS Black Marble 2025
 _VIIRS_ZIP_URL = "https://www2.lightpollutionmap.info/data/v2/viirs_2025_raw.zip"

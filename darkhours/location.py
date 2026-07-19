@@ -22,8 +22,8 @@ from geopy.exc import GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimite
 from . import provider_health as _ph
 from timezonefinder import TimezoneFinder
 
-CACHE_FILE = Path.home() / ".pynightsky-predictor" / "locations.json"
-USER_AGENT = "pynightsky-predictor/1.0"
+CACHE_FILE = Path.home() / ".darkhours" / "locations.json"
+USER_AGENT = "darkhours/1.0"
 
 
 class LocalGeocodeStore:

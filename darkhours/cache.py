@@ -2,7 +2,7 @@
 """Disk-backed JSON cache with per-entry TTL.
 
 ``LocalFileCache`` is the default (local) adapter — one JSON file per key under
-``~/.pynightsky-predictor/cache``. The module-level ``get/set/...`` functions
+``~/.darkhours/cache``. The module-level ``get/set/...`` functions
 delegate to whichever ``Cache`` the active backend selects, so callers
 (``weather``, ``tle_provider``, ``darksky``) need no changes when the backend
 swaps to a cloud store (DynamoDB in M3). See ``ports.py``.
@@ -19,7 +19,7 @@ from . import ports
 
 log = logging.getLogger(__name__)
 
-_CACHE_DIR = Path.home() / ".pynightsky-predictor" / "cache"
+_CACHE_DIR = Path.home() / ".darkhours" / "cache"
 
 # Items whose key starts with this prefix are non-cache "system" records that
 # share the table (the geocode store, the dark-cycle blob). clear_all() and

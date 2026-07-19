@@ -1,7 +1,7 @@
 # DarkHours — the web frontend
 
 The DarkHours single-page app ([darkhours.app](https://darkhours.app)): a React 19 +
-TypeScript SPA (Vite) that renders the PyNightSkyPredictor engine's night reports.
+TypeScript SPA (Vite) that renders the DarkHours engine's night reports.
 In production it is built to static assets, served from S3 behind the same
 CloudFront distribution as the API, and calls the API with **relative paths**
 (same-origin — no CORS, no base URL baked into the bundle). Free, no account,

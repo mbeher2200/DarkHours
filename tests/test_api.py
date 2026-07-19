@@ -17,7 +17,7 @@ from apps.api.main import app
 
 client = TestClient(app)
 
-_RASTERS = pathlib.Path.home() / ".pynightsky-predictor"
+_RASTERS = pathlib.Path.home() / ".darkhours"
 _have_rasters = ((_RASTERS / "viirs_2025_raw.tif").exists()
                  and (_RASTERS / "world_atlas_2016.tif").exists())
 requires_rasters = pytest.mark.skipif(
