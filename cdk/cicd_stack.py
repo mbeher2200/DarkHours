@@ -13,6 +13,15 @@ stacks, nothing else.
 
 Nothing here hardcodes the account id (uses ``self.account``). The GitHub repo slug
 is the repo's own public identity, so it's fine in source; override via ``GITHUB_REPO``.
+
+GitHub's "immutable subject claims" (https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/):
+any repo renamed or transferred after 2026-07-15 has its OIDC token `sub` claim
+permanently qualified with the owner/repo's numeric database IDs —
+``repo:<owner>@<owner_id>/<name>@<repo_id>:ref:<ref>`` — instead of the plain
+``repo:<owner>/<name>:ref:<ref>`` format. This repo was renamed on that date, so the
+trust policy has to match the ID-qualified form. The IDs are public (``gh api
+repos/<owner>/<repo>``) and, being immutable, never need updating again even across
+future renames.
 """
 import os
 
@@ -24,10 +33,12 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-# Subject claim format GitHub puts in the OIDC token: "repo:<owner>/<name>:<ref>".
 _GITHUB_REPO = os.environ.get("GITHUB_REPO", "mbeher2200/DarkHours")
+_GITHUB_OWNER_ID = os.environ.get("GITHUB_OWNER_ID", "191662990")
+_GITHUB_REPO_ID = os.environ.get("GITHUB_REPO_ID", "1247758082")
+_owner, _name = _GITHUB_REPO.split("/")
 # Only the main branch may assume the deploy role (matches the push-to-main trigger).
-_ALLOWED_SUB = f"repo:{_GITHUB_REPO}:ref:refs/heads/main"
+_ALLOWED_SUB = f"repo:{_owner}@{_GITHUB_OWNER_ID}/{_name}@{_GITHUB_REPO_ID}:ref:refs/heads/main"
 _GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
 # Default CDK bootstrap qualifier (the `cdk-hnb659fds-*` roles created by `cdk bootstrap`).
 _BOOTSTRAP_QUALIFIER = "hnb659fds"
