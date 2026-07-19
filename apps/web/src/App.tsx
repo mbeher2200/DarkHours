@@ -553,7 +553,9 @@ export default function App() {
                 ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Weather<span className="scope-diag"> · Out of range</span></span>
                 : <span className="scope-item"><span className="scope-brk">[■]</span>Weather</span>
               }
-              <span className="scope-item"><span className="scope-brk">[■]</span>Sky Features</span>
+              <span className="scope-item"><span className="scope-brk">[■]</span>Targets &amp; Milky Way</span>
+              <span className="scope-item"><span className="scope-brk">[■]</span>Space Weather Events</span>
+              <span className="scope-item"><span className="scope-brk">[■]</span>Meteor Showers</span>
               {wxForecastUnavailable
                 ? <span className="scope-item scope-dim"><span className="scope-brk">[ ]</span>Clear Dark Hours<span className="scope-diag"> · Out of range</span></span>
                 : <span className="scope-item"><span className="scope-brk">[■]</span>Clear Dark Hours</span>
@@ -589,25 +591,23 @@ export default function App() {
 
           <div className="es-score-scale">
             <div className="es-score-bar" />
-            <div className="es-score-labels">
-              <span>Poor</span>
-              <span>Fair</span>
-              <span>Good</span>
-              <span>Excellent</span>
-            </div>
           </div>
 
           <span className="es-caps-label">Features</span>
 
-          {/* Ordered by differentiation, not data category: the four features no
-              competitor has lead; commodity metrics are swept into the
-              "fundamentals" line below rather than given tiles. */}
+          {/* Ordered by differentiation, not data category: exclusive differentiators
+              first, then distinctive modeling, then commodity metrics; the rest is
+              swept into the "fundamentals" line below rather than given tiles. */}
           <div className="es-caps">
             {([
               ['Target Windows',    'Every shootable target with its peak time and window, and why others are blocked due to clouds, moonwash, or light domes.'],
               ['Milky Way Planner', 'A 360° view of the galactic plane over your horizon—altitude, bearing, and the best minute to shoot.'],
               ['Sky & Horizon Glow', 'A horizon map of light domes around you. Know more than just the Bortle.'],
               ['Nearby Dark Sky',   'Search for low bortle locations you can actually reach, with routing to facilities like parking, campgrounds, and viewpoints. All sorted by drive times.'],
+              ['Moonlight Modeling', 'Most tools treat the moon as binary: up means ruined. DarkHours models real scattered moonlight brightening at your target from live aerosol data. A crescent barely registers. A bright gibbous gets called out.'],
+              ['360° Sky Simulation', "Drag around a rendered dome of tonight's actual sky: stars, Milky Way, moon phase, and light domes to scale. Scrub sunset to sunrise and watch visibility accurately change with conditions across the timeline"],
+              ['Aurora Forecast', 'NOAA space-weather data run through a geomagnetic visibility model for your exact location. Tiered honestly as overhead, naked eye, camera capture only, with the bearing to look toward.'],
+              ['Satellite Passes', "ISS, Hubble, and Tiangong passes with rise, peak, and set times. Newly launched Starlink trains are tracked while they're still bunched and bright."],
               ['30 Day Best Night', 'A 30 day outlook. Compare conditions across multiple nights to identify the best windows.'],
               ['Smoke & Haze Forecast',  'Wildfire smoke and upper-air aerosol data from ground sensors, and satellites.'],
               ['Meteor Shower Predictions', 'Know when the next meteor shower will peak, the estimated meteors per hour, and visibility from your location.'],
@@ -620,9 +620,12 @@ export default function App() {
             ))}
           </div>
 
-          <p className="es-caps-more">
-            Plus the fundamentals: Bortle class & SQM analysis, clear weather dark hours calcuations, seeing & transparency forecasts, and cloud layers by altitude. Every metric sourced and time-stamped. Free, open-source, no account required.
-          </p>
+          <div className="es-caps-more">
+            <span className="es-cap-k es-caps-more-label">Plus the fundamentals:</span>
+            <p className="es-caps-more-body">
+              Bortle class & SQM analysis, clear weather dark hours calculations, seeing & transparency forecasts, and cloud layers by altitude. Also a one-tap red night-vision mode for checking the forecast at 2 AM without losing your dark adaptation. Every metric sourced and time-stamped. Free, open-source, no account required.
+            </p>
+          </div>
 
           <div className="es-divider" />
 
@@ -663,34 +666,44 @@ export default function App() {
       )}
 
       <footer className="colophon">
-        Light pollution:{' '}
-        <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noreferrer">Falchi et al. 2016</a>
-        {' / '}
-        <a href="https://www2.lightpollutionmap.info" target="_blank" rel="noreferrer">VIIRS Black Marble 2025</a>
-        {' · '}Weather:{' '}
-        <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
-        {' / '}
-        <a href="https://github.com/Yeqzids/7timer-issues/wiki" target="_blank" rel="noreferrer">7Timer</a>
-        {' · '}Live haze:{' '}
-        <a href="https://waqi.info" target="_blank" rel="noreferrer">World Air Quality Index Project</a>
-        {' · '}Aurora:{' '}
-        <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noreferrer">NOAA SWPC</a>
-        <br />
-        Satellites:{' '}
-        <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
-        {' · '}Ephemeris:{' '}
-        <a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noreferrer">NASA/JPL DE421</a>
-        {' · '}Moon imagery:{' '}
-        <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
-        <br />
-        Nearby places:{' '}
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
-        {' (ODbL)'}
-        <br />
-        Source:{' '}
-        <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">GitHub</a>
-                <br /><br />
-        DarkHours is free, open source, and will never require your email address. Visit our <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
+        <div className="colophon-label">Data</div>
+        <div className="colophon-sources">
+          Light pollution:{' '}
+          <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noreferrer">Falchi et al. 2016</a>
+          {' / '}
+          <a href="https://www2.lightpollutionmap.info" target="_blank" rel="noreferrer">VIIRS Black Marble 2025</a>
+          {' · '}Weather:{' '}
+          <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>
+          {' / '}
+          <a href="https://github.com/Yeqzids/7timer-issues/wiki" target="_blank" rel="noreferrer">7Timer</a>
+          {' · '}Live haze:{' '}
+          <a href="https://waqi.info" target="_blank" rel="noreferrer">World Air Quality Index Project</a>
+          {' · '}Aurora:{' '}
+          <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noreferrer">NOAA SWPC</a>
+          <br />
+          Satellites:{' '}
+          <a href="https://celestrak.org" target="_blank" rel="noreferrer">CelesTrak</a>
+          {' · '}Ephemeris:{' '}
+          <a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noreferrer">NASA/JPL DE421</a>
+          {' · '}Moon imagery:{' '}
+          <a href="https://svs.gsfc.nasa.gov/4874" target="_blank" rel="noreferrer">NASA SVS</a>
+          <br />
+          Nearby places:{' '}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+          {' (ODbL)'}
+        </div>
+
+        <p className="colophon-tagline">
+          DarkHours is free,{' '}
+          <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
+          , and will never require your email address. Visit our{' '}
+          <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
+        </p>
+
+        <p className="colophon-legal">
+          © 2026 DarkHours contributors. Released under the{' '}
+          <a href="https://github.com/mbeher2200/DarkHours/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License</a>.
+        </p>
       </footer>
     </div>
   )
