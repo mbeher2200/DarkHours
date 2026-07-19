@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="PyNightSky API", version="0.1.0",
+app = FastAPI(title="DarkHours API", version="0.1.0",
               description="Night-sky quality scoring for astrophotography planning.",
               lifespan=lifespan)
 
