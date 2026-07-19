@@ -671,7 +671,7 @@ export default function App() {
         {' (ODbL)'}
         <br />
         Source:{' '}
-        <a href="https://github.com/mbeher2200/PyNightSkyPredictor" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">GitHub</a>
                 <br /><br />
         DarkHours is free, open source, and will never require your email address. Visit our <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
       </footer>
