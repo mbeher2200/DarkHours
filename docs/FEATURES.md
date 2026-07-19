@@ -1,4 +1,4 @@
-# DarkHours / darkhours — Features
+# DarkHours — Features
 
 What the app actually does, in user terms. Every item below is derived from the
 current codebase (source modules noted in comments for future audits). Web

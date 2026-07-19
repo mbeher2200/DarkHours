@@ -1,10 +1,10 @@
-# PyNightSkyPredictor
+# DarkHours
 
 This tool provides extensive night sky trip planning for astrophotographers looking for help to decide when and where to observe. Give it a location and date and it tells you everything you need to decide.
 
 Most tools treat moonrise as a binary. Moon up, night ruined. A 5% crescent above the horizon produces 0.06 Δmag of sky brightening at your target — imperceptible. A 75% gibbous produces 1.73 Δmag — severe.
 
-PyNightSkyPredictor computes sky brightening at every target's position throughout the night with a hybrid moonlight model — Krisciunas & Schaefer (1991) lunar photometry driven through a Winkler (2022) single-scatter kernel (two-component Rayleigh + Henyey–Greenstein phase function) with **live aerosol optical depth** from Open-Meteo CAMS and an inverse-square Earth–Moon distance correction — and clips each imaging window at the point where scattered moonlight exceeds the contrast threshold for that object type. Details: [docs/PYNIGHTSKY.md](docs/PYNIGHTSKY.md).
+DarkHours computes sky brightening at every target's position throughout the night with a hybrid moonlight model — Krisciunas & Schaefer (1991) lunar photometry driven through a Winkler (2022) single-scatter kernel (two-component Rayleigh + Henyey–Greenstein phase function) with **live aerosol optical depth** from Open-Meteo CAMS and an inverse-square Earth–Moon distance correction — and clips each imaging window at the point where scattered moonlight exceeds the contrast threshold for that object type. Details: [docs/CLI.md](docs/CLI.md).
 
 The Night Quality Score (1–10) combines:
 * Lunar interference (25%) — K&S sky-brightening credit, not raw illumination percentage
@@ -28,14 +28,14 @@ Built on open data: NOAA (SWPC space weather, NWS), Open-Meteo, NASA/VIIRS, Falc
 
 The engine ships with two surfaces:
 
-* **Two CLI scripts** — `pynightsky.py` (single-night reports, monthly calendars, nearby dark-sky search) and `tripbuilder.py` (multi-location score matrix and ranked best nights across a date range).
+* **Two CLI scripts** — `darkhours.py` (single-night reports, monthly calendars, nearby dark-sky search) and `tripbuilder.py` (multi-location score matrix and ranked best nights across a date range).
 * **DarkHours**, a React web app ([darkhours.app](https://darkhours.app)) serving the same engine through a FastAPI/Lambda backend, with features the terminal can't render — a 360° simulated sky dome, an all-sky light-dome panel, a 30-day outlook heatmap, and a red night-vision mode. See [apps/web/README.md](apps/web/README.md) and the full feature list in [docs/FEATURES.md](docs/FEATURES.md).
 
-## pynightsky.py
+## darkhours.py
 
 Single-night reports, monthly calendars, and nearby dark-sky search for a single location.
 
-Full documentation: [PYNIGHTSKY.md](docs/PYNIGHTSKY.md)
+Full documentation: [CLI.md](docs/CLI.md)
 
 ### Options
 
@@ -83,7 +83,7 @@ Every run produces a single-night report:
 ### Example — single night with targets, weather, and nearby search
 
 ```bash
-python pynightsky.py --location "Sedona, AZ" --date 2018-08-12 --targets --weather --show-nearby
+python darkhours.py --location "Sedona, AZ" --date 2018-08-12 --targets --weather --show-nearby
 ```
 
 ```
@@ -164,7 +164,7 @@ Nearby Skies  (60 mi radius):
 ### Example — satellite passes
 
 ```bash
-python pynightsky.py --location "Sedona, AZ" --satellites
+python darkhours.py --location "Sedona, AZ" --satellites
 ```
 
 ```
@@ -203,7 +203,7 @@ Satellite Passes  ( 7:34 PM –  5:14 AM MST):
 ### Example — monthly calendar
 
 ```bash
-python pynightsky.py --location "Sedona, AZ" --calendar --date 2026-06
+python darkhours.py --location "Sedona, AZ" --calendar --date 2026-06
 ```
 
 ```
@@ -336,41 +336,41 @@ External I/O — caching, the saved-location store, and the light-pollution rast
 
 | Module | Role |
 |--------|------|
-| `PyNightSkyPredictor/predictor.py` | Assembles `NightReport` from all data sources |
-| `PyNightSkyPredictor/scoring.py` | Night and weather score calculations |
-| `PyNightSkyPredictor/sky_events.py` | Sun/moon events, dark intervals, moon phase |
-| `PyNightSkyPredictor/moonlight.py` | Scattered-moonlight model — K&S (1991) × Winkler (2022) hybrid with live AOD |
-| `PyNightSkyPredictor/moon_events.py` | Lunar distance, eclipse detection, supermoon/micromoon |
-| `PyNightSkyPredictor/milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
-| `PyNightSkyPredictor/targets.py` | Visible targets engine — K&S interference, photo window clipping |
-| `PyNightSkyPredictor/targets.json` | Curated target catalog |
-| `PyNightSkyPredictor/config.py` | Configuration loader — merges `PyNightSkyPredictor/config.json` over built-in defaults (see [Configuration](#configuration) below) |
-| `PyNightSkyPredictor/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource`/`S3RasterSource` adapters |
-| `PyNightSkyPredictor/light_dome.py` | Directional horizon light-dome analysis (Walker d^-2.5 kernel) + precomputed H3 index |
-| `PyNightSkyPredictor/gridraster.py` | Pure-numpy tiled raster grid reader (local memmap / S3 byte-range) — no GDAL |
-| `PyNightSkyPredictor/gridbuild.py` | Build-time GeoTIFF → grid converter (the package's only rasterio import) |
-| `PyNightSkyPredictor/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
-| `PyNightSkyPredictor/aqicn.py` | Live haze cross-check — WAQI real-time station PM2.5/PM10, ±1 day window, distance-filtered against far-away "nearest" stations |
-| `PyNightSkyPredictor/aurora.py` | Aurora visibility forecast — NOAA SWPC 3-day Kp forecast + 27-day outlook, dipole geomagnetic-latitude viewline model |
-| `PyNightSkyPredictor/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
-| `PyNightSkyPredictor/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
-| `PyNightSkyPredictor/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
-| `PyNightSkyPredictor/trip.py` | Trip planning engine |
-| `PyNightSkyPredictor/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache`/`DynamoCache` adapters |
-| `PyNightSkyPredictor/provider_health.py` | In-process registry of observed third-party provider health (feeds `/healthz`) |
-| `PyNightSkyPredictor/ports.py` | I/O backend interfaces (`Cache`, `GeocodeStore`, `RasterSource`) + `PYNIGHTSKY_BACKEND` selector |
-| `PyNightSkyPredictor/_http.py` | Security-restricted HTTP wrapper — all outbound fetches go through here; blocks non-HTTP(S) schemes (guards against CWE-22 file:// injection) |
+| `darkhours/predictor.py` | Assembles `NightReport` from all data sources |
+| `darkhours/scoring.py` | Night and weather score calculations |
+| `darkhours/sky_events.py` | Sun/moon events, dark intervals, moon phase |
+| `darkhours/moonlight.py` | Scattered-moonlight model — K&S (1991) × Winkler (2022) hybrid with live AOD |
+| `darkhours/moon_events.py` | Lunar distance, eclipse detection, supermoon/micromoon |
+| `darkhours/milky_way.py` | Galactic coordinate helpers, Milky Way arch synthesis |
+| `darkhours/targets.py` | Visible targets engine — K&S interference, photo window clipping |
+| `darkhours/targets.json` | Curated target catalog |
+| `darkhours/config.py` | Configuration loader — merges `darkhours/config.json` over built-in defaults (see [Configuration](#configuration) below) |
+| `darkhours/darksky.py` | Light pollution lookup (VIIRS + Falchi); POI-first `find_nearby()` dark-sky search (routable OSM POI index + drive times); `LocalRasterSource`/`S3RasterSource` adapters |
+| `darkhours/light_dome.py` | Directional horizon light-dome analysis (Walker d^-2.5 kernel) + precomputed H3 index |
+| `darkhours/gridraster.py` | Pure-numpy tiled raster grid reader (local memmap / S3 byte-range) — no GDAL |
+| `darkhours/gridbuild.py` | Build-time GeoTIFF → grid converter (the package's only rasterio import) |
+| `darkhours/weather.py` | Weather forecast — NOAA/NWS, Open-Meteo, 7Timer ASTRO |
+| `darkhours/aqicn.py` | Live haze cross-check — WAQI real-time station PM2.5/PM10, ±1 day window, distance-filtered against far-away "nearest" stations |
+| `darkhours/aurora.py` | Aurora visibility forecast — NOAA SWPC 3-day Kp forecast + 27-day outlook, dipole geomagnetic-latitude viewline model |
+| `darkhours/location.py` | Geocoding and timezone resolution; `LocalGeocodeStore` adapter |
+| `darkhours/satellites.py` | Satellite pass prediction — Skyfield SGP4 propagation, Moon proximity |
+| `darkhours/tle_provider.py` | TLE acquisition — Celestrak fetch, 6-hour cache, stale-data fallback |
+| `darkhours/trip.py` | Trip planning engine |
+| `darkhours/cache.py` | Disk-backed JSON cache with per-entry TTL; `LocalFileCache`/`DynamoCache` adapters |
+| `darkhours/provider_health.py` | In-process registry of observed third-party provider health (feeds `/healthz`) |
+| `darkhours/ports.py` | I/O backend interfaces (`Cache`, `GeocodeStore`, `RasterSource`) + `PYNIGHTSKY_BACKEND` selector |
+| `darkhours/_http.py` | Security-restricted HTTP wrapper — all outbound fetches go through here; blocks non-HTTP(S) schemes (guards against CWE-22 file:// injection) |
 
-**Formatting** — `PyNightSkyPredictor/format_ctx.py`: timezone/unit conversion, locale detection.
+**Formatting** — `darkhours/format_ctx.py`: timezone/unit conversion, locale detection.
 
-**Rendering** — `PyNightSkyPredictor/render_report.py`, `PyNightSkyPredictor/render_calendar.py`, `PyNightSkyPredictor/render_trip.py`: terminal output only, each receives a dataclass and prints to stdout.
+**Rendering** — `darkhours/render_report.py`, `darkhours/render_calendar.py`, `darkhours/render_trip.py`: terminal output only, each receives a dataclass and prints to stdout.
 
-**CLI shells** — `pynightsky.py`, `tripbuilder.py`.
+**CLI shells** — `darkhours.py`, `tripbuilder.py`.
 
 Direct engine usage:
 
 ```python
-from PyNightSkyPredictor.predictor import assemble_night
+from darkhours.predictor import assemble_night
 from datetime import date
 from zoneinfo import ZoneInfo
 
@@ -387,7 +387,7 @@ print(report.active_showers)  # active meteor showers
 
 ### Data Download & Caching
 
-External datasets are downloaded on first use and stored in `~/.pynightsky-predictor/`:
+External datasets are downloaded on first use and stored in `~/.darkhours/`:
 
 | Data | Source | TTL |
 |------|--------|-----|
@@ -400,7 +400,7 @@ External datasets are downloaded on first use and stored in `~/.pynightsky-predi
 | Aurora Kp forecast (3-day) / outlook (27-day) | NOAA SWPC | 30 minutes / 6 hours |
 | Satellite TLEs (ISS, Hubble, Tiangong, Starlink) | Celestrak | 6 hours |
 
-The file `PyNightSkyPredictor/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
+The file `darkhours/de421.bsp` (JPL DE421 planetary ephemeris, 1900–2050) is bundled in the repository — no download needed for astronomical computations.
 
 All data remains under its original open license. See [ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) for full attribution.
 
@@ -458,7 +458,7 @@ is used. Format and rules: [docs/OSM_POI_INDEX.md](docs/OSM_POI_INDEX.md).
 
 ### Configuration
 
-Drop a `PyNightSkyPredictor/config.json` to override the built-in defaults:
+Drop a `darkhours/config.json` to override the built-in defaults:
 
 ```json
 {

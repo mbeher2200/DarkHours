@@ -63,7 +63,7 @@ The geometric mean means every factor influences the result proportionally, and 
 
 ## Moonlight Modeling (K&S 1991 × Winkler 2022 hybrid)
 
-darkhours models scattered moonlight with a hybrid of two photometric models:
+DarkHours models scattered moonlight with a hybrid of two photometric models:
 
 - **Krisciunas, K. & Schaefer, B. E. (1991)**, *"A model of the brightness of moonlight,"* PASP 103(667), 1033–1039. [doi:10.1086/132921](https://doi.org/10.1086/132921) — the phase-dependent lunar luminosity and the optical-pathlength form.
 - **Winkler, H. (2022)**, *"A revised simplified scattering model for the moonlit sky brightness profile based on photometry at SAAO,"* MNRAS 514(1), 208–226. [doi:10.1093/mnras/stac1387](https://doi.org/10.1093/mnras/stac1387) — the single-scatter kernel with correct lunar-beam extinction, and the two-component Rayleigh + Henyey–Greenstein (g = 0.8) phase function.
@@ -95,7 +95,7 @@ The transition from negligible to severe is sharp — between roughly 20% and 30
 
 ### Proxy geometry for site-wide evaluation
 
-K&S is inherently directional — it depends on where you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. darkhours uses **90° separation at 30° altitude** as the proxy:
+K&S is inherently directional — it depends on where you're looking relative to the moon. For site-wide metrics (night score, clear dark sky hours) a reference sky position is needed. DarkHours uses **90° separation at 30° altitude** as the proxy:
 
 - **90° separation** is the darkest accessible sky position: the scattering function reaches its minimum there (the cos²ρ term vanishes), representing the best realistic position when the moon is up
 - **30° altitude** is a representative mid-sky moon position over the course of an evening
@@ -112,7 +112,7 @@ For per-target evaluation, the actual moon–target separation, moon altitude, a
 
 **Light pollution interaction** — The site's SQM enters the K&S denominator as the natural-sky baseline. On a darker site the same moon produces less fractional brightening; on a light-polluted site the moon adds less on top of what is already a degraded sky.
 
-**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. darkhours corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
+**Earth-Moon distance correction** — K&S (1991) assumes the Moon at its mean distance of 384,400 km. The actual distance varies ±8.5%, translating to up to ±0.35 mag/arcsec² error on supermoon/micromoon nights. DarkHours corrects via the inverse-square law: the lunar irradiance is scaled by `(mean_dist / actual_dist)²` at every sample, applied to both site-wide score and per-target evaluations.
 
 **Meteor shower local rates** — `local_rate_at_peak` applies the standard IMO visual-rate correction on top of the decay model and radiant geometry: rate = ZHR_effective × sin(radiant alt) × min(1, r^(lm − 6.5)), where lm is the naked-eye limiting magnitude (NELM = 7.93 − 5·log₁₀(10^(4.316 − SQM/5) + 1)) under the moon-brightened site sky and r is the shower's magnitude-distribution (population) index from the catalog. Faint-meteor-rich showers (Delta Aquariids, r = 3.2) collapse under moonlight or city skies far harder than fireball-rich ones (Perseids, r = 2.2).
 

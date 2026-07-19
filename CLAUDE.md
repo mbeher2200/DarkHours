@@ -5,12 +5,17 @@ Guidance for AI assistants working in this repo. Read this first, then the relev
 
 ## What this is
 
-PyNightSkyPredictor: an astronomy/dark-sky planner. Predicts observing conditions
+DarkHours: an astronomy/dark-sky planner. Predicts observing conditions
 (weather, moon, milky way, satellites, light pollution) and finds nearby dark-sky sites.
+The repo was originally named PyNightSkyPredictor; the package/CLI/docs have been renamed
+to match the DarkHours product brand, but the CDK/AWS infra layer (stack ids, log groups,
+IAM role, ECR repo, the `PYNIGHTSKY_*` env var convention) is intentionally **not yet
+renamed** — deferred to the next infra overhaul, since those renames imply real resource
+replacement/trust-policy risk. Don't "fix" that layer's naming without checking first.
 
-- **CLI:** `pynightsky.py` (the parity oracle — behavior here is the reference).
+- **CLI:** `darkhours.py` (the parity oracle — behavior here is the reference).
 - **Web API:** `apps/api` (FastAPI). Long computes run async via SQS → `apps/worker`.
-- **Engine:** `PyNightSkyPredictor/` — `darksky.py` (light pollution + `find_nearby`),
+- **Engine:** `darkhours/` — `darksky.py` (light pollution + `find_nearby`),
   `weather.py`, `moon_events.py`, `milky_way.py`, `satellites.py`, `tle_provider.py`,
   `location.py`, `scoring.py`, `trip.py`.
 
@@ -113,4 +118,4 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
   X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
 - `docs/FEATURES.md` — user-facing feature list (validated against code).
 - `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
-- `docs/PYNIGHTSKY.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.
+- `docs/CLI.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.
