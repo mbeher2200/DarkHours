@@ -124,12 +124,9 @@
 .nearby-table tbody tr.nearby-row-clickable {
   cursor: pointer;
 }
-.nearby-table tbody tr.nearby-row-clickable:hover td {
+.nearby-table tbody tr.nearby-row-clickable:hover td,
+.nearby-table tbody tr.nearby-row-clickable:focus-within td {
   background: rgba(var(--tint-rgb), 0.10);
-}
-.nearby-table tbody tr.nearby-row-clickable:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 .nearby-domes {
   font-size: 13px;
