@@ -13,10 +13,13 @@ DarkHours gives astrophotographers the information they need to decide when and 
 
 ### See it in action
 
+**360° simulated sky** — drag to pan, scrub through the night.
 ![360° simulated sky — drag to pan, scrub through the night](docs/images/skydome.gif)
 
+**Red night-vision mode** — one tap, the whole UI flips.
 ![Red night-vision mode — one tap, the whole UI flips](docs/images/redmode.gif)
 
+**Find darker sky nearby** — search, compare, click through.
 ![Find darker sky nearby — search, compare, click through](docs/images/nearby.gif)
 
 ---
