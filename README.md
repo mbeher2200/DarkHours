@@ -1,6 +1,27 @@
 # DarkHours
 
-This tool provides extensive night sky trip planning for astrophotographers looking for help to decide when and where to observe. Give it a location and date and it tells you everything you need to decide.
+**DarkHours tells you whether tonight is worth the drive — and if not, when the next good night is.**
+
+[![Try it live](https://img.shields.io/badge/darkhours.app-live-brightgreen)](https://darkhours.app)
+[![Deploy](https://github.com/mbeher2200/DarkHours/actions/workflows/deploy.yml/badge.svg)](https://github.com/mbeher2200/DarkHours/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3130/)
+
+![DarkHours night report — Knolls, UT, Bortle 1, with the horizon light-dome panel showing a real light dome from Salt Lake City](docs/images/hero.png)
+
+DarkHours gives astrophotographers the information they need to decide when and where to shoot. A single query returns a composite Night Quality Score built from real astronomical models — moonlight interference (not just phase), seeing and cloud cover, clear dark-sky hours, and Bortle-class light pollution. Beyond the score: per-target imaging windows with honest viability verdicts, nearby darker-sky search with drive times, a simulated 360° sky dome, horizon light-dome analysis, aurora and meteor-shower forecasts, satellite pass tables, and a 30-day outlook. Free, no account, no ads.
+
+### See it in action
+
+![360° simulated sky — drag to pan, scrub through the night](docs/images/skydome.gif)
+
+![Red night-vision mode — one tap, the whole UI flips](docs/images/redmode.gif)
+
+![Find darker sky nearby — search, compare, click through](docs/images/nearby.gif)
+
+---
+
+## Under the hood
 
 Most tools treat moonrise as a binary. Moon up, night ruined. A 5% crescent above the horizon produces 0.06 Δmag of sky brightening at your target — imperceptible. A 75% gibbous produces 1.73 Δmag — severe.
 
