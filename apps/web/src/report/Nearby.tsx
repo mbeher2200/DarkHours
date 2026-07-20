@@ -199,21 +199,28 @@ export function NearbyResults(
                     })
                     .map((p, i) => {
                       const activate = () => onSelectLocation?.(p.lat, p.lon)
+                      const appLink = `?lat=${p.lat.toFixed(5)}&lon=${p.lon.toFixed(5)}`
+                      // Real <a href> so the row is crawlable and works with keyboard
+                      // Enter, middle-click, and ctrl/cmd-click; plain left-clicks still
+                      // preventDefault and let the click bubble to the tr's onClick for the
+                      // instant in-app transition (same pattern as the Directions link above,
+                      // which stopPropagation()s instead since it should NOT trigger activate).
+                      const handleNameClick = (e: React.MouseEvent) => {
+                        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                          e.stopPropagation()
+                          return
+                        }
+                        e.preventDefault()
+                      }
                       return (
                         <tr
                           key={i}
                           className="nearby-row-clickable"
                           onClick={activate}
-                          tabIndex={0}
-                          role="link"
-                          aria-label={`View night report for ${placeStr(p)}`}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate() }
-                          }}
                         >
                           <td className={`${nearbyBortleClass(p.bortle_class)} nearby-area-td`}>
                             <div className="nearby-area-inner">
-                              <span className="poi-namelink">{placeStr(p)}</span>
+                              <a className="poi-namelink" href={appLink} onClick={handleNameClick}>{placeStr(p)}</a>
                               {p.area_name && <span className="poi-area">{p.area_name}</span>}
                               {poiMeta(p, false)}
                             </div>
