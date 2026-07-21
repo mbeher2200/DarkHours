@@ -387,6 +387,9 @@ export interface CalendarNight {
   weather_informed: boolean
   wx_pending: boolean
   wx_no_data: boolean
+  // Provider failure detail (mirrors NightReport.wx_error); set when the
+  // weather fetch failed or was skipped by an open circuit breaker.
+  wx_error: string | null
   meteor_shower: ActiveShower | null
   aurora: CalendarAurora | null
 }

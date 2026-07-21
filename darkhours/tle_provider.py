@@ -22,6 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from . import cache as _cache
+from . import circuit_breaker as _cb
 from . import _http
 from . import provider_health as _ph
 
@@ -66,22 +67,29 @@ def _fetch_tle_raw(norad_id: int) -> str:
     """
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=TLE"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    if not _cb.allow("celestrak"):
+        raise _cb.unavailable("celestrak")
     try:
         with _http.urlopen(req, timeout=15) as resp:
             text = resp.read().decode("utf-8").strip()
         lines = [l for l in text.splitlines() if l.strip()]
         if len(lines) < 3:
+            # Content-level failure: Celestrak was reached, so this does not
+            # count toward the breaker.
             raise RuntimeError(
                 f"Celestrak returned fewer than 3 TLE lines for NORAD {norad_id}"
             )
         log.debug("Fetched fresh TLE for NORAD %d (%d bytes)", norad_id, len(text))
         _ph.record("celestrak", "ok")
+        _cb.on_success("celestrak")
         return text
     except urllib.error.HTTPError as e:
         _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+        _cb.on_failure("celestrak")
         raise RuntimeError(f"Celestrak HTTP {e.code} for NORAD {norad_id}") from e
     except urllib.error.URLError as e:
         _ph.record("celestrak", "error", str(e.reason)[:120])
+        _cb.on_failure("celestrak")
         raise RuntimeError(f"Celestrak unreachable: {e.reason}") from e
 
 
@@ -238,23 +246,35 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
 
     if raw is None:
         # 2. Fetch fresh
-        req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
-        try:
-            with _http.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8").strip()
-            _cache.set(key, raw, ttl_seconds=TLE_TTL)
-            log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
-        except urllib.error.HTTPError as e:
-            if e.code == 403:
-                # Celestrak's one-download-per-update policy: data hasn't changed
-                # since our last successful fetch. Stale cache is still current.
-                log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
-            else:
-                err_msg = f"Celestrak HTTP {e.code} for Starlink group"
+        if not _cb.allow("celestrak"):
+            log.debug("Starlink group fetch skipped — celestrak circuit open")
+        else:
+            req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
+            try:
+                with _http.urlopen(req, timeout=30) as resp:
+                    raw = resp.read().decode("utf-8").strip()
+                _cache.set(key, raw, ttl_seconds=TLE_TTL)
+                log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
+                _ph.record("celestrak", "ok")
+                _cb.on_success("celestrak")
+            except urllib.error.HTTPError as e:
+                if e.code == 403:
+                    # Celestrak's one-download-per-update policy: data hasn't changed
+                    # since our last successful fetch. Stale cache is still current —
+                    # the provider is reachable and healthy, not failing.
+                    log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
+                    _ph.record("celestrak", "ok")
+                    _cb.on_success("celestrak")
+                else:
+                    err_msg = f"Celestrak HTTP {e.code} for Starlink group"
+                    log.warning("%s", err_msg)
+                    _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+                    _cb.on_failure("celestrak")
+            except urllib.error.URLError as e:
+                err_msg = f"Celestrak unreachable (Starlink group): {e.reason}"
                 log.warning("%s", err_msg)
-        except urllib.error.URLError as e:
-            err_msg = f"Celestrak unreachable (Starlink group): {e.reason}"
-            log.warning("%s", err_msg)
+                _ph.record("celestrak", "error", str(e.reason)[:120])
+                _cb.on_failure("celestrak")
 
     if raw is None:
         # 3. Stale fallback — always try this; on 403 the stale data IS current

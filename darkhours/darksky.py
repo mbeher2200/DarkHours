@@ -39,7 +39,9 @@ import zipfile
 from pathlib import Path
 
 from . import cache
+from . import circuit_breaker as _cb
 from . import ports
+from . import provider_health as _ph
 from . import _http
 
 log = logging.getLogger(__name__)
@@ -617,9 +619,14 @@ def _location():
                     region_name=region,
                     # Pool ≥ fan-out width so parallel calls don't queue on connections;
                     # adaptive retries absorb ThrottlingException near the TPS quota.
+                    # Timeouts + attempt count are bounded so a real outage surfaces
+                    # to the circuit breaker in ~15s, not minutes — the breaker's
+                    # time-to-trip is threshold × worst-case call latency.
                     config=Config(
                         max_pool_connections=max(_GEOCODE_MAX_WORKERS + 2, 10),
-                        retries={"max_attempts": 5, "mode": "adaptive"},
+                        connect_timeout=2.0,
+                        read_timeout=5.0,
+                        retries={"total_max_attempts": 2, "mode": "adaptive"},
                     ),
                 )
     return _location_client
@@ -643,9 +650,12 @@ def _georoutes():
                 _georoutes_client = boto3.client(
                     "geo-routes",
                     region_name=region,
+                    # Same latency bounds as _location() — see the comment there.
                     config=Config(
                         max_pool_connections=max(_GEOCODE_MAX_WORKERS + 2, 10),
-                        retries={"max_attempts": 5, "mode": "adaptive"},
+                        connect_timeout=2.0,
+                        read_timeout=5.0,
+                        retries={"total_max_attempts": 2, "mode": "adaptive"},
                     ),
                 )
     return _georoutes_client
@@ -791,6 +801,12 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             misses.append(c)
     if not misses:
         return
+    # Circuit breaker: one gate per batch (a granted probe covers the whole
+    # bounded fan-out); skipped legs keep the None fields set above, matching
+    # the "silently None on API failure" contract.
+    if not _cb.allow("aws_georoutes"):
+        log.debug("GeoRoutes drive times skipped — circuit open")
+        return
     # 2. Parallel GeoRoutes point-to-point calls, one per uncached leg; cache each result.
     #    On a per-leg API error, leave that leg's fields None and DON'T cache it, so a
     #    transient failure isn't sticky — other legs in the same batch are unaffected.
@@ -809,7 +825,11 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
             c = futures[fut]
             try:
                 mins, miles, warnings, tail_miles = fut.result()
+                _ph.record("aws_georoutes", "ok")
+                _cb.on_success("aws_georoutes")
             except Exception as e:
+                _ph.record("aws_georoutes", "error", str(e)[:120])
+                _cb.on_failure("aws_georoutes")
                 log.debug("GeoRoutes calculate_routes failed: %s", e)
                 continue
             c["drive_minutes"], c["drive_miles"] = mins, miles
@@ -1471,6 +1491,11 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
     if cached is not None:
         return cached or None
 
+    # Before the rate-limit sleep: a skipped call shouldn't pay the pacing cost.
+    if not _cb.allow("nominatim"):
+        log.debug("Nominatim reverse geocode skipped — circuit open")
+        return None
+
     # Thread-safe rate limiting
     global _last_nominatim_call
     with _nominatim_lock:
@@ -1491,7 +1516,11 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
         )
         with _http.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
+        _ph.record("nominatim", "ok")
+        _cb.on_success("nominatim")
     except Exception as e:
+        _ph.record("nominatim", "error", str(e)[:120])
+        _cb.on_failure("nominatim")
         log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
         return None
 
@@ -1544,6 +1573,10 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
     if cached is not None:
         return cached or None
 
+    if not _cb.allow("aws_location"):
+        log.debug("AWS Location reverse geocode skipped — circuit open")
+        return None
+
     index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
     try:
         client = _location()
@@ -1552,7 +1585,11 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
             Position=[lon, lat],        # AWS expects [lon, lat]
             MaxResults=1,
         )
+        _ph.record("aws_location", "ok")
+        _cb.on_success("aws_location")
     except Exception as e:
+        _ph.record("aws_location", "error", str(e)[:120])
+        _cb.on_failure("aws_location")
         log.debug("AWS Location reverse geocode failed for (%.4f, %.4f): %s", lat, lon, e)
         return None
 

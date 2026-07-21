@@ -228,3 +228,48 @@ class TestGetTle:
         assert result.lines is None
         assert result.error is not None
         assert result.stale is False
+
+
+# ---------------------------------------------------------------------------
+# circuit breaker integration
+# ---------------------------------------------------------------------------
+
+class TestCircuitBreaker:
+    @staticmethod
+    def _mock_cache(get_val=None, stale_val=None):
+        c = mock.MagicMock()
+        c.get.return_value = get_val
+        c.get_stale.return_value = stale_val
+        return c
+
+    def test_single_failure_trips_then_skips_http(self):
+        """Celestrak's (1, 300) override: one real failure opens the breaker;
+        the next fetch makes no HTTP attempt and still serves stale cache."""
+        import urllib.error
+        from darkhours import circuit_breaker as cb
+
+        mc = self._mock_cache(get_val=None, stale_val=_ISS_RAW)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen',
+                               side_effect=urllib.error.URLError("dns failure")):
+            r1 = get_tle(25544)
+        assert r1.stale is True
+        assert cb.is_open("celestrak")
+
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen') as urlopen:
+            r2 = get_tle(25544)
+        urlopen.assert_not_called()
+        assert r2.stale is True and r2.lines is not None
+        assert "circuit open" in r2.error
+
+    def test_starlink_group_skipped_when_open(self):
+        from darkhours import circuit_breaker as cb
+
+        cb.on_failure("celestrak")           # threshold 1: open
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen') as urlopen:
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        urlopen.assert_not_called()
+        assert tles == [] and error is None   # silent-skip contract preserved

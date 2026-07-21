@@ -41,6 +41,7 @@ import urllib.error
 
 from . import _http
 from . import cache as _cache
+from . import circuit_breaker as _cb
 from . import provider_health as _ph
 
 log = logging.getLogger(__name__)
@@ -102,15 +103,22 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _fetch_url(lat: float, lon: float, timeout: int = 10) -> str:
     """GET the WAQI feed for (lat, lon); provider-health accounting."""
     url = WAQI_URL.format(lat=lat, lon=lon, token=_TOKEN)
+    if not _cb.allow("waqi"):
+        raise _cb.unavailable("waqi")
     try:
         with _http.urlopen(url, timeout=timeout) as resp:
             text = resp.read().decode("utf-8")
+        # Reachability success for the breaker; content-level verdicts (bad
+        # JSON, non-"ok" status in _parse) are deliberately not counted.
+        _cb.on_success("waqi")
         return text
     except urllib.error.HTTPError as e:
         _ph.record("waqi", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+        _cb.on_failure("waqi")
         raise RuntimeError(f"WAQI HTTP {e.code}") from e
     except urllib.error.URLError as e:
         _ph.record("waqi", "error", str(e.reason)[:120])
+        _cb.on_failure("waqi")
         raise RuntimeError(f"WAQI unreachable: {e.reason}") from e
 
 

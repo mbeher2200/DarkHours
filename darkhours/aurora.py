@@ -50,6 +50,7 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 from . import cache as _cache
+from . import circuit_breaker as _cb
 from . import _http
 from . import light_dome as _ld
 from . import moonlight as _ml
@@ -194,16 +195,21 @@ def kp_to_g_scale(kp: float) -> str | None:
 def _fetch_url(url: str, timeout: int = 10) -> str:
     """GET *url* with the project User-Agent; provider-health accounting."""
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    if not _cb.allow("swpc"):
+        raise _cb.unavailable("swpc")
     try:
         with _http.urlopen(req, timeout=timeout) as resp:
             text = resp.read().decode("utf-8")
         _ph.record("swpc", "ok")
+        _cb.on_success("swpc")
         return text
     except urllib.error.HTTPError as e:
         _ph.record("swpc", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+        _cb.on_failure("swpc")
         raise RuntimeError(f"SWPC HTTP {e.code} for {url}") from e
     except urllib.error.URLError as e:
         _ph.record("swpc", "error", str(e.reason)[:120])
+        _cb.on_failure("swpc")
         raise RuntimeError(f"SWPC unreachable: {e.reason}") from e
 
 
