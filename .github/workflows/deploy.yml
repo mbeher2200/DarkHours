@@ -74,4 +74,5 @@ jobs:
           PYNIGHTSKY_CACHE_TABLE: ${{ secrets.PYNIGHTSKY_CACHE_TABLE }}
           PYNIGHTSKY_BLOG_BUCKET: ${{ secrets.PYNIGHTSKY_BLOG_BUCKET }}
           AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+          PYNIGHTSKY_PROVIDER_HEALTH_TABLE: ${{ secrets.PYNIGHTSKY_PROVIDER_HEALTH_TABLE }}
         run: cdk deploy PyNightSkyLambda --require-approval never

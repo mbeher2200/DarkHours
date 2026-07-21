@@ -104,6 +104,12 @@ class LambdaApiStack(Stack):
         # Optional (not a hard deploy dependency): aqicn.py degrades to "no live haze
         # data" when unset, so a missing secret shouldn't break the stack.
         aqicn_token = os.environ.get("AQICN_TOKEN", "")
+        # Optional, and deliberately NOT a CloudFormation export/import: that would
+        # couple this CI-deployed stack's deploy to the manually-deployed
+        # PyNightSkyProviderHealth stack. Passed as a plain env var/secret instead
+        # (see docs/CIRCUIT_BREAKER.md "Monitor-driven recovery wiring"); circuit_breaker.py
+        # already degrades to self-timed recovery when this is unset.
+        provider_health_table = os.environ.get("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", "").strip()
 
         Tags.of(self).add("Project", "pynightsky")
         Tags.of(self).add("Env", "prod")
@@ -294,6 +300,26 @@ class LambdaApiStack(Stack):
         worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
         worker.add_to_role_policy(route_policy)
         worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
+
+        # --- Provider health monitor read (circuit breaker's monitor-driven recovery) ---
+        # Least-privilege on purpose: dynamodb:GetItem only (the breaker does single-key
+        # lookups, never Query/Scan), scoped to this one table's ARN. Referenced by name
+        # only — imported via from_table_name so this stack takes no CDK dependency on
+        # PyNightSkyProviderHealth (see the provider_health_table comment above). If the
+        # env var/secret is unset, no grant or env var is added and every provider falls
+        # back to self-timed recovery, exactly like today.
+        if provider_health_table:
+            health_table = dynamodb.Table.from_table_name(
+                self, "ProviderHealthTable", provider_health_table,
+            )
+            health_read_policy = iam.PolicyStatement(
+                actions=["dynamodb:GetItem"],
+                resources=[health_table.table_arn],
+            )
+            fn.add_to_role_policy(health_read_policy)
+            fn.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
+            worker.add_to_role_policy(health_read_policy)
+            worker.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
 
         # --- Scheduled worker warmup ping — keeps one worker container alive + primed ---
         # The worker is only invoked by SQS, so at sparse traffic nearly every job pays the

@@ -76,8 +76,11 @@ Read once at import (same idiom as `PYNIGHTSKY_NO_CACHE`):
 - `PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED` — kill switch, **default enabled**.
 - `PYNIGHTSKY_CIRCUIT_BREAKER_<PROVIDER>_DISABLE` — per-key opt-out (key uppercased,
   e.g. `..._OPEN_METEO_ARCHIVE_DISABLE`). Bookkeeping still runs while disabled.
-- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name.
-  **Currently unset everywhere** — see "Optional follow-up" below.
+- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name. Wired in
+  `cdk/lambda_api_stack.py` (API + worker Lambda roles get a scoped `dynamodb:GetItem`
+  grant + this env var, gated on the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` secret being
+  set) — see "Monitor-driven recovery wiring" below for what's deployed vs. still
+  manual.
 
 ## UI surfacing
 
@@ -99,20 +102,36 @@ keeps showing the last *real* observed status.
 - **Trip detection is always local** even in monitor-driven mode; only *recovery*
   defers to the monitor.
 
-## Optional follow-up: wire monitor-driven recovery (NOT required)
+## Monitor-driven recovery wiring
 
-The feature is complete without this. Wiring it upgrades recovery for the four
+The feature is complete without this (see Recovery above — unset env var degrades
+cleanly to self-timed everywhere). Wiring it upgrades recovery for the four
 monitor-tracked providers: recovery noticed on the monitor's 5-min schedule with zero
 user requests spent probing, consistent across all containers, and the basis for
-future flap detection. Steps:
+future flap detection.
 
-1. IAM: grant `dynamodb:GetItem` (only — single-key lookups) on the ProviderHealth
-   table to the API and worker Lambda roles.
-2. Env: set `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` on both Lambdas via CDK
-   context/parameter — **not** a CloudFormation export/import, which would couple the
+**Done (in CDK, this repo):**
+
+1. IAM: `cdk/lambda_api_stack.py` grants `dynamodb:GetItem` (only — single-key
+   lookups, scoped to the ProviderHealth table's ARN) on both the API and worker
+   Lambda roles, gated on `provider_health_table` (the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE`
+   env var/secret) being non-empty.
+2. Env: the same var is set on both Lambdas from that env var/secret at synth time —
+   **not** a CloudFormation export/import, which would couple the
    independently-deployed `PyNightSkyProviderHealth` (manual) and `PyNightSkyLambda`
-   (CI) stacks. Never hardcode the table name (public repo).
-3. Deploy order: ProviderHealth stack must exist first.
+   (CI) stacks. The table name is never hardcoded (public repo);
+   `provider_health_stack.py` emits it as a plain `CfnOutput` (`ProviderHealthTableName`)
+   for an operator to read and hand to `PyNightSkyLambda` as the
+   `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret — `deploy.yml` passes that secret
+   through to `cdk deploy` unconditionally (empty/absent is a no-op, same as
+   `AQICN_TOKEN`).
+
+**Still manual, not yet done:**
+
+3. Deploy order: the `PyNightSkyProviderHealth` stack must exist first (`cdk deploy
+   PyNightSkyProviderHealth`, by hand — it is never touched by `deploy.yml`). Read its
+   `ProviderHealthTableName` output and set it as the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE`
+   GitHub secret before (or as part of) the next `PyNightSkyLambda` deploy.
 4. **Post-deploy, verify a real read succeeds** (e.g. trip a breaker in a test
    invoke and confirm monitor-driven behavior, or check debug logs). The read is
    deliberately fail-*safe* (1s timeouts, 1 attempt, broad except → self-timed
