@@ -17,6 +17,7 @@ import shutil
 
 from aws_cdk import (
     Stack,
+    CfnOutput,
     Duration,
     RemovalPolicy,
     Tags,
@@ -140,3 +141,9 @@ class ProviderHealthStack(Stack):
             treat_missing_data=cloudwatch.TreatMissingData.BREACHING,
         )
         dead_mans_switch.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Plain stack output for an operator to read off the console/CLI and hand to the
+        # PyNightSkyLambda stack as the PYNIGHTSKY_PROVIDER_HEALTH_TABLE secret — NOT a
+        # CloudFormation Export (see lambda_api_stack.py: that would couple these two
+        # independently-deployed stacks' lifecycles).
+        CfnOutput(self, "ProviderHealthTableName", value=table.table_name)
