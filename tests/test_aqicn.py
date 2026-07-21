@@ -248,3 +248,48 @@ class TestProviderHealth:
              pytest.raises(RuntimeError):
             q._parse(_feed(pm25=50, status="error"), _QLAT, _QLON)
         ph.record.assert_called_once_with("waqi", "error", "status=error")
+
+
+# ---------------------------------------------------------------------------
+# circuit breaker integration
+# ---------------------------------------------------------------------------
+
+class TestCircuitBreaker:
+    def _trip(self):
+        from darkhours import circuit_breaker as cb
+        for _ in range(3):
+            cb.on_failure("waqi")
+        return cb
+
+    def test_open_breaker_short_circuits_without_http(self):
+        self._trip()
+        with mock.patch.object(q._http, "urlopen") as urlopen, \
+             mock.patch.object(q, "_TOKEN", "tok"), \
+             pytest.raises(RuntimeError, match="circuit open"):
+            q._fetch_url(_QLAT, _QLON)
+        urlopen.assert_not_called()
+
+    def test_current_haze_never_raises_when_open(self):
+        """The 'never a hard dependency' contract holds for a skipped call."""
+        self._trip()
+        mc = _mock_cache()
+        with mock.patch.object(q, "_cache", mc), \
+             mock.patch.object(q, "_TOKEN", "tok"), \
+             mock.patch.object(q._http, "urlopen") as urlopen:
+            result = q.current_haze(_QLAT, _QLON)
+        assert result is None
+        urlopen.assert_not_called()
+
+    def test_network_failures_trip_then_skip(self):
+        """Three real network failures open the breaker; the fourth call makes
+        no HTTP attempt."""
+        err = urllib.error.URLError("dns failure")
+        with mock.patch.object(q._http, "urlopen", side_effect=err) as urlopen, \
+             mock.patch.object(q, "_TOKEN", "tok"):
+            for _ in range(3):
+                with pytest.raises(RuntimeError):
+                    q._fetch_url(_QLAT, _QLON)
+            assert urlopen.call_count == 3
+            with pytest.raises(RuntimeError, match="circuit open"):
+                q._fetch_url(_QLAT, _QLON)
+            assert urlopen.call_count == 3

@@ -193,7 +193,9 @@ export default function OutlookTelemetryRibbon({
                 {!selected.weather_informed && (
                   <p className="sat-notice">
                     Astronomy-only estimate —{' '}
-                    {selected.wx_pending
+                    {selected.wx_error
+                      ? 'weather providers are temporarily unavailable'
+                      : selected.wx_pending
                       ? 'forecast not yet available for this date'
                       : selected.wx_no_data
                       ? 'weather provider returned no data for this date'

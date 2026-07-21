@@ -132,3 +132,41 @@ def test_all_forecast_provider_urls_include_wind_gusts():
     assert "wind_gusts_10m" in wx.OpenMeteoProvider._URL
     assert "wind_gusts_10m" in wx.OpenMeteoPastProvider._URL
     assert "wind_gusts_10m" in wx.OpenMeteoHistoricalProvider._URL
+
+
+# ---------------------------------------------------------------------------
+# circuit breaker integration
+# ---------------------------------------------------------------------------
+
+def test_open_breaker_falls_back_to_7timer(monkeypatch):
+    """An open open_meteo breaker behaves like any Open-Meteo failure: 7Timer
+    serves the forecast — but with zero HTTP attempts against Open-Meteo."""
+    from unittest import mock
+    from darkhours import circuit_breaker as cb
+
+    for _ in range(3):
+        cb.on_failure("open_meteo")
+    monkeypatch.setattr(wx.SevenTimerProvider, "forecast",
+                        lambda self, lat, lon: [_pt()])
+    with mock.patch.object(wx._http, "urlopen") as urlopen:
+        points, source, _fetched = wx.forecast(40.0, -105.0)
+    assert source == "7Timer" and len(points) == 1
+    urlopen.assert_not_called()
+
+
+def test_repeated_failures_trip_breaker_and_skip_http():
+    """Three real network failures open the breaker; the fourth forecast call
+    short-circuits without touching the network."""
+    import urllib.error
+    from unittest import mock
+
+    provider = wx.OpenMeteoProvider()
+    err = urllib.error.URLError("dns failure")
+    with mock.patch.object(wx._http, "urlopen", side_effect=err) as urlopen:
+        for _ in range(3):
+            with pytest.raises(RuntimeError):
+                provider.forecast(40.0, -105.0)
+        assert urlopen.call_count == 3
+        with pytest.raises(RuntimeError, match="circuit open"):
+            provider.forecast(40.0, -105.0)
+        assert urlopen.call_count == 3

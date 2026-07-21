@@ -100,6 +100,27 @@ worth tracing). `patch_all()` is used rather than a module allowlist — see the
 `ProviderUp`, `HTTPVerificationLatency`, `DynamoDBWriteFailure` per provider. `PyNightSky`
 namespace: `UpstreamErrors` (log-metric-filter derived, see above).
 
+## Circuit breaker (request-path, not an alarm)
+
+`darkhours/circuit_breaker.py` gates every outbound provider call (weather, TLE, WAQI,
+SWPC, Nominatim, AWS Location/GeoRoutes): 3 consecutive failures (Celestrak: 1) open the
+breaker and calls are skipped instantly instead of eating the provider's timeout. Recovery
+is self-timed (60s cooldown + one probe; Celestrak 300s) — unless
+`PYNIGHTSKY_PROVIDER_HEALTH_TABLE` is set, in which case the four providers the synthetic
+monitor covers (`open-meteo`, `7timer`, `swpc`, `waqi`) defer to its UP/DOWN signal
+instead: fresh DOWN blocks without probing, fresh UP grants a probe (only a real success
+closes the breaker). **The env var is not wired in CDK yet** — until that follow-up (IAM
+`dynamodb:GetItem` on the ProviderHealth table + the env var on the API/worker Lambdas),
+everything self-times, which is safe: the monitor read fails fast (1s timeouts, 1 attempt)
+and degrades to self-timed on any error, so a missing/wrong grant can't hang requests.
+
+Flags: `PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED` (default on),
+`PYNIGHTSKY_CIRCUIT_BREAKER_<PROVIDER>_DISABLE` per provider key. Breaker state is
+per-container and in-memory (same caveat as `darkhours/provider_health.py`); a skipped
+call writes no `provider_health.record()`, so `/healthz` keeps showing the last real
+observed status. Skips surface to users as the existing `wx_error` "temporarily
+unavailable" messaging (single-night report and, since this change, the calendar view).
+
 ## Known gap, left open on purpose
 
 **AWS Application Insights** is enabled account-wide for a resource group named after the app

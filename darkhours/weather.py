@@ -50,6 +50,7 @@ def lock_for(lat: float, lon: float) -> threading.Lock:
         if lock is None:
             lock = _fetch_locks[key] = threading.Lock()
         return lock
+from . import circuit_breaker as _cb
 from . import provider_health as _ph
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
@@ -191,17 +192,22 @@ class OpenMeteoProvider(WeatherProvider):
         url = self._URL.format(lat=lat, lon=lon)
         log.debug("Open-Meteo request: %s", url)
 
+        if not _cb.allow("open_meteo"):
+            raise _cb.unavailable("open_meteo")
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             _ph.record("open_meteo", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+            _cb.on_failure("open_meteo")
             raise RuntimeError(f"Open-Meteo request failed: {e}")
         except Exception as e:
             _ph.record("open_meteo", "error", str(e)[:120])
+            _cb.on_failure("open_meteo")
             raise RuntimeError(f"Open-Meteo request failed: {e}")
 
         _ph.record("open_meteo", "ok")
+        _cb.on_success("open_meteo")
         h = data["hourly"]
         log.debug("Open-Meteo returned %d hourly points", len(h["time"]))
         return _parse_open_meteo_hourly(h)
@@ -245,12 +251,20 @@ class OpenMeteoPastProvider(WeatherProvider):
         url = self._URL.format(lat=lat, lon=lon, past_days=self.past_days)
         log.debug("Open-Meteo Recent request: %s", url)
 
+        # Shares the "open_meteo" breaker key with the forecast provider:
+        # same host (api.open-meteo.com), same reachability.
+        if not _cb.allow("open_meteo"):
+            raise _cb.unavailable("open_meteo")
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
+            _ph.record("open_meteo", "error", str(e)[:120])
+            _cb.on_failure("open_meteo")
             raise RuntimeError(f"Open-Meteo Recent request failed: {e}")
 
+        _ph.record("open_meteo", "ok")
+        _cb.on_success("open_meteo")
         h = data["hourly"]
         log.debug("Open-Meteo Recent returned %d hourly points", len(h["time"]))
         return _parse_open_meteo_hourly(h)
@@ -302,12 +316,20 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
                                start=self.start_date, end=self.end_date)
         log.debug("Open-Meteo Historical request: %s", url)
 
+        # Separate breaker key from "open_meteo": archive-api.open-meteo.com
+        # is a different host with independently documented outages.
+        if not _cb.allow("open_meteo_archive"):
+            raise _cb.unavailable("open_meteo_archive")
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
+            _ph.record("open_meteo_archive", "error", str(e)[:120])
+            _cb.on_failure("open_meteo_archive")
             raise RuntimeError(f"Open-Meteo Historical request failed: {e}")
 
+        _ph.record("open_meteo_archive", "ok")
+        _cb.on_success("open_meteo_archive")
         h = data["hourly"]
         log.debug("Open-Meteo Historical returned %d hourly points", len(h["time"]))
         return _parse_open_meteo_hourly(h)
@@ -341,17 +363,22 @@ class SevenTimerProvider(WeatherProvider):
         url = self._URL.format(lat=lat, lon=lon)
         log.debug("7Timer request: %s", url)
 
+        if not _cb.allow("seven_timer"):
+            raise _cb.unavailable("seven_timer")
         try:
             with _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             _ph.record("seven_timer", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+            _cb.on_failure("seven_timer")
             raise RuntimeError(f"7Timer request failed: {e}")
         except Exception as e:
             _ph.record("seven_timer", "error", str(e)[:120])
+            _cb.on_failure("seven_timer")
             raise RuntimeError(f"7Timer request failed: {e}")
 
         _ph.record("seven_timer", "ok")
+        _cb.on_success("seven_timer")
         init_str = data["init"]
         init = datetime(
             int(init_str[0:4]), int(init_str[4:6]), int(init_str[6:8]),
@@ -442,13 +469,18 @@ def _fetch_air_quality(lat: float, lon: float) -> list:
     API. Returns [] on any failure — air quality is optional enrichment, never a hard
     dependency for the rest of the forecast pipeline."""
     url = _AQ_URL.format(lat=lat, lon=lon)
+    if not _cb.allow("open_meteo_air_quality"):
+        log.debug("Air quality skipped — circuit open")
+        return []
     try:
         with _http.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
         h = data["hourly"]
         _ph.record("open_meteo_air_quality", "ok")
+        _cb.on_success("open_meteo_air_quality")
     except Exception as e:
         _ph.record("open_meteo_air_quality", "error", str(e)[:120])
+        _cb.on_failure("open_meteo_air_quality")
         log.warning("Air quality fetch failed — proceeding without AOD/PM2.5: %s", e,
                     extra={"service": "open_meteo_air_quality"})
         return []

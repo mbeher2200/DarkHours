@@ -165,3 +165,31 @@ class TestProviderHealth:
              pytest.raises(RuntimeError):
             a._fetch_url(a.KP_URL)
         assert ph.record.call_args.args[:2] == ("swpc", "error")
+
+
+# ---------------------------------------------------------------------------
+# circuit breaker integration
+# ---------------------------------------------------------------------------
+
+class TestCircuitBreaker:
+    def _trip(self):
+        from darkhours import circuit_breaker as cb
+        for _ in range(3):
+            cb.on_failure("swpc")
+
+    def test_open_breaker_short_circuits_without_http(self):
+        self._trip()
+        with mock.patch.object(a._http, "urlopen") as urlopen, \
+             pytest.raises(RuntimeError, match="circuit open"):
+            a._fetch_url(a.KP_URL)
+        urlopen.assert_not_called()
+
+    def test_kp_forecast_degrades_gracefully_when_open(self):
+        """Same empty-result contract as any other total fetch failure."""
+        self._trip()
+        mc = _mock_cache()
+        with mock.patch.object(a, "_cache", mc), \
+             mock.patch.object(a._http, "urlopen") as urlopen:
+            rows, stale = a.fetch_kp_forecast()
+        assert rows == [] and stale is False
+        urlopen.assert_not_called()

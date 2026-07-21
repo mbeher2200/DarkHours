@@ -54,6 +54,7 @@ class NightSummary:
     weather_informed: bool          # True if weather data was included in score
     wx_pending:       bool
     wx_no_data:       bool
+    wx_error:         str | None = None  # provider failure detail (mirrors NightReport.wx_error)
     meteor_shower:    dict | None = None  # single best active shower (ActiveShower shape), or None
     aurora:           dict | None = None  # {kp_max, tier, noaa_scale, source}, or None
 
@@ -121,6 +122,7 @@ def _to_dict(s: NightSummary) -> dict:
         "weather_informed": s.weather_informed,
         "wx_pending":       s.wx_pending,
         "wx_no_data":       s.wx_no_data,
+        "wx_error":         s.wx_error,
         "meteor_shower":    s.meteor_shower,
         "aurora":           s.aurora,
     }
@@ -145,6 +147,7 @@ def _from_dict(d: dict) -> NightSummary:
         weather_informed = d["weather_informed"],
         wx_pending       = d.get("wx_pending", False),
         wx_no_data       = d.get("wx_no_data", False),
+        wx_error         = d.get("wx_error"),   # .get: pre-deploy cache entries lack it
         meteor_shower    = d.get("meteor_shower"),
         aurora           = d.get("aurora"),
     )
@@ -238,11 +241,14 @@ def fetch_night(
         weather_informed = weather_informed,
         wx_pending       = report.wx_pending,
         wx_no_data       = report.wx_no_data,
+        wx_error         = report.wx_error,
         meteor_shower    = _best_shower(report.active_showers),
         aurora           = aurora,
     )
 
-    ttl = _WEATHER_TTL if weather_informed else _ASTRO_TTL
+    # wx_error nights take the short TTL too: a provider outage must age out of
+    # the calendar within the hour, not be pinned there for the 24h astro TTL.
+    ttl = _WEATHER_TTL if (weather_informed or report.wx_error) else _ASTRO_TTL
     _cache.set(key, _to_dict(summary), ttl_seconds=ttl)
     return summary
 

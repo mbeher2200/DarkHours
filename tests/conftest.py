@@ -11,6 +11,20 @@ _AURORA_OPT_OUT = {"test_aurora_provider", "test_provider_smoke"}
 
 
 @pytest.fixture(autouse=True)
+def _fresh_circuit_breaker():
+    """Reset circuit-breaker state around every test.
+
+    Breaker state is module-global; without this, a test that simulates
+    provider failures could trip a breaker and short-circuit provider calls
+    in unrelated later tests (celestrak trips on a single failure).
+    """
+    from darkhours import circuit_breaker as _cb
+    _cb.reset()
+    yield
+    _cb.reset()
+
+
+@pytest.fixture(autouse=True)
 def _offline_aurora(request, monkeypatch):
     """Keep the default test run offline: assemble_night()/fetch_night() gained a
     default-on SWPC fetch whose date gate doesn't protect tests that use today's

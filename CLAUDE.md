@@ -116,6 +116,8 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/TARGETS.md` — target catalog schema + meteor-shower ZHR decay model.
 - `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
   X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
+- `docs/CIRCUIT_BREAKER.md` — provider circuit breaker: design, per-host keys, flags,
+  detection-latency budget, and the optional (not required) monitor-wiring follow-up.
 - `docs/FEATURES.md` — user-facing feature list (validated against code).
 - `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
 - `docs/CLI.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.

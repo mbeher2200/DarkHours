@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimited
 
+from . import circuit_breaker as _cb
 from . import provider_health as _ph
 from timezonefinder import TimezoneFinder
 
@@ -114,20 +115,26 @@ def _tz_name_for(lat: float, lon: float) -> str:
 def _geocode_via_nominatim(name: str, query: str) -> dict | None:
     """Forward-geocode using the public Nominatim API (local backend only)."""
     log.debug("Cache miss for '%s', geocoding via Nominatim (query: '%s')...", name, query)
+    if not _cb.allow("nominatim"):
+        raise _cb.unavailable("nominatim")
     try:
         geolocator = Nominatim(user_agent=USER_AGENT)
         result = geolocator.geocode(query, timeout=10)
         _ph.record("nominatim", "ok")
+        _cb.on_success("nominatim")
     except GeocoderRateLimited as e:
         _ph.record("nominatim", "degraded", "rate limited")
+        _cb.on_failure("nominatim")
         log.error("Nominatim geocode rate limited for %r", name, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding rate limited for {name!r}. Try again later.")
     except GeocoderTimedOut:
         _ph.record("nominatim", "error", "timed out")
+        _cb.on_failure("nominatim")
         log.error("Nominatim geocode timed out for %r", name, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding timed out for {name!r}. Check your connection.")
     except GeocoderServiceError as e:
         _ph.record("nominatim", "error", str(e)[:120])
+        _cb.on_failure("nominatim")
         log.error("Nominatim geocode service error: %s", e, extra={"service": "nominatim"})
         raise RuntimeError(f"Geocoding service error: {e}")
 
@@ -146,6 +153,8 @@ def _geocode_via_aws(name: str, query: str) -> dict | None:
     from . import darksky  # reuse the process-wide pooled 'location' client
     index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
     log.debug("Cache miss for '%s', geocoding via AWS Location (query: '%s')...", name, query)
+    if not _cb.allow("aws_location"):
+        raise _cb.unavailable("aws_location")
     try:
         client = darksky._location()
         resp = client.search_place_index_for_text(
@@ -153,7 +162,11 @@ def _geocode_via_aws(name: str, query: str) -> dict | None:
             Text=query,
             MaxResults=1,
         )
+        _ph.record("aws_location", "ok")
+        _cb.on_success("aws_location")
     except Exception as e:
+        _ph.record("aws_location", "error", str(e)[:120])
+        _cb.on_failure("aws_location")
         log.error("AWS Location geocode error for %r: %s", name, e, extra={"service": "aws-location"})
         raise RuntimeError(f"Geocoding error: {e}")
 
@@ -175,12 +188,18 @@ def _suggest_via_aws(query: str, max_results: int) -> list[str]:
     """Typeahead suggestions via AWS Location SearchPlaceIndexForSuggestions."""
     from . import darksky  # reuse the process-wide pooled 'location' client
     index_name = os.environ.get("PYNIGHTSKY_PLACE_INDEX", "pynightsky-place-index")
+    if not _cb.allow("aws_location"):
+        raise _cb.unavailable("aws_location")
     try:
         client = darksky._location()
         resp = client.search_place_index_for_suggestions(
             IndexName=index_name, Text=query, MaxResults=max_results,
         )
+        _ph.record("aws_location", "ok")
+        _cb.on_success("aws_location")
     except Exception as e:
+        _ph.record("aws_location", "error", str(e)[:120])
+        _cb.on_failure("aws_location")
         log.error("AWS Location suggest error for %r: %s", query, e,
                   extra={"service": "aws-location"})
         raise RuntimeError(f"Suggestion error: {e}")
@@ -198,13 +217,18 @@ def _suggest_via_nominatim(query: str, max_results: int) -> list[str]:
     Best-effort: a timeout/rate-limit returns no suggestions rather than raising,
     so a slow geocoder never blocks typing.
     """
+    if not _cb.allow("nominatim"):
+        # Same best-effort contract as a failed fetch: no suggestions, no error.
+        return []
     try:
         geolocator = Nominatim(user_agent=USER_AGENT)
         results = geolocator.geocode(
             _geocode_query(query), exactly_one=False, limit=max_results, timeout=10,
         ) or []
         _ph.record("nominatim", "ok")
+        _cb.on_success("nominatim")
     except (GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimited) as e:
+        _cb.on_failure("nominatim")
         log.debug("Nominatim suggest failed for %r: %s", query, e)
         return []
     seen: set[str] = set()
