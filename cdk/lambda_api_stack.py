@@ -316,10 +316,9 @@ class LambdaApiStack(Stack):
                 actions=["dynamodb:GetItem"],
                 resources=[health_table.table_arn],
             )
-            fn.add_to_role_policy(health_read_policy)
-            fn.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
-            worker.add_to_role_policy(health_read_policy)
-            worker.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
+            for lambda_fn in (fn, worker):
+                lambda_fn.add_to_role_policy(health_read_policy)
+                lambda_fn.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
 
         # --- Scheduled worker warmup ping — keeps one worker container alive + primed ---
         # The worker is only invoked by SQS, so at sparse traffic nearly every job pays the

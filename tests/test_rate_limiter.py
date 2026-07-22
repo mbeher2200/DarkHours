@@ -293,6 +293,28 @@ def test_provider_coverage():
     assert expected == set(rl._ALL_PROVIDERS)
 
 
+def test_provider_registry_asymmetry_against_circuit_breaker_is_the_known_one():
+    """rate_limiter.py and circuit_breaker.py each keep their own independent
+    provider registry — nothing structurally forces a provider added to one to
+    also land in the other. Pin the *documented* asymmetry (docs/RATE_LIMITING.md
+    "Provider configuration") so any *other* drift — a new provider that quietly
+    gets one protection but not the other — fails here instead of going
+    unnoticed:
+
+    - "overpass" is rate-limited but has no circuit-breaker gate at all.
+    - "swpc"/"aws_location"/"aws_georoutes" are breaker-gated but deliberately
+      not rate-limited (already protected by other means — see
+      docs/RATE_LIMITING.md's "confirmed non-gaps" section).
+    """
+    from darkhours import circuit_breaker as cb
+
+    rl_only = set(rl._ALL_PROVIDERS) - set(cb._ALL_PROVIDERS)
+    cb_only = set(cb._ALL_PROVIDERS) - set(rl._ALL_PROVIDERS)
+
+    assert rl_only == {"overpass"}
+    assert cb_only == {"swpc", "aws_location", "aws_georoutes"}
+
+
 # ---------------------------------------------------------------------------
 # Env-var parsing
 # ---------------------------------------------------------------------------

@@ -56,6 +56,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+from . import _env
+
 log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
@@ -106,9 +108,7 @@ _MONITOR_STALE_AFTER = 20 * 60   # ignore monitor entries older than this (4x it
 _MONITOR_CACHE_TTL = 60.0        # in-process cache of monitor reads
 
 
-def _flag(name: str, default: str = "") -> bool:
-    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
-
+_flag = _env.flag   # kept as a module-local name: existing call sites/tests use _flag(...)
 
 _ENABLED = _flag("PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED", "1")
 _DISABLED_PROVIDERS = frozenset(
