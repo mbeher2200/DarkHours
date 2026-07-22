@@ -42,6 +42,7 @@ from . import cache
 from . import circuit_breaker as _cb
 from . import ports
 from . import provider_health as _ph
+from . import rate_limiter as _rl
 from . import _http
 
 log = logging.getLogger(__name__)
@@ -569,14 +570,6 @@ _POI_TYPE_LABELS = (
     "information", "tourism", "pier", "lighthouse", "tower",
     "summer_camp", "firepit", "beach_resort", "historic",
 )
-_OVERPASS_SLEEP  = 1.0               # minimum seconds between Overpass requests (overpass-api.de policy)
-_NOMINATIM_SLEEP = 1.1               # minimum seconds between Nominatim requests
-
-# Thread-safe rate-limit state
-_overpass_lock       = threading.Lock()
-_nominatim_lock      = threading.Lock()
-_last_overpass_call  = 0.0
-_last_nominatim_call = 0.0
 
 _AREA_PRIORITY = {
     "wilderness":      0,
@@ -1388,13 +1381,6 @@ def _overpass_natural_areas_in_radius(
         f"out bb tags;"
     )
 
-    global _last_overpass_call
-    with _overpass_lock:
-        wait = _OVERPASS_SLEEP - (time.time() - _last_overpass_call)
-        if wait > 0:
-            time.sleep(wait)
-        _last_overpass_call = time.time()
-
     params = urllib.parse.urlencode({"data": query})
     url    = f"{_OVERPASS_URL}?{params}"
     try:
@@ -1402,7 +1388,7 @@ def _overpass_natural_areas_in_radius(
             url,
             headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
         )
-        with _http.urlopen(req, timeout=35) as resp:
+        with _rl.acquire("overpass"), _http.urlopen(req, timeout=35) as resp:
             data = json.loads(resp.read())
     except Exception as e:
         log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
@@ -1491,18 +1477,10 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
     if cached is not None:
         return cached or None
 
-    # Before the rate-limit sleep: a skipped call shouldn't pay the pacing cost.
+    # Before the rate-limit pacing: a skipped call shouldn't pay the pacing cost.
     if not _cb.allow("nominatim"):
         log.debug("Nominatim reverse geocode skipped — circuit open")
         return None
-
-    # Thread-safe rate limiting
-    global _last_nominatim_call
-    with _nominatim_lock:
-        wait = _NOMINATIM_SLEEP - (time.time() - _last_nominatim_call)
-        if wait > 0:
-            time.sleep(wait)
-        _last_nominatim_call = time.time()
 
     params = urllib.parse.urlencode({
         "lat": f"{lat:.4f}", "lon": f"{lon:.4f}",
@@ -1514,7 +1492,7 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
             url,
             headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
         )
-        with _http.urlopen(req, timeout=10) as resp:
+        with _rl.acquire("nominatim"), _http.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         _ph.record("nominatim", "ok")
         _cb.on_success("nominatim")
@@ -2191,7 +2169,7 @@ def _jit_geocode_candidates(
 # ---------------------------------------------------------------------------
 # find_nearby has three very different cost centres — disk-bound raster window
 # reads, CPU-bound numpy/scipy passes, and network-bound reverse-geocoding whose
-# cost is dominated by cache misses (each Nominatim miss waits _NOMINATIM_SLEEP).
+# cost is dominated by cache misses (each Nominatim miss paces via rate_limiter.py).
 # The profiler attributes wall-clock time to each phase and pairs it with the
 # cache hit/miss delta so a slow run can be diagnosed as "cold cache" vs "slow
 # I/O" vs "CPU". Disabled by default → the phase() context manager is a no-op.

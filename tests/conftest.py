@@ -25,6 +25,21 @@ def _fresh_circuit_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_rate_limiter():
+    """Reset rate-limiter state around every test, mirroring _fresh_circuit_breaker.
+
+    Pacing state (last-call clocks) and semaphores are module-global; without
+    this, a pace-configured provider's real wall-clock timestamp could persist
+    across tests and cost a real sleep if two tests happen to exercise the same
+    provider within its interval of real test-runner time.
+    """
+    from darkhours import rate_limiter as _rl
+    _rl.reset()
+    yield
+    _rl.reset()
+
+
+@pytest.fixture(autouse=True)
 def _offline_aurora(request, monkeypatch):
     """Keep the default test run offline: assemble_night()/fetch_night() gained a
     default-on SWPC fetch whose date gate doesn't protect tests that use today's

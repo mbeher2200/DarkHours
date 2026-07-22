@@ -52,6 +52,7 @@ def lock_for(lat: float, lon: float) -> threading.Lock:
         return lock
 from . import circuit_breaker as _cb
 from . import provider_health as _ph
+from . import rate_limiter as _rl
 from dataclasses import dataclass, replace as _dc_replace
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -195,7 +196,7 @@ class OpenMeteoProvider(WeatherProvider):
         if not _cb.allow("open_meteo"):
             raise _cb.unavailable("open_meteo")
         try:
-            with _http.urlopen(url, timeout=10) as resp:
+            with _rl.acquire("open_meteo"), _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             _ph.record("open_meteo", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
@@ -256,7 +257,7 @@ class OpenMeteoPastProvider(WeatherProvider):
         if not _cb.allow("open_meteo"):
             raise _cb.unavailable("open_meteo")
         try:
-            with _http.urlopen(url, timeout=10) as resp:
+            with _rl.acquire("open_meteo"), _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             _ph.record("open_meteo", "error", str(e)[:120])
@@ -321,7 +322,7 @@ class OpenMeteoHistoricalProvider(WeatherProvider):
         if not _cb.allow("open_meteo_archive"):
             raise _cb.unavailable("open_meteo_archive")
         try:
-            with _http.urlopen(url, timeout=10) as resp:
+            with _rl.acquire("open_meteo_archive"), _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except Exception as e:
             _ph.record("open_meteo_archive", "error", str(e)[:120])
@@ -366,7 +367,7 @@ class SevenTimerProvider(WeatherProvider):
         if not _cb.allow("seven_timer"):
             raise _cb.unavailable("seven_timer")
         try:
-            with _http.urlopen(url, timeout=10) as resp:
+            with _rl.acquire("seven_timer"), _http.urlopen(url, timeout=10) as resp:
                 data = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             _ph.record("seven_timer", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
@@ -473,7 +474,7 @@ def _fetch_air_quality(lat: float, lon: float) -> list:
         log.debug("Air quality skipped — circuit open")
         return []
     try:
-        with _http.urlopen(url, timeout=10) as resp:
+        with _rl.acquire("open_meteo_air_quality"), _http.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
         h = data["hourly"]
         _ph.record("open_meteo_air_quality", "ok")

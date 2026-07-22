@@ -12,6 +12,17 @@ call. A down provider cost each request its full timeout (10–15s for the urlli
 providers; **minutes** for the AWS clients, which ran botocore's 60s/60s defaults × 5
 adaptive retries) before the app fell back or degraded.
 
+## Relationship to rate limiting
+
+This breaker is **reactive** — it stops calling a provider only after it's already
+failing repeatedly. It does nothing to cap the *rate* of calls while a provider is
+healthy, which is a separate, preventive concern: DarkHours' own fan-out (a trip
+build can fire dozens of concurrent calls to one provider) could otherwise look
+like abusive traffic to a healthy public API even when nothing is failing. See
+[`docs/RATE_LIMITING.md`](RATE_LIMITING.md) (`darkhours/rate_limiter.py`) for that
+half — the two modules never call into each other; call sites use both, in a fixed
+order (`circuit_breaker.allow()` first, `rate_limiter.acquire()` second).
+
 ## How it works
 
 Two states per provider key, in-process (per warm Lambda container), thread-safe.
@@ -76,11 +87,12 @@ Read once at import (same idiom as `PYNIGHTSKY_NO_CACHE`):
 - `PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED` — kill switch, **default enabled**.
 - `PYNIGHTSKY_CIRCUIT_BREAKER_<PROVIDER>_DISABLE` — per-key opt-out (key uppercased,
   e.g. `..._OPEN_METEO_ARCHIVE_DISABLE`). Bookkeeping still runs while disabled.
-- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name. Wired in
-  `cdk/lambda_api_stack.py` (API + worker Lambda roles get a scoped `dynamodb:GetItem`
-  grant + this env var, gated on the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` secret being
-  set) — see "Monitor-driven recovery wiring" below for what's deployed vs. still
-  manual.
+- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name. **Wired,
+  deployed, and confirmed live** (PR #137, merged 2026-07-21): `cdk/lambda_api_stack.py`
+  grants the API and worker Lambda roles a scoped `dynamodb:GetItem` statement + sets
+  this env var, both gated on the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret
+  (set to the live table). See "Monitor-driven recovery wiring" below for the one
+  remaining open item (organic end-to-end proof of a real read).
 
 ## UI surfacing
 
@@ -110,36 +122,46 @@ monitor-tracked providers: recovery noticed on the monitor's 5-min schedule with
 user requests spent probing, consistent across all containers, and the basis for
 future flap detection.
 
-**Done (in CDK, this repo):**
+**Status: deployed and confirmed live (PR #137, merged 2026-07-21).** Do not treat any
+of the steps below as still pending — they were checked directly against AWS, not just
+committed:
 
-1. IAM: `cdk/lambda_api_stack.py` grants `dynamodb:GetItem` (only — single-key
-   lookups, scoped to the ProviderHealth table's ARN) on both the API and worker
-   Lambda roles, gated on `provider_health_table` (the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE`
-   env var/secret) being non-empty.
-2. Env: the same var is set on both Lambdas from that env var/secret at synth time —
-   **not** a CloudFormation export/import, which would couple the
-   independently-deployed `PyNightSkyProviderHealth` (manual) and `PyNightSkyLambda`
-   (CI) stacks. The table name is never hardcoded (public repo);
-   `provider_health_stack.py` emits it as a plain `CfnOutput` (`ProviderHealthTableName`)
-   for an operator to read and hand to `PyNightSkyLambda` as the
-   `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret — `deploy.yml` passes that secret
-   through to `cdk deploy` unconditionally (empty/absent is a no-op, same as
-   `AQICN_TOKEN`).
+1. IAM — confirmed live: `cdk/lambda_api_stack.py` grants `dynamodb:GetItem` (only —
+   single-key lookups, scoped to the ProviderHealth table's ARN) on both the API and
+   worker Lambda roles. Verified via `aws iam get-role-policy` on both
+   `PyNightSkyLambda-Api*`/`...-Worker*` roles post-deploy: the statement is exactly
+   `dynamodb:GetItem` on the ProviderHealth table ARN, nothing broader.
+2. Env — confirmed live: `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` is set on both Lambdas
+   (verified via `aws lambda get-function-configuration`), sourced from a plain env
+   var/secret at synth time — **not** a CloudFormation export/import, which would
+   couple the independently-deployed `PyNightSkyProviderHealth` (manual) and
+   `PyNightSkyLambda` (CI) stacks. The table name is never hardcoded (public repo);
+   `provider_health_stack.py` emits it as a plain `CfnOutput` (`ProviderHealthTableName`);
+   the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret is set from that output, and
+   `deploy.yml` passes it through to `cdk deploy` (empty/absent would be a no-op, same
+   as `AQICN_TOKEN` — but it is not empty; it's set).
+3. Deploy order — satisfied: `PyNightSkyProviderHealth` was already live
+   (`UPDATE_COMPLETE`) before this `PyNightSkyLambda` deploy ran.
 
-**Still manual, not yet done:**
+**One item still genuinely open — organic end-to-end proof of a real read:**
 
-3. Deploy order: the `PyNightSkyProviderHealth` stack must exist first (`cdk deploy
-   PyNightSkyProviderHealth`, by hand — it is never touched by `deploy.yml`). Read its
-   `ProviderHealthTableName` output and set it as the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE`
-   GitHub secret before (or as part of) the next `PyNightSkyLambda` deploy.
-4. **Post-deploy, verify a real read succeeds** (e.g. trip a breaker in a test
-   invoke and confirm monitor-driven behavior, or check debug logs). The read is
-   deliberately fail-*safe* (1s timeouts, 1 attempt, broad except → self-timed
-   fallback), which means a broken grant is silent — it must be checked for, it will
-   never announce itself.
-5. Flap detection remains a further step even after wiring: the monitor's table only
-   stores latest status (overwritten each run). It needs either a rolling history in
-   the table or queries against the `ProviderUp` EMF metric (a real time series).
+4. IAM + env are confirmed live (above), but as of 2026-07-21 ~23:35 UTC no `GetItem`
+   call had actually happened yet (`ConsumedReadCapacityUnits` on the table was flat 0
+   since deploy) — because the read only fires once a provider's *local, per-container*
+   breaker has already opened (3 consecutive real failures against a monitor-tracked
+   provider from inside one warm container), and that hadn't occurred yet. **This is
+   expected, not a fault** — the fail-safe design (1s timeouts, 1 attempt, broad except
+   → self-timed fallback) means a *broken* grant would look identical (silent), which
+   is exactly why this needs an active check rather than "no errors in the logs" being
+   read as sufficient proof. If you're picking this doc up fresh: check whether a
+   monitor-tracked provider (`open_meteo`, `seven_timer`, `swpc`, `waqi`) is currently
+   reporting DOWN in the table and whether `ConsumedReadCapacityUnits` has moved off
+   zero since; if not, force it with a deliberate test invoke against the worker that
+   trips one of those providers' breakers, then re-check.
+5. Flap detection is separate, unstarted follow-on work (not part of this wiring): the
+   monitor's table only stores latest status (overwritten each run). It needs either a
+   rolling history in the table or queries against the `ProviderUp` EMF metric (a real
+   time series).
 
 ## Tests
 

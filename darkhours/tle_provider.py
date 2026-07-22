@@ -17,6 +17,7 @@ Public API:
 """
 
 import logging
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from . import cache as _cache
 from . import circuit_breaker as _cb
 from . import _http
 from . import provider_health as _ph
+from . import rate_limiter as _rl
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +36,28 @@ TIANGONG_NORAD_ID = 48274
 
 TLE_TTL     = 6 * 3600   # exactly 6 h — Celestrak rate-limit compliance
 _USER_AGENT = "DarkHours/1.0 (open-source astronomical observation planner)"
+
+# Per-resource locks (mirrors weather.py's/aqicn.py's lock_for). Satellites are a
+# single-night feature (fetch_satellites is never True on the trip/calendar fan-out
+# path — only /night?satellites=true and the CLI's --satellites set it), but within
+# one assemble_night() call predictor.py fans out up to 4 concurrent TLE fetches (3
+# individual NORAD ids + 1 Starlink group, predictor.py:524-526), and a warm
+# container can see several such single-night requests overlap. Without this lock,
+# every one of those calls independently misses the same handful of cache keys and
+# fires its own concurrent Celestrak fetch for the same resource. Keyed by the same
+# string already used as the cache key, so only one thread ever actually fetches a
+# given NORAD id or the Starlink group at a time — every other waiter re-checks the
+# cache after acquiring the lock and finds it warm.
+_tle_fetch_locks: dict[str, threading.Lock] = {}
+_tle_fetch_locks_guard = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _tle_fetch_locks_guard:
+        lock = _tle_fetch_locks.get(key)
+        if lock is None:
+            lock = _tle_fetch_locks[key] = threading.Lock()
+        return lock
 
 # Satellites tracked by --satellites, in display-priority order.
 # The display_name overrides whatever the TLE name line says.
@@ -70,7 +94,7 @@ def _fetch_tle_raw(norad_id: int) -> str:
     if not _cb.allow("celestrak"):
         raise _cb.unavailable("celestrak")
     try:
-        with _http.urlopen(req, timeout=15) as resp:
+        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=15) as resp:
             text = resp.read().decode("utf-8").strip()
         lines = [l for l in text.splitlines() if l.strip()]
         if len(lines) < 3:
@@ -126,18 +150,28 @@ def get_tle(norad_id: int) -> TLEResult:
             log.debug("TLE cache hit for NORAD %d", norad_id)
             return TLEResult(lines=parsed, stale=False, error=None)
 
-    # 2. Attempt fresh fetch
+    # 2. Attempt fresh fetch — single-flight per resource: a thread that waits for
+    # the lock re-checks the cache first, so a concurrent fan-out (predictor.py's
+    # per-night TLE fetches x trip.py's per-night fan-out) makes at most one real
+    # Celestrak request per resource, not one per waiting caller.
     err_msg: str | None = None
-    try:
-        raw    = _fetch_tle_raw(norad_id)
-        _cache.set(key, raw, ttl_seconds=TLE_TTL)
-        parsed = _parse_tle(raw)
-        if parsed is None:
-            raise RuntimeError(f"Malformed TLE for NORAD {norad_id}: {raw!r}")
-        return TLEResult(lines=parsed, stale=False, error=None)
-    except Exception as e:
-        err_msg = str(e)
-        log.warning("TLE fetch failed for NORAD %d: %s", norad_id, err_msg)
+    with _lock_for(key):
+        cached = _cache.get(key)
+        if cached is not None:
+            parsed = _parse_tle(cached)
+            if parsed:
+                log.debug("TLE cache hit for NORAD %d (after single-flight wait)", norad_id)
+                return TLEResult(lines=parsed, stale=False, error=None)
+        try:
+            raw    = _fetch_tle_raw(norad_id)
+            _cache.set(key, raw, ttl_seconds=TLE_TTL)
+            parsed = _parse_tle(raw)
+            if parsed is None:
+                raise RuntimeError(f"Malformed TLE for NORAD {norad_id}: {raw!r}")
+            return TLEResult(lines=parsed, stale=False, error=None)
+        except Exception as e:
+            err_msg = str(e)
+            log.warning("TLE fetch failed for NORAD %d: %s", norad_id, err_msg)
 
     # 3. Stale fallback — read the expired entry without deleting it
     stale_raw = _cache.get_stale(key)
@@ -245,36 +279,42 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
     raw = _cache.get(key)
 
     if raw is None:
-        # 2. Fetch fresh
-        if not _cb.allow("celestrak"):
-            log.debug("Starlink group fetch skipped — celestrak circuit open")
-        else:
-            req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
-            try:
-                with _http.urlopen(req, timeout=30) as resp:
-                    raw = resp.read().decode("utf-8").strip()
-                _cache.set(key, raw, ttl_seconds=TLE_TTL)
-                log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
-                _ph.record("celestrak", "ok")
-                _cb.on_success("celestrak")
-            except urllib.error.HTTPError as e:
-                if e.code == 403:
-                    # Celestrak's one-download-per-update policy: data hasn't changed
-                    # since our last successful fetch. Stale cache is still current —
-                    # the provider is reachable and healthy, not failing.
-                    log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
-                    _ph.record("celestrak", "ok")
-                    _cb.on_success("celestrak")
+        # 2. Fetch fresh — single-flight: a thread that waits for the lock re-checks
+        # the cache first, so a concurrent fan-out makes at most one real Celestrak
+        # request for the whole Starlink group, not one per waiting caller.
+        with _lock_for(key):
+            raw = _cache.get(key)
+            if raw is None:
+                if not _cb.allow("celestrak"):
+                    log.debug("Starlink group fetch skipped — celestrak circuit open")
                 else:
-                    err_msg = f"Celestrak HTTP {e.code} for Starlink group"
-                    log.warning("%s", err_msg)
-                    _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
-                    _cb.on_failure("celestrak")
-            except urllib.error.URLError as e:
-                err_msg = f"Celestrak unreachable (Starlink group): {e.reason}"
-                log.warning("%s", err_msg)
-                _ph.record("celestrak", "error", str(e.reason)[:120])
-                _cb.on_failure("celestrak")
+                    req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
+                    try:
+                        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=30) as resp:
+                            raw = resp.read().decode("utf-8").strip()
+                        _cache.set(key, raw, ttl_seconds=TLE_TTL)
+                        log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
+                        _ph.record("celestrak", "ok")
+                        _cb.on_success("celestrak")
+                    except urllib.error.HTTPError as e:
+                        if e.code == 403:
+                            # Celestrak's one-download-per-update policy: data hasn't
+                            # changed since our last successful fetch. Stale cache is
+                            # still current — the provider is reachable and healthy,
+                            # not failing.
+                            log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
+                            _ph.record("celestrak", "ok")
+                            _cb.on_success("celestrak")
+                        else:
+                            err_msg = f"Celestrak HTTP {e.code} for Starlink group"
+                            log.warning("%s", err_msg)
+                            _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+                            _cb.on_failure("celestrak")
+                    except urllib.error.URLError as e:
+                        err_msg = f"Celestrak unreachable (Starlink group): {e.reason}"
+                        log.warning("%s", err_msg)
+                        _ph.record("celestrak", "error", str(e.reason)[:120])
+                        _cb.on_failure("celestrak")
 
     if raw is None:
         # 3. Stale fallback — always try this; on 403 the stale data IS current

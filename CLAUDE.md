@@ -52,7 +52,7 @@ through `ports.py`. The same engine runs against local files (CLI) or cloud serv
 - `live` — hits real provider APIs; runs only with `PYNIGHTSKY_LIVE=1`
   (`tests/test_provider_smoke.py` covers Open-Meteo, 7Timer, Celestrak, Nominatim, AWS Location).
 
-A default run stays offline and deterministic (803 tests collected as of 2026-07-18;
+A default run stays offline and deterministic (852 tests collected as of 2026-07-22;
 aws/live auto-skip). Per-file inventory: `tests/README.md`.
 
 ## Ship flow (CI/CD)
@@ -117,8 +117,13 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
   X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
 - `docs/CIRCUIT_BREAKER.md` — provider circuit breaker: design, per-host keys, flags,
-  detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var are
-  in CDK; deploy order + post-deploy verification are still manual — see that doc).
+  detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var
+  deployed and confirmed live, PR #137 — one open item remains: organic end-to-end
+  proof of a real DynamoDB read; see that doc's last section before assuming it's done
+  OR assuming it's still pending).
+- `docs/RATE_LIMITING.md` — preventive outbound rate limiting (`darkhours/rate_limiter.py`):
+  per-provider pace/limit config, the shared Nominatim pacer key, and the TLE
+  single-flight dedup — the counterpart to the circuit breaker's reactive protection.
 - `docs/FEATURES.md` — user-facing feature list (validated against code).
 - `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
 - `docs/CLI.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.

@@ -4,6 +4,10 @@
 Forward geocoding backend selection:
   local backend → public Nominatim (OpenStreetMap), rate-limited, cached locally.
   aws backend   → AWS Location Service (Esri place index), no rate-limit concerns.
+
+Nominatim pacing goes through rate_limiter.py (see docs/RATE_LIMITING.md), shared
+with darksky.py's own Nominatim reverse-geocode calls — one pacer, one clock, for
+every call this process makes to nominatim.openstreetmap.org.
 """
 
 import json
@@ -21,6 +25,7 @@ from geopy.exc import GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimite
 
 from . import circuit_breaker as _cb
 from . import provider_health as _ph
+from . import rate_limiter as _rl
 from timezonefinder import TimezoneFinder
 
 CACHE_FILE = Path.home() / ".darkhours" / "locations.json"
@@ -119,7 +124,8 @@ def _geocode_via_nominatim(name: str, query: str) -> dict | None:
         raise _cb.unavailable("nominatim")
     try:
         geolocator = Nominatim(user_agent=USER_AGENT)
-        result = geolocator.geocode(query, timeout=10)
+        with _rl.acquire("nominatim"):
+            result = geolocator.geocode(query, timeout=10)
         _ph.record("nominatim", "ok")
         _cb.on_success("nominatim")
     except GeocoderRateLimited as e:
@@ -222,9 +228,10 @@ def _suggest_via_nominatim(query: str, max_results: int) -> list[str]:
         return []
     try:
         geolocator = Nominatim(user_agent=USER_AGENT)
-        results = geolocator.geocode(
-            _geocode_query(query), exactly_one=False, limit=max_results, timeout=10,
-        ) or []
+        with _rl.acquire("nominatim"):
+            results = geolocator.geocode(
+                _geocode_query(query), exactly_one=False, limit=max_results, timeout=10,
+            ) or []
         _ph.record("nominatim", "ok")
         _cb.on_success("nominatim")
     except (GeocoderTimedOut, GeocoderServiceError, GeocoderRateLimited) as e:
