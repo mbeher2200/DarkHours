@@ -48,11 +48,11 @@ import os
 import threading
 import time
 
+from . import _env
+
 log = logging.getLogger(__name__)
 
-
-def _flag(name: str, default: str = "") -> bool:
-    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
+_flag = _env.flag   # kept as a module-local name: existing call sites/tests use _flag(...)
 
 
 def _float_env(name: str, default: float) -> float:
@@ -184,9 +184,24 @@ def reset() -> None:
     Resets every pace provider's last-call clock to 0 (next acquire() never waits)
     and rebuilds every semaphore fresh (defends against a test that acquired
     without releasing leaking a permit into the next test).
+
+    Rebuilding replaces the semaphore object outright rather than draining/
+    refilling it in place, so this assumes the limiter is idle when called (true
+    for its only caller today, the autouse test fixture, as long as tests join
+    their threads before returning). A caller still mid-`limit()` across this
+    call keeps using the old object for the rest of its own call — logged below
+    so that scenario is visible instead of silently under-enforcing the cap.
     """
     for p, lock in _PACE_LOCKS.items():
         with lock:
             _last_call[p] = 0.0
     for p, n in _LIMIT_MAX_CONCURRENT.items():
+        outstanding = n - _SEMAPHORES[p]._value
+        if outstanding > 0:
+            log.warning(
+                "rate_limiter.reset(): %d permit(s) for %r still held by an "
+                "in-flight caller — that caller will keep using the semaphore "
+                "being replaced here, so the concurrency cap won't cover it",
+                outstanding, p,
+            )
         _SEMAPHORES[p] = threading.Semaphore(n)

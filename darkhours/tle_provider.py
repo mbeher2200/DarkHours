@@ -322,7 +322,7 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
         if raw:
             log.debug("Using stale Starlink group TLE")
             return _filter_train_tles(raw), True, None
-        # No cache at all — silently skip trains rather than surfacing an error
-        return [], False, None
+        # No cache at all — no trains to show, but still surface why
+        return [], False, err_msg
 
     return _filter_train_tles(raw), False, None

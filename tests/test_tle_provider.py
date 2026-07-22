@@ -273,3 +273,20 @@ class TestCircuitBreaker:
             tles, stale, error = tle_mod.get_starlink_train_tles()
         urlopen.assert_not_called()
         assert tles == [] and error is None   # silent-skip contract preserved
+
+    def test_starlink_group_fetch_failure_no_cache_surfaces_error(self):
+        """Breaker closed, fetch fails, no stale fallback → error must be
+        threaded through rather than dropped (get_tle()'s equivalent complete-
+        failure path already does this; the Starlink-group path used to
+        hardcode error=None here regardless of the real failure reason)."""
+        import urllib.error
+
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen',
+                               side_effect=urllib.error.URLError("dns failure")):
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        assert tles == []
+        assert stale is False
+        assert error is not None
+        assert "unreachable" in error.lower()

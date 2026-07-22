@@ -1383,17 +1383,21 @@ def _overpass_natural_areas_in_radius(
 
     params = urllib.parse.urlencode({"data": query})
     url    = f"{_OVERPASS_URL}?{params}"
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
-        )
-        with _rl.acquire("overpass"), _http.urlopen(req, timeout=35) as resp:
-            data = json.loads(resp.read())
-    except Exception as e:
-        log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
-        cache.set(cache_key, [], ttl_seconds=300)   # short cache on failure
-        return []
+    # _rl.acquire() sits outside the try: a bug in rate_limiter.py's pacing
+    # itself should crash loudly, not get swallowed and cached as "no areas
+    # found" alongside a genuine Overpass failure.
+    with _rl.acquire("overpass"):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
+            )
+            with _http.urlopen(req, timeout=35) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            log.debug("Overpass areas-in-radius failed for (%.4f, %.4f): %s", lat, lon, e)
+            cache.set(cache_key, [], ttl_seconds=300)   # short cache on failure
+            return []
 
     areas = []
     for el in data.get("elements", []):
@@ -1487,20 +1491,24 @@ def _nominatim_settlement(lat: float, lon: float) -> str | None:
         "format": "json", "zoom": "16", "addressdetails": "1",
     })
     url = f"{_NOMINATIM_URL}?{params}"
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
-        )
-        with _rl.acquire("nominatim"), _http.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        _ph.record("nominatim", "ok")
-        _cb.on_success("nominatim")
-    except Exception as e:
-        _ph.record("nominatim", "error", str(e)[:120])
-        _cb.on_failure("nominatim")
-        log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
-        return None
+    # _rl.acquire() sits outside the try: a bug in rate_limiter.py's pacing
+    # itself should crash loudly, not get misattributed to Nominatim and trip
+    # the shared circuit breaker (which location.py's geocoding shares too).
+    with _rl.acquire("nominatim"):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
+            )
+            with _http.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            _ph.record("nominatim", "ok")
+            _cb.on_success("nominatim")
+        except Exception as e:
+            _ph.record("nominatim", "error", str(e)[:120])
+            _cb.on_failure("nominatim")
+            log.debug("Nominatim lookup failed for (%.4f, %.4f): %s", lat, lon, e)
+            return None
 
     address    = data.get("address", {})
     # Check progressively less specific place types before giving up
