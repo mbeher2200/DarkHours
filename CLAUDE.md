@@ -117,8 +117,10 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
   X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
 - `docs/CIRCUIT_BREAKER.md` — provider circuit breaker: design, per-host keys, flags,
-  detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var are
-  in CDK; deploy order + post-deploy verification are still manual — see that doc).
+  detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var
+  deployed and confirmed live, PR #137 — one open item remains: organic end-to-end
+  proof of a real DynamoDB read; see that doc's last section before assuming it's done
+  OR assuming it's still pending).
 - `docs/RATE_LIMITING.md` — preventive outbound rate limiting (`darkhours/rate_limiter.py`):
   per-provider pace/limit config, the shared Nominatim pacer key, and the TLE
   single-flight dedup — the counterpart to the circuit breaker's reactive protection.
