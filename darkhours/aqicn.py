@@ -43,6 +43,7 @@ from . import _http
 from . import cache as _cache
 from . import circuit_breaker as _cb
 from . import provider_health as _ph
+from . import rate_limiter as _rl
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def _fetch_url(lat: float, lon: float, timeout: int = 10) -> str:
     if not _cb.allow("waqi"):
         raise _cb.unavailable("waqi")
     try:
-        with _http.urlopen(url, timeout=timeout) as resp:
+        with _rl.acquire("waqi"), _http.urlopen(url, timeout=timeout) as resp:
             text = resp.read().decode("utf-8")
         # Reachability success for the breaker; content-level verdicts (bad
         # JSON, non-"ok" status in _parse) are deliberately not counted.

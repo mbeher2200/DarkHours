@@ -12,6 +12,17 @@ call. A down provider cost each request its full timeout (10–15s for the urlli
 providers; **minutes** for the AWS clients, which ran botocore's 60s/60s defaults × 5
 adaptive retries) before the app fell back or degraded.
 
+## Relationship to rate limiting
+
+This breaker is **reactive** — it stops calling a provider only after it's already
+failing repeatedly. It does nothing to cap the *rate* of calls while a provider is
+healthy, which is a separate, preventive concern: DarkHours' own fan-out (a trip
+build can fire dozens of concurrent calls to one provider) could otherwise look
+like abusive traffic to a healthy public API even when nothing is failing. See
+[`docs/RATE_LIMITING.md`](RATE_LIMITING.md) (`darkhours/rate_limiter.py`) for that
+half — the two modules never call into each other; call sites use both, in a fixed
+order (`circuit_breaker.allow()` first, `rate_limiter.acquire()` second).
+
 ## How it works
 
 Two states per provider key, in-process (per warm Lambda container), thread-safe.

@@ -119,6 +119,9 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/CIRCUIT_BREAKER.md` — provider circuit breaker: design, per-host keys, flags,
   detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var are
   in CDK; deploy order + post-deploy verification are still manual — see that doc).
+- `docs/RATE_LIMITING.md` — preventive outbound rate limiting (`darkhours/rate_limiter.py`):
+  per-provider pace/limit config, the shared Nominatim pacer key, and the TLE
+  single-flight dedup — the counterpart to the circuit breaker's reactive protection.
 - `docs/FEATURES.md` — user-facing feature list (validated against code).
 - `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
 - `docs/CLI.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.
