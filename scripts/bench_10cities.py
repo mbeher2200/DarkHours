@@ -43,24 +43,25 @@ RADIUS = 60   # miles — standard search radius
 
 
 def _parse_profile_lines(log_output: str) -> dict[str, float]:
-    """Extract phase timings from _Profiler output lines like '[profile] phase X: 123.4 ms'."""
+    """Extract phase timings from _Profiler output lines.
+
+    Format (darksky._Profiler): '[profile] <name, %-26s> <ms, %8.1f> ms  (cache ...)'
+    e.g. '[profile] origin lookup                  123.4 ms  (cache +0h/+1m)'.
+    Phase names contain spaces; the timing is the last token before ' ms'.
+    """
     phases = {}
     for line in log_output.splitlines():
-        if "[profile]" not in line:
+        if "[profile]" not in line or " ms" not in line:
             continue
-        # Format: ... [profile] phase <name>: <ms> ms
         try:
-            after = line.split("[profile]", 1)[1]
-            if "phase" in after and "ms" in after:
-                # "phase viirs window read: 87.3 ms"
-                body = after.strip().removeprefix("phase").strip()
-                name, rest = body.split(":", 1)
-                ms = float(rest.strip().rstrip(" ms"))
-                phases[name.strip()] = ms
-            elif "total" in after and "ms" in after:
-                body = after.strip()
-                ms = float(body.split()[-2])
+            head = line.split("[profile]", 1)[1].split(" ms", 1)[0]
+            name, ms_str = head.rsplit(None, 1)
+            name = name.strip()
+            ms = float(ms_str)
+            if name.startswith("TOTAL"):
                 phases["_total"] = ms
+            else:
+                phases[name] = ms
         except (ValueError, IndexError):
             pass
     return phases

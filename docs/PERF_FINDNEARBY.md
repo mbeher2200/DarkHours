@@ -21,7 +21,22 @@ here, all shipped and still in effect:
   dict build), 0 ms in-job thanks to prewarm. See `docs/PADUS_INDEX.md`.
 - **Rasterio-free raster reads.** Window reads are tiled-grid S3 byte-range GETs,
   tiles fetched concurrently (`gridraster.py`; see `docs/RASTERIO_REPLACEMENT.md`).
-  Typically ~200–400 ms per dataset in-region.
+  Typically ~200–400 ms per dataset in-region for the full 150-mile window.
+- **Right-sized raster windows (conditional dome fetch).** `find_nearby` fetches a
+  `radius_miles + 2`-sized window instead of the unconditional 150-mile one; a
+  **VIIRS-only** 150-mile fetch is issued only when the origin resolves Bortle ≤ 7,
+  submitted right after the origin lookup so it overlaps the extraction/clustering
+  CPU phases (joined just before dome detection — new profile phase
+  `dome window read (join)`, ~30–50 ms in-region). Bright origins (B8–9, the
+  common urban case) skip the outer ~5/6 of the old fetch entirely, and the big
+  Falchi window is gone for everyone (dome detection is VIIRS-only). An in-process
+  bortle-cache peek picks the right single fetch for repeat origins. Kill switch:
+  `PYNIGHTSKY_SMALL_WINDOW=0`. Warm in-region Phoenix phase-sum: 434 → 122 ms
+  (2026-07-22 entry).
+- **S3 client pool sized to the tile fan-out.** `max_pool_connections` 10 → 32
+  (`PYNIGHTSKY_S3_POOL`): the two datasets' 8-worker tile pools plus the
+  conditional dome fetch exceeded boto3's default 10, logging "Connection pool is
+  full" churn. 32 removes the churn and tightens raster-read tails.
 - **Vectorized dome detection.** The per-blob centroid loop was replaced with
   batched `bincount`/`center_of_mass(index=)` ops (~12–30× faster, ~80–200 ms), and
   the whole dome pipeline is skipped when the origin is Bortle ≥ 8 (no dome could
@@ -232,6 +247,66 @@ leg). Ferry detection uses the structural `Legs[].Type == "Ferry"` signal. The
 24 h per-leg cache is unchanged. Cost parity with the matrix API is likely
 (both bill per route) but unconfirmed numerically; in-region latency for
 first-visit searches not yet re-profiled.
+
+### 2026-07-22 — right-sized raster windows + S3 pool bump
+
+Profiling showed the raster window read phase at 57–72% of request compute for
+bright origins, yet the window was always sized `max(radius_miles, 150)` for dome
+detection — which is skipped entirely at Bortle ≥ 8 (the common urban origin), so
+~5/6 of the fetched area was provably discarded there. Root cause: the window is
+sized before `origin_bortle` is known, deliberately, to overlap the S3 fetch with
+the DynamoDB origin lookup.
+
+Fix shipped: fetch `radius_miles + 2` always (overlap preserved); when the origin
+resolves ≤ 7, submit a VIIRS-only 150-mile fetch that overlaps the extraction /
+clustering CPU and is joined just before dome detection (`dome window read
+(join)` phase). Dome detection never used Falchi, so the big Falchi window is
+gone on every path. In-process bortle-cache peek short-circuits to the right
+single fetch for repeat origins in a warm container. Flags:
+`PYNIGHTSKY_SMALL_WINDOW` (kill switch), `PYNIGHTSKY_S3_POOL` (default 32).
+
+WAN A/B (laptop → region, fresh process per run, r=60, medians of 3):
+
+| origin | metric | legacy | small window |
+|---|---|--:|--:|
+| Phoenix (B9) | raster window reads | 3025 ms | 1605 ms |
+| Phoenix (B9) | phase-sum TOTAL | 4123 ms | 2662 ms |
+| Flagstaff (B7) | raster window reads | 2025 ms | 1183 ms |
+| Flagstaff (B7) | dome window read (join) | — | 1111 ms |
+| Flagstaff (B7) | phase-sum TOTAL | 3446 ms | 4063 ms |
+
+The apparent Flagstaff regression is a WAN artifact: at laptop RTTs the dome
+fetch can't hide behind ~100 ms of CPU. In-region it can — throwaway arm64
+container worker (3008 MB), warm containers, medians of 3:
+
+| scenario | legacy | small, pool 10 | small, pool 32 |
+|---|--:|--:|--:|
+| Phoenix warm: raster reads | 224 ms | 71 ms | 51 ms |
+| Phoenix warm: phase-sum TOTAL | 434 ms† | 140 ms | 122 ms |
+| Flagstaff two-step: dome join | — | 30 ms | 53 ms |
+| Flagstaff two-step: phase-sum TOTAL | 1014 ms† | 793 ms | 753 ms |
+| Flagstaff repeat (peek → single big fetch) TOTAL | 655 ms† | 622 ms† | — |
+| "Connection pool is full" warnings | 0 | 2 | 0 |
+
+† n=1 (single legacy/scenario sample in that matrix; the pool-10 vs pool-32
+columns are n=3).
+
+Headlines: bright-origin warm phase-sum **434 → 122 ms (−72%)**; the dark-origin
+two-step is *also* faster in-region (no big Falchi + overlap ≈ free dome fetch);
+the repeat-origin peek path matches legacy as designed. The pool bump was
+promoted after it eliminated the (organically confirmed) connection-pool churn
+and cut the worst warm Phoenix raster sample from 275 → 57 ms.
+
+**Output-parity caveat (accepted):** the extraction meshgrid linspaces over the
+*requested* window bounds while `read_window` round()-snaps to pixels, so
+shrinking the window shifts assigned pixel coordinates sub-pixel (≤ ~0.3 mi at
+the radius edge). Verified on real runs: Flagstaff domes byte-identical across
+all runs; Phoenix results 9/10 identical with one band-edge swap (a B2 at
+50.8 mi for a B3 at 25.6 mi; `extract_raw` 107 → 113) and 3rd-decimal SQM drift.
+Dark-origin (≤ 7) dome inputs are bit-identical by construction. Exact parity
+would need a pixel-center meshgrid derived from grid geometry — future work.
+Hermetic coverage: `tests/test_small_window.py` (fetch-path selection, VIIRS-only
+dome fetch, kill switch, degradation, flag-off-vs-on output equivalence).
 
 ## Appendix B — raw data
 
