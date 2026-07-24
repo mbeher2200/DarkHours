@@ -590,6 +590,23 @@ class LambdaApiStack(Stack):
             function=blog_rewrite_fn,
         )]
 
+        # --- Access logs (standard logs) to S3 ---
+        # Free from CloudFront itself; only S3 storage/request costs apply, which at this
+        # traffic volume round to a few cents/month. 30-day expiry keeps it near-zero
+        # indefinitely — these are for short-term forensics (e.g. telling real visitors
+        # apart from bot/scanner spikes), not long-term retention. object_ownership must
+        # be OBJECT_WRITER: CloudFront's legacy standard logging delivers via a canned ACL.
+        log_bucket = s3.Bucket(
+            self, "AccessLogBucket",
+            object_ownership=s3.ObjectOwnership.OBJECT_WRITER,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            lifecycle_rules=[s3.LifecycleRule(expiration=Duration.days(30))],
+        )
+
         dist = cloudfront.Distribution(
             self, "Cdn",
             comment="PyNightSky SPA + API (S3 default, Lambda for API paths)",
@@ -597,6 +614,9 @@ class LambdaApiStack(Stack):
             web_acl_id=web_acl.attr_arn,
             domain_names=["darkhours.app"],
             certificate=cert,
+            enable_logging=True,
+            log_bucket=log_bucket,
+            log_file_prefix="standard/",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=spa_origin,
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
