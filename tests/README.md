@@ -1,6 +1,6 @@
 # Test Suite
 
-803 tests across 36 files (as of 2026-07-18). A default run is offline and
+877 tests across 39 files (as of 2026-07-23). A default run is offline and
 deterministic — everything external is opt-in via markers.
 
 ## How to run
@@ -73,6 +73,7 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_water_prefilter.py` | `darksky.py` | — | Land-mask pre-filter of dark candidates |
 | `test_jit_geocoding.py` | `darksky.py` | — | Reverse-geocode dedup and just-in-time naming |
 | `test_perf_changes.py` | `darksky.py` | — | Output-preserving guarantees of shipped perf optimizations |
+| `test_small_window.py` | `darksky.py` | — | Right-sized raster windows: fetch-path selection (peek/two-step), VIIRS-only dome fetch, kill switch, degradation, output equivalence vs the legacy always-big path |
 
 **Apps, adapters & integration**
 

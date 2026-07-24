@@ -142,3 +142,28 @@ def test_s3_missing_bucket_raises_lazily(monkeypatch):
     src = S3RasterSource()          # construction must NOT raise (lazy)
     with pytest.raises(RuntimeError):
         src.sample("viirs", 0.0, 0.0)   # bucket resolved here → raises before S3
+
+
+def test_s3_malformed_pool_env_falls_back_to_default(monkeypatch, caplog):
+    """A garbled PYNIGHTSKY_S3_POOL must not crash client construction — it
+    should warn and fall back to the default pool size instead of raising
+    (which every caller would otherwise swallow into a silent, permanent
+    missing-data degradation for the container's whole lifetime)."""
+    from darkhours.darksky import S3RasterSource
+    monkeypatch.setenv("PYNIGHTSKY_S3_POOL", "not-a-number")
+    src = S3RasterSource(bucket="b")
+    client = src._s3()
+    assert client.meta.config.connect_timeout == 2.0
+    assert client.meta.config.read_timeout == 10.0
+    assert "PYNIGHTSKY_S3_POOL" in caplog.text
+
+
+def test_s3_client_is_a_cached_singleton(monkeypatch):
+    """_s3() must return the same client on repeated calls (the whole point of
+    pooling connections) — construction is guarded by a lock, not just the
+    unsynchronized None check, so concurrent first-touch callers can't each
+    build their own client."""
+    from darkhours.darksky import S3RasterSource
+    monkeypatch.delenv("PYNIGHTSKY_S3_POOL", raising=False)
+    src = S3RasterSource(bucket="b")
+    assert src._s3() is src._s3()
