@@ -185,6 +185,17 @@ class TestWindowSelection:
             assert seen["kwargs"][key] is None
         assert len(result["light_domes"]) == 1
 
+    def test_near_dome_radius_skips_redundant_fetch(self, world, monkeypatch):
+        # At radius=148, the small window (radius+pad=150) already reaches
+        # dome_search_radius (150) — a separate dome fetch would just re-read
+        # data already in hand, so it must not fire a third S3 read.
+        monkeypatch.setattr(ds, "lookup", lambda lat, lon: DARK_ORIGIN)
+        result = ds.find_nearby(OLAT, OLON, 148)
+        assert len(world) == 2
+        assert {d for d, _ in world} == {"viirs", "falchi"}
+        assert all(_bounds_match(b, _small_bounds(radius=148)) for _, b in world)
+        assert len(result["light_domes"]) == 1   # detected from the small-but-big-enough window
+
     def test_radius_ge_150_is_legacy(self, world, monkeypatch):
         monkeypatch.setattr(ds, "lookup", lambda lat, lon: DARK_ORIGIN)
         ds.find_nearby(OLAT, OLON, 200)

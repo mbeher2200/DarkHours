@@ -52,7 +52,7 @@ through `ports.py`. The same engine runs against local files (CLI) or cloud serv
 - `live` — hits real provider APIs; runs only with `PYNIGHTSKY_LIVE=1`
   (`tests/test_provider_smoke.py` covers Open-Meteo, 7Timer, Celestrak, Nominatim, AWS Location).
 
-A default run stays offline and deterministic (874 tests collected as of 2026-07-22;
+A default run stays offline and deterministic (877 tests collected as of 2026-07-23;
 aws/live auto-skip). Per-file inventory: `tests/README.md`.
 
 ## Ship flow (CI/CD)

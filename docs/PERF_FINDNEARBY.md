@@ -29,8 +29,12 @@ here, all shipped and still in effect:
   CPU phases (joined just before dome detection — new profile phase
   `dome window read (join)`, ~30–50 ms in-region). Bright origins (B8–9, the
   common urban case) skip the outer ~5/6 of the old fetch entirely, and the big
-  Falchi window is gone for everyone (dome detection is VIIRS-only). An in-process
-  bortle-cache peek picks the right single fetch for repeat origins. Kill switch:
+  Falchi window is gone on the two-step path (dome detection is VIIRS-only). The
+  known-dark repeat-origin peek path still pulls Falchi at the full 150 miles
+  alongside VIIRS (simpler than tracking per-dataset bounds; extraction only
+  needs radius_miles of it) — a known, accepted waste on an already-warm,
+  already-fast path. An in-process bortle-cache peek picks the right single
+  fetch for repeat origins. Kill switch:
   `PYNIGHTSKY_SMALL_WINDOW=0`. Warm in-region Phoenix phase-sum: 434 → 122 ms
   (2026-07-22 entry).
 - **S3 client pool sized to the tile fan-out.** `max_pool_connections` 10 → 32
@@ -261,7 +265,9 @@ Fix shipped: fetch `radius_miles + 2` always (overlap preserved); when the origi
 resolves ≤ 7, submit a VIIRS-only 150-mile fetch that overlaps the extraction /
 clustering CPU and is joined just before dome detection (`dome window read
 (join)` phase). Dome detection never used Falchi, so the big Falchi window is
-gone on every path. In-process bortle-cache peek short-circuits to the right
+gone on the two-step (first-visit dark-origin) path. The known-dark repeat-origin
+peek path still fetches Falchi at the full 150 miles alongside VIIRS — accepted,
+since that path is already fast and warm. In-process bortle-cache peek short-circuits to the right
 single fetch for repeat origins in a warm container. Flags:
 `PYNIGHTSKY_SMALL_WINDOW` (kill switch), `PYNIGHTSKY_S3_POOL` (default 32).
 

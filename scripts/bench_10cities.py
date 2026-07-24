@@ -156,12 +156,13 @@ def main():
     # Phase columns to display (subset of all phases)
     PHASE_COLS = [
         ("raster window reads", "raster rdW"),
+        ("dome window read (join)", "dome join"),
         ("extract dark candidates", "extract"),
         ("cluster + band select", "cluster"),
         ("light dome detection", "dome det"),
-        ("dome naming", "dome name"),
+        ("dome naming (geocode)", "dome name"),
         ("jit geocode candidates", "jit geo"),
-        ("drive times", "drive"),
+        ("drive times (aws)", "drive"),
         ("_total_wall", "TOTAL ms"),
     ]
     col_labels = ["City", "B", "res", "domes"] + [label for _, label in PHASE_COLS]

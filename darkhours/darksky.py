@@ -308,6 +308,7 @@ class S3RasterSource(_GridRasterSource):
         super().__init__()
         self._bucket = bucket
         self._client = None
+        self._client_lock = threading.Lock()
 
     @property
     def bucket(self) -> str:
@@ -322,16 +323,43 @@ class S3RasterSource(_GridRasterSource):
         return b
 
     def _s3(self):
+        # Double-checked locking guards the one-time construction — mirrors
+        # _location()/_georoutes() below. viirs, falchi, and the conditional dome
+        # fetch can all race in here on a cold container's first request.
         if self._client is None:
-            import boto3
-            from botocore.config import Config
-            # Both datasets' tile pools (PYNIGHTSKY_GRID_WORKERS each) share this
-            # one client; the boto3 default of 10 is smaller than the peak fan-out
-            # (2 datasets x 8 tile workers + the conditional dome fetch) and logs
-            # "Connection pool is full" churn. 32 covers the worst case; in-region
-            # A/B showed it removes the churn and tightens raster-read tails.
-            pool = int(os.environ.get("PYNIGHTSKY_S3_POOL", "32"))
-            self._client = boto3.client("s3", config=Config(max_pool_connections=pool))
+            with self._client_lock:
+                if self._client is None:
+                    import boto3
+                    from botocore.config import Config
+                    # Both datasets' tile pools (PYNIGHTSKY_GRID_WORKERS each) share
+                    # this one client; the boto3 default of 10 is smaller than the
+                    # peak fan-out (2 datasets x 8 tile workers + the conditional
+                    # dome fetch) and logs "Connection pool is full" churn. 32
+                    # covers the worst case; in-region A/B showed it removes the
+                    # churn and tightens raster-read tails.
+                    pool = 32
+                    _pool_env = os.environ.get("PYNIGHTSKY_S3_POOL")
+                    if _pool_env:
+                        try:
+                            pool = int(_pool_env)
+                        except ValueError:
+                            log.warning(
+                                "PYNIGHTSKY_S3_POOL=%r is not an integer — using "
+                                "default %d", _pool_env, pool,
+                            )
+                    self._client = boto3.client(
+                        "s3",
+                        # Same latency bounds as _location()/_georoutes() — a
+                        # stalled tile GET surfaces in ~12s instead of botocore's
+                        # 60s default, matching this PR's own "tighten the tails"
+                        # goal instead of undercutting it.
+                        config=Config(
+                            max_pool_connections=pool,
+                            connect_timeout=2.0,
+                            read_timeout=10.0,
+                            retries={"total_max_attempts": 2, "mode": "adaptive"},
+                        ),
+                    )
         return self._client
 
     def _grid(self, dataset: str):
@@ -2235,6 +2263,13 @@ class _Profiler:
                  "TOTAL (sum of phases)", total, dh, dm)
 
 
+def _deg_deltas(radius_miles: float, lat: float) -> tuple[float, float]:
+    """Convert a mile radius centered on *lat* to (delta_lat_deg, delta_lon_deg)."""
+    deg_lat = radius_miles / 69.0
+    deg_lon = radius_miles / max(69.0 * math.cos(math.radians(lat)), 0.01)
+    return deg_lat, deg_lon
+
+
 def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     """
     Search for darker sky areas and nearby light domes within radius_miles of (lat, lon).
@@ -2269,16 +2304,20 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     # fetch later only if the origin turns out dark (see the dome-fetch submit
     # below).  Extraction masks to radius_miles internally, and dome detection is
     # the sole consumer of the outer band — VIIRS only, so the big Falchi window
-    # is never needed.  A peek at the in-process bortle cache (never DynamoDB —
-    # that RTT is what the overlap hides) picks the right single fetch when the
-    # origin is already known.
+    # is never needed on the two-step path.  A peek at the in-process bortle
+    # cache (never DynamoDB — that RTT is what the overlap hides) picks the
+    # right single fetch when the origin is already known; on the known-dark
+    # peek hit below, that single fetch still pulls Falchi at the full 150
+    # miles too (simpler than tracking per-dataset bounds) even though
+    # extraction only needs radius_miles of it — a known, accepted waste on an
+    # already-warm, already-fast repeat-origin path.
     dome_search_radius = max(radius_miles, 150)
     _peek = _bortle_mem_cache.get((round(lat, 2), round(lon, 2)))
     _peek_bortle = _peek.get("bortle_class") if _peek else None
 
     if not _SMALL_WINDOW or radius_miles >= 150:
         _fetch_radius, _two_step = dome_search_radius, False   # legacy-size window
-    elif _peek is not None and _peek_bortle is not None and _peek_bortle >= 8:
+    elif _peek_bortle is not None and _peek_bortle >= 8:
         _fetch_radius, _two_step = radius_miles + _SMALL_WINDOW_PAD_MILES, False
     elif _peek is not None:
         # Known dark (or bortle None → `or 5` below → dome search runs): one big fetch.
@@ -2286,8 +2325,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     else:
         _fetch_radius, _two_step = radius_miles + _SMALL_WINDOW_PAD_MILES, True
 
-    _deg_lat = _fetch_radius / 69.0
-    _deg_lon = _fetch_radius / max(69.0 * math.cos(math.radians(lat)), 0.01)
+    _deg_lat, _deg_lon = _deg_deltas(_fetch_radius, lat)
     _min_lat, _max_lat = lat - _deg_lat, lat + _deg_lat
     _min_lon, _max_lon = lon - _deg_lon, lon + _deg_lon
 
@@ -2320,9 +2358,12 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     _dome_search = origin_bortle <= 7
     _dome_fut = None
     _dome_bounds = (_min_lat, _max_lat, _min_lon, _max_lon)
-    if _two_step and _dome_search:
-        _ddlat = dome_search_radius / 69.0
-        _ddlon = dome_search_radius / max(69.0 * math.cos(math.radians(lat)), 0.01)
+    # Near radius_miles ~= 148-149, _fetch_radius (radius_miles + pad) can already
+    # reach or exceed dome_search_radius (150) — the small window already covers
+    # the dome band, so skip the second fetch rather than re-reading a subset (or
+    # the exact same bytes) of what's already in hand.
+    if _two_step and _dome_search and dome_search_radius > _fetch_radius:
+        _ddlat, _ddlon = _deg_deltas(dome_search_radius, lat)
         _dome_bounds = (lat - _ddlat, lat + _ddlat, lon - _ddlon, lon + _ddlon)
         _dome_fut = _raster_ex.submit(_load_raster_window, "viirs", *_dome_bounds)
 
@@ -2339,86 +2380,99 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
                 and falchi_arr.shape != viirs_arr.shape:
             falchi_arr = _resample_to_shape(falchi_arr, viirs_arr.shape)
 
-    # Routable OSM POI index (US searches only; prewarmed on the worker). When a POI
-    # falls on a dark pixel the extractor returns POIs (reachable, pre-named) instead of
-    # raw wilderness pixels — see _extract_dark_sky_candidates / _extract_poi_candidates.
-    with prof.phase("poi index load"):
-        _poi_index = _load_poi_h3_index() if _is_in_us(lat, lon) else None
+    # This stretch (POI load through cluster/band-select) runs while the
+    # conditional dome fetch (_dome_fut) may still be in flight on _raster_ex —
+    # that overlap is the whole point of the two-step design. But if anything
+    # here raises, we'd otherwise return without ever joining that future,
+    # leaving its worker thread orphaned (a non-daemon ThreadPoolExecutor
+    # thread that could survive into a later Lambda container reuse). The
+    # except clause forces the join only on that error path, so the happy
+    # path's overlap and its "dome window read (join)" profiling are untouched.
+    try:
+        # Routable OSM POI index (US searches only; prewarmed on the worker). When a POI
+        # falls on a dark pixel the extractor returns POIs (reachable, pre-named) instead of
+        # raw wilderness pixels — see _extract_dark_sky_candidates / _extract_poi_candidates.
+        with prof.phase("poi index load"):
+            _poi_index = _load_poi_h3_index() if _is_in_us(lat, lon) else None
 
-    # ── Shared array pre-computation ──────────────────────────────────────────
-    # Meshgrid, land mask, and VIIRS→SQM are each needed by both
-    # _extract_dark_sky_candidates and _find_light_domes_from_array.  Computing
-    # them once here and passing them in eliminates one meshgrid, one
-    # _glm.is_land(), and one np.log10() call across the two phases.
-    import numpy as _np
-    _lat_grid = _lon_grid = _land_mask = _viirs_sqm_arr = None
-    if viirs_arr is not None and viirs_arr.size > 0:
-        _rows, _cols = viirs_arr.shape
-        _lat_grid, _lon_grid = _np.meshgrid(
-            _np.linspace(_max_lat, _min_lat, _rows),
-            _np.linspace(_min_lon, _max_lon, _cols),
-            indexing="ij",
-        )
-        if _HAS_GLM:
-            _land_mask = _glm.is_land(_lat_grid, _lon_grid)
-        _viirs_sqm_arr = _np.where(
-            viirs_arr > 0,
-            21.7 - 2.5 * _np.log10(viirs_arr + 0.6),
-            _np.nan,
-        )
+        # ── Shared array pre-computation ──────────────────────────────────────
+        # Meshgrid, land mask, and VIIRS→SQM are each needed by both
+        # _extract_dark_sky_candidates and _find_light_domes_from_array.  Computing
+        # them once here and passing them in eliminates one meshgrid, one
+        # _glm.is_land(), and one np.log10() call across the two phases.
+        import numpy as _np
+        _lat_grid = _lon_grid = _land_mask = _viirs_sqm_arr = None
+        if viirs_arr is not None and viirs_arr.size > 0:
+            _rows, _cols = viirs_arr.shape
+            _lat_grid, _lon_grid = _np.meshgrid(
+                _np.linspace(_max_lat, _min_lat, _rows),
+                _np.linspace(_min_lon, _max_lon, _cols),
+                indexing="ij",
+            )
+            if _HAS_GLM:
+                _land_mask = _glm.is_land(_lat_grid, _lon_grid)
+            _viirs_sqm_arr = _np.where(
+                viirs_arr > 0,
+                21.7 - 2.5 * _np.log10(viirs_arr + 0.6),
+                _np.nan,
+            )
 
-    # ── Dark-sky candidates (pure numpy, no scipy required) ───────────────────
-    with prof.phase("extract dark candidates"):
-        dark_candidates = _extract_dark_sky_candidates(
-            viirs_arr, falchi_arr,
-            _min_lat, _max_lat, _min_lon, _max_lon,
-            lat, lon, radius_miles, dark_threshold,
-            poi_index=_poi_index,
-            lat_grid=_lat_grid, lon_grid=_lon_grid,
-            land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr,
-        )
-    _funnel["extract_raw"] = len(dark_candidates)
-    _funnel["poi_first"] = bool(dark_candidates) and bool(dark_candidates[0].get("is_poi"))
+        # ── Dark-sky candidates (pure numpy, no scipy required) ───────────────
+        with prof.phase("extract dark candidates"):
+            dark_candidates = _extract_dark_sky_candidates(
+                viirs_arr, falchi_arr,
+                _min_lat, _max_lat, _min_lon, _max_lon,
+                lat, lon, radius_miles, dark_threshold,
+                poi_index=_poi_index,
+                lat_grid=_lat_grid, lon_grid=_lon_grid,
+                land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr,
+            )
+        _funnel["extract_raw"] = len(dark_candidates)
+        _funnel["poi_first"] = bool(dark_candidates) and bool(dark_candidates[0].get("is_poi"))
 
-    # all_darker: any pixel darker than origin — used only for best_available
-    # when no proper dark clusters are found.  Computed lazily to avoid
-    # the second numpy pass on the common case where dark_candidates is non-empty.
-    all_darker: list = []
+        # all_darker: any pixel darker than origin — used only for best_available
+        # when no proper dark clusters are found.  Computed lazily to avoid
+        # the second numpy pass on the common case where dark_candidates is non-empty.
+        all_darker: list = []
 
-    _MAX_DARK_CANDIDATES = 60    # post-cluster cap (total, spread across distance bands)
-    _MAX_RESULTS = 10    # max dark-sky areas to name and display
-    _MAX_DOMES   = 10    # max light domes to name and display
-    _N_BANDS     = 6     # distance bands used in both extract and cluster selection
+        _MAX_DARK_CANDIDATES = 60    # post-cluster cap (total, spread across distance bands)
+        _MAX_RESULTS = 10    # max dark-sky areas to name and display
+        _MAX_DOMES   = 10    # max light domes to name and display
+        _N_BANDS     = 6     # distance bands used in both extract and cluster selection
 
-    # Calculate priority: Bortle 1/2 are "MUST HAVES" (boosted), 3+ are distance-based
-    with prof.phase("cluster + band select"):
-        for pt in dark_candidates:
-            if pt["bortle_class"] <= 2:
-                pt["priority_score"] = pt["distance_miles"] * (radius_miles * 0.25)
-            else:
-                pt["priority_score"] = pt["distance_miles"]
+        # Calculate priority: Bortle 1/2 are "MUST HAVES" (boosted), 3+ are distance-based
+        with prof.phase("cluster + band select"):
+            for pt in dark_candidates:
+                if pt["bortle_class"] <= 2:
+                    pt["priority_score"] = pt["distance_miles"] * (radius_miles * 0.25)
+                else:
+                    pt["priority_score"] = pt["distance_miles"]
 
-        dark_candidates.sort(key=lambda p: p["priority_score"])
+            dark_candidates.sort(key=lambda p: p["priority_score"])
 
-        # Cluster spatially (pure CPU) to collapse adjacent pixels into geographic areas.
-        # Then select clusters via stratified distance sampling: take up to _PER_BAND
-        # clusters per distance band (darkest/nearest first within each band).
-        # Without stratification, a nearest-first cap silently drops all distant
-        # dark areas when the entire search radius is one Bortle class (e.g. Bortle 1).
-        _per_band    = max(1, _MAX_DARK_CANDIDATES // _N_BANDS)
-        _band_width  = radius_miles / _N_BANDS
-        all_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
-        _funnel["clusters"] = len(all_clusters)
-        selected: list = []
-        for _band in range(_N_BANDS):
-            _lo, _hi = _band * _band_width, (_band + 1) * _band_width
-            _band_clusters = sorted(
-                [c for c in all_clusters if _lo <= c["distance_miles"] < _hi],
-                key=lambda c: (c["bortle_class"], c["distance_miles"]),
-            )[:_per_band]
-            selected.extend(_band_clusters)
-        dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
-        _funnel["band_selected"] = len(dark_candidates)
+            # Cluster spatially (pure CPU) to collapse adjacent pixels into geographic areas.
+            # Then select clusters via stratified distance sampling: take up to _PER_BAND
+            # clusters per distance band (darkest/nearest first within each band).
+            # Without stratification, a nearest-first cap silently drops all distant
+            # dark areas when the entire search radius is one Bortle class (e.g. Bortle 1).
+            _per_band    = max(1, _MAX_DARK_CANDIDATES // _N_BANDS)
+            _band_width  = radius_miles / _N_BANDS
+            all_clusters = _cluster_points(dark_candidates, merge_miles=1) if dark_candidates else []
+            _funnel["clusters"] = len(all_clusters)
+            selected: list = []
+            for _band in range(_N_BANDS):
+                _lo, _hi = _band * _band_width, (_band + 1) * _band_width
+                _band_clusters = sorted(
+                    [c for c in all_clusters if _lo <= c["distance_miles"] < _hi],
+                    key=lambda c: (c["bortle_class"], c["distance_miles"]),
+                )[:_per_band]
+                selected.extend(_band_clusters)
+            dark_candidates = sorted(selected, key=lambda c: (c["bortle_class"], c["distance_miles"]))
+            _funnel["band_selected"] = len(dark_candidates)
+    except Exception:
+        if _dome_fut is not None:
+            _raster_ex.shutdown(wait=True)
+        raise
 
     # ── Light dome candidates (numpy blob detection on the dome window) ───────
     # A dome must be brighter than the origin by >=2 Bortle classes (dbortle >

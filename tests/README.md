@@ -1,6 +1,6 @@
 # Test Suite
 
-874 tests across 39 files (as of 2026-07-22). A default run is offline and
+877 tests across 39 files (as of 2026-07-23). A default run is offline and
 deterministic — everything external is opt-in via markers.
 
 ## How to run
