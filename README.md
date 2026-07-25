@@ -42,6 +42,20 @@ Here's the rest of it:
 
 Complete feature set in [docs/FEATURES.md](docs/FEATURES.md).
 
+### The target catalog
+
+Every target is picked to be visible to the naked eye or to show up in a photograph. 63 in all:
+
+| Category | Count |
+|----------|------:|
+| **Meteor showers** | 11 |
+| **Celestial targets** | **52** |
+| Nebulae | 14 |
+| Milky Way regions | 14 |
+| Star clusters | 11 |
+| Planets | 7 |
+| Galaxies | 6 |
+
 ### See it in action
 
 **360 degree simulated sky.** Drag to pan, scrub through the night.
