@@ -513,16 +513,25 @@ class LambdaApiStack(Stack):
         #                                (cheapest reject; ~25 WCU).
         #   1  KnownBadInputs          — block request patterns tied to known exploits/probes
         #                                (~200 WCU). Low false-positive risk on a JSON API.
-        #   2  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
+        #   2  CommonRuleSet           — the WAF "Core Rule Set": broad generic-attack coverage
+        #                                (XSS, path traversal, LFI/RFI, oversized bodies, etc.,
+        #                                ~700 WCU). COUNT, not BLOCK, for now — one of its rules
+        #                                (NoUserAgent_HEADER) blocks requests with no User-Agent,
+        #                                which some uptime monitors on /healthz omit, and that's
+        #                                not something to find out by breaking prod. Watch the
+        #                                WAF logs (aws-waf-logs-pynightsky, see M7.3 below) for a
+        #                                stretch with no unexpected COUNTs, then flip
+        #                                override_action to none.
+        #   3  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
         #                                Each /nearby spawns an SQS job; this caps worker cost.
-        #   3  RateLimitCalendarPerIp  — block any IP exceeding 30 /calendar requests / 5 min.
+        #   4  RateLimitCalendarPerIp  — block any IP exceeding 30 /calendar requests / 5 min.
         #                                One /calendar call = one SQS job, bounded to <=30
         #                                location-nights (_MAX_CALENDAR_DAYS). The web client
         #                                now auto-fires this once per distinct location viewed
         #                                (not just on manual range-picker use), so the limit is
         #                                sized for someone actively comparing several spots in
         #                                one session rather than a single opt-in click.
-        #   4  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
+        #   5  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
         #                                across all endpoints. Raised alongside the calendar
         #                                auto-fire above: each location view now costs ~1
         #                                /night + 1 /calendar submit + a few /jobs/{id} polls
@@ -530,9 +539,9 @@ class LambdaApiStack(Stack):
         #                                this global one), plus typeahead /suggest calls. Still
         #                                well below anything a scripted scraper needs seconds,
         #                                not minutes, to exceed.
-        # Total ~231 WCU, well under the 1500-WCU default WebACL capacity (rate-based rule cost
+        # Total ~931 WCU, still under the 1500-WCU default WebACL capacity (rate-based rule cost
         # doesn't scale with the numeric limit). Managed groups use override_action=none so each
-        # group's own block/count actions apply unchanged.
+        # group's own block/count actions apply unchanged — except CommonRuleSet, see above.
         managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
             managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
                 vendor_name=vendor, name=name,
@@ -564,8 +573,15 @@ class LambdaApiStack(Stack):
                     visibility_config=vis("KnownBadInputs"),
                 ),
                 wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitNearbyPerIp",
+                    name="CommonRuleSet",
                     priority=2,
+                    override_action=wafv2.CfnWebACL.OverrideActionProperty(count={}),
+                    statement=managed("AWSManagedRulesCommonRuleSet"),
+                    visibility_config=vis("CommonRuleSet"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitNearbyPerIp",
+                    priority=3,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -587,7 +603,7 @@ class LambdaApiStack(Stack):
                 ),
                 wafv2.CfnWebACL.RuleProperty(
                     name="RateLimitCalendarPerIp",
-                    priority=3,
+                    priority=4,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -609,7 +625,7 @@ class LambdaApiStack(Stack):
                 ),
                 wafv2.CfnWebACL.RuleProperty(
                     name="RateLimitPerIp",
-                    priority=4,
+                    priority=5,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -879,10 +895,10 @@ class LambdaApiStack(Stack):
                 period=Duration.minutes(5),
             )
 
-        def _waf_metric(rule: str) -> cloudwatch.Metric:
+        def _waf_metric(rule: str, metric_name: str = "BlockedRequests") -> cloudwatch.Metric:
             return cloudwatch.Metric(
                 namespace="AWS/WAFV2",
-                metric_name="BlockedRequests",
+                metric_name=metric_name,
                 dimensions_map={"WebACL": "PyNightSkyWaf", "Rule": rule, "Region": "Global"},
                 region="us-east-1",
                 statistic="Sum",
@@ -979,6 +995,12 @@ class LambdaApiStack(Stack):
                     _waf_metric("RateLimitCalendarPerIp"),
                     _waf_metric("RateLimitPerIp"),
                 ],
+            ),
+            # CommonRuleSet runs in COUNT (not BLOCK) — this is what tells us whether it's
+            # safe to flip to enforcing. Watch for a quiet stretch with no surprise counts.
+            cloudwatch.GraphWidget(
+                title="WAF — CommonRuleSet counted requests (not yet blocking)",
+                left=[_waf_metric("CommonRuleSet", "CountedRequests")],
             ),
             cloudwatch.GraphWidget(
                 title="Upstream errors (Location/Celestrak/7Timer)",
@@ -1112,6 +1134,10 @@ class LambdaApiStack(Stack):
         redirect_dist = cloudfront.Distribution(
             self, "WildcardRedirectCdn",
             comment="Redirect *.darkhours.app -> darkhours.app (blog.* -> /blog)",
+            # Same WebACL as the main distribution — no extra base/per-rule cost, since
+            # that's billed per Web ACL, not per attached distribution. Only adds the
+            # (tiny, expected) per-request evaluation cost for whatever hits this one.
+            web_acl_id=web_acl.attr_arn,
             domain_names=["*.darkhours.app"],
             certificate=wildcard_cert,
             default_behavior=cloudfront.BehaviorOptions(
