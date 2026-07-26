@@ -394,6 +394,72 @@ class LambdaApiStack(Stack):
             function=sec_fetch_fn,
         )]
 
+        # --- Response header hardening ---
+        # Two policies, not one: CSP is the one header that can actually break a page if
+        # it's wrong, and the /blog* origin is a separately-deployed Astro site (its own
+        # repo/CI — see the blog_bucket comment below) whose inline-script/style needs
+        # aren't auditable from here. So the SPA behavior gets the full policy including
+        # CSP (audited against apps/web/src: Plausible, the same-origin API, AWS RUM's
+        # dataplane endpoint, Google Fonts, and the data: URI the red-mode favicon swap
+        # uses); everything else gets the headers that can't break a response no matter
+        # its content.
+        _base_security_headers = cloudfront.ResponseSecurityHeadersBehavior(
+            content_type_options=cloudfront.ResponseHeadersContentTypeOptions(override=True),
+            frame_options=cloudfront.ResponseHeadersFrameOptions(
+                frame_option=cloudfront.HeadersFrameOption.DENY, override=True,
+            ),
+            referrer_policy=cloudfront.ResponseHeadersReferrerPolicy(
+                referrer_policy=cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+                override=True,
+            ),
+            # includeSubDomains is safe now that *.darkhours.app has its own valid cert
+            # (the wildcard redirect distribution) — every subdomain actually serves HTTPS.
+            # preload is deliberately left off: submitting to the browser preload list is
+            # a one-way door (see hstspreload.org), not something to opt into in passing.
+            strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
+                access_control_max_age=Duration.days(365),
+                include_subdomains=True,
+                override=True,
+            ),
+        )
+        base_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self, "BaseSecurityHeaders",
+            comment="Security headers safe for any response (no CSP)",
+            security_headers_behavior=_base_security_headers,
+        )
+        spa_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self, "SpaSecurityHeaders",
+            comment="Security headers + CSP for the SPA document/assets",
+            security_headers_behavior=cloudfront.ResponseSecurityHeadersBehavior(
+                content_type_options=_base_security_headers.content_type_options,
+                frame_options=_base_security_headers.frame_options,
+                referrer_policy=_base_security_headers.referrer_policy,
+                strict_transport_security=_base_security_headers.strict_transport_security,
+                content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
+                    content_security_policy=(
+                        "default-src 'self'; "
+                        "script-src 'self' https://plausible.io; "
+                        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                        "font-src 'self' https://fonts.gstatic.com; "
+                        "img-src 'self' data:; "
+                        "connect-src 'self' https://plausible.io "
+                        "https://dataplane.rum.us-east-1.amazonaws.com; "
+                        "object-src 'none'; base-uri 'none'; form-action 'self'; "
+                        "frame-ancestors 'none'"
+                    ),
+                    override=True,
+                ),
+            ),
+            # Geolocation powers the "use my location" search; nothing else is used.
+            custom_headers_behavior=cloudfront.ResponseCustomHeadersBehavior(
+                custom_headers=[cloudfront.ResponseCustomHeader(
+                    header="Permissions-Policy",
+                    value="geolocation=(self), camera=(), microphone=(), payment=()",
+                    override=True,
+                )],
+            ),
+        )
+
         no_cache = cloudfront.BehaviorOptions(
             origin=origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -401,6 +467,7 @@ class LambdaApiStack(Stack):
             cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
             origin_request_policy=fwd_qs,
             function_associations=_sec_fetch,
+            response_headers_policy=base_headers_policy,
         )
         # /night: cached GETs keyed on the full query string, same-origin guard applied.
         api_cached = cloudfront.BehaviorOptions(
@@ -409,6 +476,7 @@ class LambdaApiStack(Stack):
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cache_policy=api_cache,
             function_associations=_sec_fetch,
+            response_headers_policy=base_headers_policy,
         )
         # /healthz: same cache policy, no guard so uptime monitors can reach it.
         open_cached = cloudfront.BehaviorOptions(
@@ -416,6 +484,7 @@ class LambdaApiStack(Stack):
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cache_policy=api_cache,
+            response_headers_policy=base_headers_policy,
         )
 
         # --- M7.1: the SPA's static assets behind the SAME distribution ---
@@ -444,16 +513,25 @@ class LambdaApiStack(Stack):
         #                                (cheapest reject; ~25 WCU).
         #   1  KnownBadInputs          — block request patterns tied to known exploits/probes
         #                                (~200 WCU). Low false-positive risk on a JSON API.
-        #   2  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
+        #   2  CommonRuleSet           — the WAF "Core Rule Set": broad generic-attack coverage
+        #                                (XSS, path traversal, LFI/RFI, oversized bodies, etc.,
+        #                                ~700 WCU). COUNT, not BLOCK, for now — one of its rules
+        #                                (NoUserAgent_HEADER) blocks requests with no User-Agent,
+        #                                which some uptime monitors on /healthz omit, and that's
+        #                                not something to find out by breaking prod. Watch the
+        #                                WAF logs (aws-waf-logs-pynightsky, see M7.3 below) for a
+        #                                stretch with no unexpected COUNTs, then flip
+        #                                override_action to none.
+        #   3  RateLimitNearbyPerIp    — block any IP exceeding 10 /nearby requests / 5 min.
         #                                Each /nearby spawns an SQS job; this caps worker cost.
-        #   3  RateLimitCalendarPerIp  — block any IP exceeding 30 /calendar requests / 5 min.
+        #   4  RateLimitCalendarPerIp  — block any IP exceeding 30 /calendar requests / 5 min.
         #                                One /calendar call = one SQS job, bounded to <=30
         #                                location-nights (_MAX_CALENDAR_DAYS). The web client
         #                                now auto-fires this once per distinct location viewed
         #                                (not just on manual range-picker use), so the limit is
         #                                sized for someone actively comparing several spots in
         #                                one session rather than a single opt-in click.
-        #   4  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
+        #   5  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
         #                                across all endpoints. Raised alongside the calendar
         #                                auto-fire above: each location view now costs ~1
         #                                /night + 1 /calendar submit + a few /jobs/{id} polls
@@ -461,9 +539,9 @@ class LambdaApiStack(Stack):
         #                                this global one), plus typeahead /suggest calls. Still
         #                                well below anything a scripted scraper needs seconds,
         #                                not minutes, to exceed.
-        # Total ~231 WCU, well under the 1500-WCU default WebACL capacity (rate-based rule cost
+        # Total ~931 WCU, still under the 1500-WCU default WebACL capacity (rate-based rule cost
         # doesn't scale with the numeric limit). Managed groups use override_action=none so each
-        # group's own block/count actions apply unchanged.
+        # group's own block/count actions apply unchanged — except CommonRuleSet, see above.
         managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
             managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
                 vendor_name=vendor, name=name,
@@ -495,8 +573,15 @@ class LambdaApiStack(Stack):
                     visibility_config=vis("KnownBadInputs"),
                 ),
                 wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitNearbyPerIp",
+                    name="CommonRuleSet",
                     priority=2,
+                    override_action=wafv2.CfnWebACL.OverrideActionProperty(count={}),
+                    statement=managed("AWSManagedRulesCommonRuleSet"),
+                    visibility_config=vis("CommonRuleSet"),
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitNearbyPerIp",
+                    priority=3,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -518,7 +603,7 @@ class LambdaApiStack(Stack):
                 ),
                 wafv2.CfnWebACL.RuleProperty(
                     name="RateLimitCalendarPerIp",
-                    priority=3,
+                    priority=4,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -540,7 +625,7 @@ class LambdaApiStack(Stack):
                 ),
                 wafv2.CfnWebACL.RuleProperty(
                     name="RateLimitPerIp",
-                    priority=4,
+                    priority=5,
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
@@ -622,6 +707,7 @@ class LambdaApiStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                response_headers_policy=spa_headers_policy,
             ),
             additional_behaviors={
                 "/night":    api_cached,
@@ -636,6 +722,7 @@ class LambdaApiStack(Stack):
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                     function_associations=blog_fn_assoc,
+                    response_headers_policy=base_headers_policy,
                 ),
             },
         )
@@ -808,10 +895,10 @@ class LambdaApiStack(Stack):
                 period=Duration.minutes(5),
             )
 
-        def _waf_metric(rule: str) -> cloudwatch.Metric:
+        def _waf_metric(rule: str, metric_name: str = "BlockedRequests") -> cloudwatch.Metric:
             return cloudwatch.Metric(
                 namespace="AWS/WAFV2",
-                metric_name="BlockedRequests",
+                metric_name=metric_name,
                 dimensions_map={"WebACL": "PyNightSkyWaf", "Rule": rule, "Region": "Global"},
                 region="us-east-1",
                 statistic="Sum",
@@ -909,6 +996,12 @@ class LambdaApiStack(Stack):
                     _waf_metric("RateLimitPerIp"),
                 ],
             ),
+            # CommonRuleSet runs in COUNT (not BLOCK) — this is what tells us whether it's
+            # safe to flip to enforcing. Watch for a quiet stretch with no surprise counts.
+            cloudwatch.GraphWidget(
+                title="WAF — CommonRuleSet counted requests (not yet blocking)",
+                left=[_waf_metric("CommonRuleSet", "CountedRequests")],
+            ),
             cloudwatch.GraphWidget(
                 title="Upstream errors (Location/Celestrak/7Timer)",
                 left=[cloudwatch.Metric(
@@ -1001,7 +1094,80 @@ class LambdaApiStack(Stack):
             ),
         )
 
+        # --- Wildcard subdomain redirect: *.darkhours.app -> darkhours.app ---
+        # Any subdomain (www, typos, an old blog host, whatever shows up) 301s to the
+        # equivalent path on the apex. blog.darkhours.app is special-cased to land under
+        # /blog, where the Astro blog actually lives (see the /blog* behavior on `dist`
+        # above), instead of 404ing there. This lives on its OWN distribution/cert rather
+        # than being bolted onto `dist`: CloudFront allows only one function per
+        # (behavior, event type), and every behavior on `dist` already has one (the
+        # same-origin check or the blog directory rewrite) — merging in a second
+        # host-based check isn't an option, and this redirect only ever needs the Host
+        # header, never the origin, so a tiny standalone distribution is simplest.
+        wildcard_cert = acm.Certificate(
+            self, "WildcardCert",
+            domain_name="*.darkhours.app",
+            validation=acm.CertificateValidation.from_dns(hosted_zone),
+        )
+        _redirect_js = (
+            "function handler(event){"
+            "var host=event.request.headers.host.value.toLowerCase();"
+            "var uri=event.request.uri;"
+            "var qs=event.request.querystring;"
+            "var parts=[];"
+            "for(var k in qs){"
+            "var e=qs[k];"
+            "if(e.multiValue){for(var i=0;i<e.multiValue.length;i++)"
+            "parts.push(encodeURIComponent(k)+'='+encodeURIComponent(e.multiValue[i].value));}"
+            "else{parts.push(encodeURIComponent(k)+'='+encodeURIComponent(e.value));}}"
+            "var qstr=parts.length?('?'+parts.join('&')):'';"
+            "var prefix=(host==='blog.darkhours.app')?'/blog':'';"
+            "return{statusCode:301,statusDescription:'Moved Permanently',"
+            "headers:{location:{value:'https://darkhours.app'+prefix+uri+qstr}}};"
+            "}"
+        )
+        redirect_fn = cloudfront.Function(
+            self, "WildcardRedirectFn",
+            code=cloudfront.FunctionCode.from_inline(_redirect_js),
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
+        )
+        redirect_dist = cloudfront.Distribution(
+            self, "WildcardRedirectCdn",
+            comment="Redirect *.darkhours.app -> darkhours.app (blog.* -> /blog)",
+            # Same WebACL as the main distribution — no extra base/per-rule cost, since
+            # that's billed per Web ACL, not per attached distribution. Only adds the
+            # (tiny, expected) per-request evaluation cost for whatever hits this one.
+            web_acl_id=web_acl.attr_arn,
+            domain_names=["*.darkhours.app"],
+            certificate=wildcard_cert,
+            default_behavior=cloudfront.BehaviorOptions(
+                # Never actually fetched — the function always returns a redirect before
+                # the origin would be hit. Pointed at the apex anyway as a safe fallback.
+                origin=origins.HttpOrigin("darkhours.app"),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                function_associations=[cloudfront.FunctionAssociation(
+                    event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+                    function=redirect_fn,
+                )],
+            ),
+        )
+        # Route 53 wildcard A-alias: *.darkhours.app → the redirect distribution.
+        route53.ARecord(
+            self, "WildcardAliasRecord",
+            zone=hosted_zone,
+            record_name="*.darkhours.app",
+            target=route53.RecordTarget.from_alias(
+                route53_targets.CloudFrontTarget(redirect_dist)
+            ),
+        )
+
         CfnOutput(self, "DomainUrl", value="https://darkhours.app")
+        CfnOutput(
+            self, "WildcardRedirectCloudFrontUrl",
+            value=f"https://{redirect_dist.distribution_domain_name}",
+        )
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
