@@ -9,7 +9,7 @@
 
 ![DarkHours night report for Knolls, UT, a Bortle 1 site, with the horizon light dome panel showing the real light dome from Salt Lake City](docs/images/hero.png)
 
-Pick a place and a date. DarkHours presents a score, an hour by hour plan of what to shoot and when, and a list of darker spots to drive to if local conditions don't hold up.
+Pick a place and a date. DarkHours presents a score, an hour by hour plan of what to shoot and when, and a list of darker spots to drive to if you need to change plans.
 
 **Visit at: [https://darkhours.app](https://darkhours.app)**
 
