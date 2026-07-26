@@ -16,3 +16,10 @@ import App from './App'
 export function render(): string {
   return renderToString(<App />)
 }
+
+// Re-exported so scripts/prerender.mjs (plain Node, no TS loader) can read the
+// same feature data already compiled into this bundle, instead of importing
+// content/features.ts directly from raw source — keeps the JSON-LD
+// featureList and the guardrail's expected tile count in sync with the
+// actual page content by construction, not by manual duplication.
+export { FEATURES } from './content/features'
