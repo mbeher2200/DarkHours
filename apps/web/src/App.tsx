@@ -7,6 +7,7 @@ import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
 import { readLocalStorage } from './env'
+import { FEATURES } from './content/features'
 
 type Mode = 'place' | 'coords'
 
@@ -594,28 +595,12 @@ export default function App() {
             <div className="es-score-bar" />
           </div>
 
-          <span className="es-caps-label">Features</span>
+          <h2 className="es-caps-label">Features</h2>
 
-          {/* Ordered by differentiation, not data category: exclusive differentiators
-              first, then distinctive modeling, then commodity metrics; the rest is
-              swept into the "fundamentals" line below rather than given tiles. */}
           <div className="es-caps">
-            {([
-              ['Target Windows',    'Every shootable target with its peak time and window, and why others are blocked due to clouds, moonwash, or light domes.'],
-              ['Milky Way Planner', 'A 360° view of the galactic plane over your horizon—altitude, bearing, and the best minute to shoot.'],
-              ['Sky & Horizon Glow', 'A horizon map of light domes around you. Know more than just the Bortle.'],
-              ['Nearby Dark Sky',   'Search for low bortle locations you can actually reach, with routing to facilities like parking, campgrounds, and viewpoints. All sorted by drive times.'],
-              ['Moonlight Modeling', 'Most tools treat the moon as binary: up means ruined. DarkHours models real scattered moonlight brightening at your target from live aerosol data. A crescent barely registers. A bright gibbous gets called out.'],
-              ['360° Sky Simulation', "Drag around a rendered dome of tonight's actual sky: stars, Milky Way, moon phase, and light domes to scale. Scrub sunset to sunrise and watch visibility accurately change with conditions across the timeline"],
-              ['Aurora Forecast', 'NOAA space-weather data run through a geomagnetic visibility model for your exact location. Tiered honestly as overhead, naked eye, camera capture only, with the bearing to look toward.'],
-              ['Satellite Passes', "ISS, Hubble, and Tiangong passes with rise, peak, and set times. Newly launched Starlink trains are tracked while they're still bunched and bright."],
-              ['30 Day Best Night', 'A 30 day outlook. Compare conditions across multiple nights to identify the best windows.'],
-              ['Smoke & Haze Forecast',  'Wildfire smoke and upper-air aerosol data from ground sensors, and satellites.'],
-              ['Meteor Shower Predictions', 'Know when the next meteor shower will peak, the estimated meteors per hour, and visibility from your location.'],
-              ['Tailored Weather Forecasts', 'A two week, hour by hour forecast for: cloud cover, temperature, wind and humidity cloud layers, and wind - updated twice an hour. Plus three day atmospheric seeing, and transparency provided by 7Timer.'],
-            ] as [string, string][]).map(([k, v]) => (
+            {FEATURES.map(([k, v]) => (
               <div key={k} className="es-cap">
-                <span className="es-cap-k">{k}</span>
+                <h3 className="es-cap-k">{k}</h3>
                 <span className="es-cap-v">{v}</span>
               </div>
             ))}
@@ -638,15 +623,19 @@ export default function App() {
                 ['Death Valley, CA',   'Death Valley, California',                 'Bortle 1 — pristine desert benchmark'],
                 ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania',  'Bortle 2 — the East Coast classic'],
               ] as [string, string, string][]).map(([label, query, hook]) => (
-                <button
+                <a
                   key={query}
-                  type="button"
                   className="es-qs-btn"
-                  onClick={() => quickSearch(query)}
+                  href={`/?q=${encodeURIComponent(query)}`}
+                  onClick={(e) => {
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                    e.preventDefault()
+                    quickSearch(query)
+                  }}
                 >
                   <span className="es-qs-name">{label}</span>
                   <span className="es-qs-hook">{hook}</span>
-                </button>
+                </a>
               ))}
             </div>
           </div>
@@ -697,7 +686,9 @@ export default function App() {
         <p className="colophon-tagline">
           DarkHours is free,{' '}
           <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
-          , and will never require your email address. Visit our{' '}
+          , and will never require your email address. Built by{' '}
+          <a href="/blog/about" target="_blank" rel="noreferrer">Miguel Beher</a>
+          , a landscape astrophotographer — read more on the{' '}
           <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
         </p>
 
