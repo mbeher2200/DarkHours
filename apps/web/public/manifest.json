@@ -1,0 +1,15 @@
+{
+	"name": "DarkHours",
+	"short_name": "DarkHours",
+	"description": "Precision Landscape Astrophotography Planning. Bortle class, ephemeris data, clear dark hours, weather conditions, and deep sky object viability in a single view.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "browser",
+	"background_color": "#E8EAEE",
+	"theme_color": "#E8EAEE",
+	"icons": [
+		{ "src": "/favicon-16.png", "sizes": "16x16", "type": "image/png" },
+		{ "src": "/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+		{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+	]
+}
