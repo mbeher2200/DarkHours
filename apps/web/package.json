@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "CI=true vite",
-    "build": "tsc -b && vite build",
+    "build:client": "tsc -b && vite build",
+    "build:ssr": "vite build --ssr src/entry-server.tsx --outDir dist-ssr",
+    "prerender": "node scripts/prerender.mjs",
+    "build": "npm run build:client && npm run build:ssr && npm run prerender",
     "lint": "eslint .",
     "preview": "vite preview"
   },
