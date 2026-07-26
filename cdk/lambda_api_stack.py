@@ -394,6 +394,72 @@ class LambdaApiStack(Stack):
             function=sec_fetch_fn,
         )]
 
+        # --- Response header hardening ---
+        # Two policies, not one: CSP is the one header that can actually break a page if
+        # it's wrong, and the /blog* origin is a separately-deployed Astro site (its own
+        # repo/CI — see the blog_bucket comment below) whose inline-script/style needs
+        # aren't auditable from here. So the SPA behavior gets the full policy including
+        # CSP (audited against apps/web/src: Plausible, the same-origin API, AWS RUM's
+        # dataplane endpoint, Google Fonts, and the data: URI the red-mode favicon swap
+        # uses); everything else gets the headers that can't break a response no matter
+        # its content.
+        _base_security_headers = cloudfront.ResponseSecurityHeadersBehavior(
+            content_type_options=cloudfront.ResponseHeadersContentTypeOptions(override=True),
+            frame_options=cloudfront.ResponseHeadersFrameOptions(
+                frame_option=cloudfront.HeadersFrameOption.DENY, override=True,
+            ),
+            referrer_policy=cloudfront.ResponseHeadersReferrerPolicy(
+                referrer_policy=cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+                override=True,
+            ),
+            # includeSubDomains is safe now that *.darkhours.app has its own valid cert
+            # (the wildcard redirect distribution) — every subdomain actually serves HTTPS.
+            # preload is deliberately left off: submitting to the browser preload list is
+            # a one-way door (see hstspreload.org), not something to opt into in passing.
+            strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
+                access_control_max_age=Duration.days(365),
+                include_subdomains=True,
+                override=True,
+            ),
+        )
+        base_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self, "BaseSecurityHeaders",
+            comment="Security headers safe for any response (no CSP)",
+            security_headers_behavior=_base_security_headers,
+        )
+        spa_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self, "SpaSecurityHeaders",
+            comment="Security headers + CSP for the SPA document/assets",
+            security_headers_behavior=cloudfront.ResponseSecurityHeadersBehavior(
+                content_type_options=_base_security_headers.content_type_options,
+                frame_options=_base_security_headers.frame_options,
+                referrer_policy=_base_security_headers.referrer_policy,
+                strict_transport_security=_base_security_headers.strict_transport_security,
+                content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
+                    content_security_policy=(
+                        "default-src 'self'; "
+                        "script-src 'self' https://plausible.io; "
+                        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                        "font-src 'self' https://fonts.gstatic.com; "
+                        "img-src 'self' data:; "
+                        "connect-src 'self' https://plausible.io "
+                        "https://dataplane.rum.us-east-1.amazonaws.com; "
+                        "object-src 'none'; base-uri 'none'; form-action 'self'; "
+                        "frame-ancestors 'none'"
+                    ),
+                    override=True,
+                ),
+            ),
+            # Geolocation powers the "use my location" search; nothing else is used.
+            custom_headers_behavior=cloudfront.ResponseCustomHeadersBehavior(
+                custom_headers=[cloudfront.ResponseCustomHeader(
+                    header="Permissions-Policy",
+                    value="geolocation=(self), camera=(), microphone=(), payment=()",
+                    override=True,
+                )],
+            ),
+        )
+
         no_cache = cloudfront.BehaviorOptions(
             origin=origin,
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -401,6 +467,7 @@ class LambdaApiStack(Stack):
             cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
             origin_request_policy=fwd_qs,
             function_associations=_sec_fetch,
+            response_headers_policy=base_headers_policy,
         )
         # /night: cached GETs keyed on the full query string, same-origin guard applied.
         api_cached = cloudfront.BehaviorOptions(
@@ -409,6 +476,7 @@ class LambdaApiStack(Stack):
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cache_policy=api_cache,
             function_associations=_sec_fetch,
+            response_headers_policy=base_headers_policy,
         )
         # /healthz: same cache policy, no guard so uptime monitors can reach it.
         open_cached = cloudfront.BehaviorOptions(
@@ -416,6 +484,7 @@ class LambdaApiStack(Stack):
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cache_policy=api_cache,
+            response_headers_policy=base_headers_policy,
         )
 
         # --- M7.1: the SPA's static assets behind the SAME distribution ---
@@ -622,6 +691,7 @@ class LambdaApiStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                response_headers_policy=spa_headers_policy,
             ),
             additional_behaviors={
                 "/night":    api_cached,
@@ -636,6 +706,7 @@ class LambdaApiStack(Stack):
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                     function_associations=blog_fn_assoc,
+                    response_headers_policy=base_headers_policy,
                 ),
             },
         )
