@@ -1001,7 +1001,76 @@ class LambdaApiStack(Stack):
             ),
         )
 
+        # --- Wildcard subdomain redirect: *.darkhours.app -> darkhours.app ---
+        # Any subdomain (www, typos, an old blog host, whatever shows up) 301s to the
+        # equivalent path on the apex. blog.darkhours.app is special-cased to land under
+        # /blog, where the Astro blog actually lives (see the /blog* behavior on `dist`
+        # above), instead of 404ing there. This lives on its OWN distribution/cert rather
+        # than being bolted onto `dist`: CloudFront allows only one function per
+        # (behavior, event type), and every behavior on `dist` already has one (the
+        # same-origin check or the blog directory rewrite) — merging in a second
+        # host-based check isn't an option, and this redirect only ever needs the Host
+        # header, never the origin, so a tiny standalone distribution is simplest.
+        wildcard_cert = acm.Certificate(
+            self, "WildcardCert",
+            domain_name="*.darkhours.app",
+            validation=acm.CertificateValidation.from_dns(hosted_zone),
+        )
+        _redirect_js = (
+            "function handler(event){"
+            "var host=event.request.headers.host.value.toLowerCase();"
+            "var uri=event.request.uri;"
+            "var qs=event.request.querystring;"
+            "var parts=[];"
+            "for(var k in qs){"
+            "var e=qs[k];"
+            "if(e.multiValue){for(var i=0;i<e.multiValue.length;i++)"
+            "parts.push(encodeURIComponent(k)+'='+encodeURIComponent(e.multiValue[i].value));}"
+            "else{parts.push(encodeURIComponent(k)+'='+encodeURIComponent(e.value));}}"
+            "var qstr=parts.length?('?'+parts.join('&')):'';"
+            "var prefix=(host==='blog.darkhours.app')?'/blog':'';"
+            "return{statusCode:301,statusDescription:'Moved Permanently',"
+            "headers:{location:{value:'https://darkhours.app'+prefix+uri+qstr}}};"
+            "}"
+        )
+        redirect_fn = cloudfront.Function(
+            self, "WildcardRedirectFn",
+            code=cloudfront.FunctionCode.from_inline(_redirect_js),
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
+        )
+        redirect_dist = cloudfront.Distribution(
+            self, "WildcardRedirectCdn",
+            comment="Redirect *.darkhours.app -> darkhours.app (blog.* -> /blog)",
+            domain_names=["*.darkhours.app"],
+            certificate=wildcard_cert,
+            default_behavior=cloudfront.BehaviorOptions(
+                # Never actually fetched — the function always returns a redirect before
+                # the origin would be hit. Pointed at the apex anyway as a safe fallback.
+                origin=origins.HttpOrigin("darkhours.app"),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                function_associations=[cloudfront.FunctionAssociation(
+                    event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+                    function=redirect_fn,
+                )],
+            ),
+        )
+        # Route 53 wildcard A-alias: *.darkhours.app → the redirect distribution.
+        route53.ARecord(
+            self, "WildcardAliasRecord",
+            zone=hosted_zone,
+            record_name="*.darkhours.app",
+            target=route53.RecordTarget.from_alias(
+                route53_targets.CloudFrontTarget(redirect_dist)
+            ),
+        )
+
         CfnOutput(self, "DomainUrl", value="https://darkhours.app")
+        CfnOutput(
+            self, "WildcardRedirectCloudFrontUrl",
+            value=f"https://{redirect_dist.distribution_domain_name}",
+        )
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
