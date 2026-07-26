@@ -2,12 +2,13 @@
 // not the viewer's, so "Sunset 8:32 PM" reads correctly for the queried location.
 
 import type { WeatherPoint, LightPollution, NightReport } from './types'
+import { isBrowser, readLocalStorage } from './env'
 
 // Mirror CLI detect_units(): imperial for en-US locale, SI otherwise.
 // Used only to seed the initial default; components receive `imperial` as a prop.
 export function defaultImperial(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const saved = localStorage.getItem('units')
+  if (!isBrowser) return false
+  const saved = readLocalStorage('units')
   if (saved) return saved === 'imperial'
   return navigator.language === 'en-US' || navigator.language.startsWith('en-US')
 }

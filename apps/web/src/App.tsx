@@ -6,6 +6,7 @@ import { tonightIso, toIsoDate, defaultImperial, availabilityFor } from './forma
 import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
+import { readLocalStorage } from './env'
 
 type Mode = 'place' | 'coords'
 
@@ -21,7 +22,7 @@ const HISTORY_KEY = 'search-history'
 const HISTORY_MAX = 12
 
 function loadHistory(): HistoryEntry[] {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
+  try { return JSON.parse(readLocalStorage(HISTORY_KEY) ?? '[]') } catch { return [] }
 }
 function saveHistory(entries: HistoryEntry[]) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(entries))
@@ -37,7 +38,7 @@ export default function App() {
   const [scopeOpen, setScopeOpen] = useState(true)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
-  const [redMode, setRedMode] = useState<boolean>(() => localStorage.getItem('redMode') === '1')
+  const [redMode, setRedMode] = useState<boolean>(() => readLocalStorage('redMode') === '1')
   const [searchHistory, setSearchHistory] = useState<HistoryEntry[]>(loadHistory)
   const [placeDropdown, setPlaceDropdown] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
