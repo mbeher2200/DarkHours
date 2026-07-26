@@ -10,13 +10,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const webDir = new URL('..', import.meta.url).pathname
-const { render } = await import(join(webDir, 'dist-ssr', 'entry-server.js'))
+const { render, FEATURES } = await import(join(webDir, 'dist-ssr', 'entry-server.js'))
 
 const appHtml = render()
-
-// PR2 replaces this literal with FEATURES.length once content/features.ts
-// exists, so this count can't silently drift from the real feature list.
-const EXPECTED_FEATURE_COUNT = 12
 
 function fail(message) {
   console.error(`[prerender] ${message}`)
@@ -28,8 +24,8 @@ if (appHtml.length < 1500) {
 }
 
 const capCount = (appHtml.match(/class="es-cap"/g) ?? []).length
-if (capCount !== EXPECTED_FEATURE_COUNT) {
-  fail(`expected ${EXPECTED_FEATURE_COUNT} feature tiles (class="es-cap"), found ${capCount}.`)
+if (capCount !== FEATURES.length) {
+  fail(`expected ${FEATURES.length} feature tiles (class="es-cap"), found ${capCount}.`)
 }
 
 if (appHtml.includes('class="report-head"')) {
@@ -50,5 +46,25 @@ if (html.includes(EMPTY_ROOT)) {
   fail('replace produced no change — dist/index.html still contains an empty root div.')
 }
 
-writeFileSync(indexPath, html)
-console.log(`[prerender] injected ${appHtml.length} chars into dist/index.html (${capCount} feature tiles).`)
+// Keep the WebApplication JSON-LD's featureList mechanically in sync with the
+// actual feature grid — a featureList that drifts from real page content is
+// exactly the kind of sloppy structured data that undermines the trust this
+// whole prerendering effort is meant to build.
+const jsonLdMatch = html.match(/(<script type="application\/ld\+json">)([\s\S]*?)(<\/script>)/)
+if (!jsonLdMatch) {
+  fail('could not find the WebApplication JSON-LD <script> block in dist/index.html.')
+}
+let jsonLd
+try {
+  jsonLd = JSON.parse(jsonLdMatch[2])
+} catch (e) {
+  fail(`WebApplication JSON-LD did not parse before mutation: ${e.message}`)
+}
+jsonLd.featureList = FEATURES.map(([title]) => title)
+if (jsonLd.featureList.length !== FEATURES.length) {
+  fail(`featureList length mismatch after sync: expected ${FEATURES.length}, got ${jsonLd.featureList.length}.`)
+}
+const finalHtml = html.replace(jsonLdMatch[0], `${jsonLdMatch[1]}\n    ${JSON.stringify(jsonLd, null, 2)}\n    ${jsonLdMatch[3]}`)
+
+writeFileSync(indexPath, finalHtml)
+console.log(`[prerender] injected ${appHtml.length} chars into dist/index.html (${capCount} feature tiles, featureList synced).`)

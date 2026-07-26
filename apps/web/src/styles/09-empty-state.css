@@ -86,6 +86,7 @@
   font: inherit;
   font-size: 13px;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
@@ -118,7 +119,7 @@
   letter-spacing: 0.07em;
   color: var(--text-dim);
   opacity: 0.65;
-  margin-bottom: -6px;
+  margin: 0 0 -6px;
 }
 html.red-mode .es-caps-label { color: var(--text-dim); }
 .es-caps {
@@ -133,6 +134,7 @@ html.red-mode .es-caps-label { color: var(--text-dim); }
   min-width: 0;
 }
 .es-cap-k {
+  margin: 0;
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 600;
