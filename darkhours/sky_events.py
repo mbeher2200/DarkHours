@@ -216,7 +216,12 @@ def _dark_cycle_db_key(lat: float, lon: float, window_start: date) -> str:
     # instead of a bare dark-hours float, so assemble_night()'s calendar path can
     # derive moon_score/weather-windowing inputs from this window instead of an
     # independent sky_events() call.
-    return f"dark_cycle_v2|{lat:.2f}|{lon:.2f}|{window_start.isoformat()}"
+    # v3: same shape, but twilight boundaries are now exact per night. v2 windows
+    # computed from a shoulder-season target_date were poisoned (every night
+    # zeroed when tonight lacked astronomical night — see _compute_dark_hours_cycle),
+    # and with no TTL they'd be served forever; the bump orphans them all at once
+    # (scripts/purge_dark_cycle_v2.py deletes the orphaned DynamoDB items).
+    return f"dark_cycle_v3|{lat:.2f}|{lon:.2f}|{window_start.isoformat()}"
 
 
 def _nights_to_json(nights: list[dict]) -> list[dict]:
@@ -259,16 +264,26 @@ def _nights_from_json(raw: list[dict]) -> list[dict]:
 def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> list:
     """Compute dark sky hours for 30 consecutive nights centred on target_date.
 
-    Two parallel find_discrete calls cover sunrise/sunset and moonrise/moonset
-    for the full 32-day window.  Astronomical twilight boundaries are derived
-    from tonight's sky_events (already cached) as a fixed offset applied to all
-    30 nights rather than 30 separate per-night find_discrete calls.  Drift is
-    ≤2 min/day so ≤30 min at the ±15-day edges; benchmark showed ≤0.25h array
-    drift at mid-latitudes, ≤0.75h at high latitude near solstice.  Saves the
-    ~300ms serial twilight-search loop from the previous implementation.
-    When no astronomical night exists tonight (high-lat summer), all nights
-    return 0 — correct for the solstice window where the whole 30-night window
-    also lacks astronomical darkness.
+    Two parallel find_discrete calls cover the full 32-day window: one
+    dark_twilight_day search yields sunset/sunrise (phase 3↔4, the same
+    −0.8333° boundary the old sun risings_and_settings search used — verified
+    identical to the second) *and* per-night astronomical-night boundaries
+    (phase 0↔1); the other covers moonrise/moonset.
+
+    Twilight boundaries are exact per night, not extrapolated. An earlier
+    version derived them from tonight's sky_events as a fixed offset applied
+    to all 30 nights; that broadcast turned "no astronomical night *tonight*"
+    into "no darkness for the whole window", zeroing real dark nights at
+    shoulder season (high-lat late summer, where darkness returns mid-window)
+    — and the poisoned windows were then served to every other date they
+    covered via the no-TTL caches. dark_twilight_day samples at 0.04 days
+    (~58 min), which also catches the sub-hour astro-night dips right at the
+    seasonal transition that a default 0.25-day risings_and_settings step
+    provably skips (4 consecutive real nights missed at 55°N, Aug 2026).
+
+    Cost: the twilight search is ~35 ms dearer than the old sun-horizon
+    search, but drops the internal sky_events() dependency, and runs once per
+    (location, window) before both cache layers make it permanent.
     """
     ts  = load.timescale()
     eph = _ephemeris()
@@ -279,9 +294,8 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
     t0 = ts.utc(d0.year, d0.month, d0.day)
     t1 = ts.utc(d1.year, d1.month, d1.day)
 
-    sun    = eph["sun"]
-    f_hor  = almanac.risings_and_settings(eph, sun,         observer, horizon_degrees=-0.8333)
-    f_moon = almanac.risings_and_settings(eph, eph["moon"], observer)
+    f_twilight = almanac.dark_twilight_day(eph, observer)
+    f_moon     = almanac.risings_and_settings(eph, eph["moon"], observer)
 
     def _timed(fn, *args):
         t0_ = _time.monotonic()
@@ -290,45 +304,39 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
 
     _t_wall0 = _time.monotonic()
     with _futures.ThreadPoolExecutor(max_workers=2) as _pool:
-        _hor_f  = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_hor)
+        _tw_f   = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_twilight)
         _moon_f = _pool.submit(_timed, almanac.find_discrete, t0, t1, f_moon)
-        (hor_times,  hor_rising),  _hor_ms  = _hor_f.result()
+        (tw_times,   tw_phases),   _tw_ms   = _tw_f.result()
         (moon_times, moon_rising), _moon_ms = _moon_f.result()
     _wall_ms = round((_time.monotonic() - _t_wall0) * 1000)
 
-    log.info("dark_cycle threads hor=%dms moon=%dms wall=%dms",
-             _hor_ms, _moon_ms, _wall_ms)
+    log.info("dark_cycle threads twilight=%dms moon=%dms wall=%dms",
+             _tw_ms, _moon_ms, _wall_ms)
 
     all_events = []
-    for t, rising in zip(hor_times, hor_rising):
-        all_events.append({"time": t.utc_datetime(),
-                           "label": "Sunrise" if rising else "Sunset"})
+    # Phase 3↔4 transitions are sunset/sunrise; 0↔1 are astronomical-night
+    # boundaries. The very first transition after t0 has no predecessor to
+    # classify it and is dropped — harmless, because the earliest event the
+    # night loop consumes (sunset of target−14) lies ≥29 h into the window,
+    # with the full morning twilight ladder of target−15 in between. Same
+    # convention as _compute_sky_events.
+    prev = None
+    for t, phase in zip(tw_times, tw_phases):
+        if prev is not None:
+            pair = {int(phase), int(prev)}
+            if pair == {3, 4}:
+                all_events.append({"time": t.utc_datetime(),
+                                   "label": "Sunrise" if phase == 4 else "Sunset"})
+            elif pair == {0, 1}:
+                all_events.append({"time": t.utc_datetime(),
+                                   "label": "Astronomical night begins" if phase == 0
+                                            else "Astronomical night ends"})
+        prev = phase
     for t, rising in zip(moon_times, moon_rising):
         all_events.append({"time": t.utc_datetime(),
                            "label": "Moonrise" if rising else "Moonset"})
 
     all_events.sort(key=lambda e: e["time"])
-
-    # Twilight offsets from tonight's sky_events (warm cache hit after sky_events
-    # runs earlier in assemble_night).  None when no astronomical night tonight.
-    _sky_ev = sky_events(lat, lon, target_date)
-    _t_set  = next((e["time"] for e in _sky_ev
-                    if e["label"] == "Sunset"
-                    and e["time"].astimezone(tz).date() == target_date), None)
-    _t_rise = find_event(_sky_ev, "Sunrise", after=_t_set)                      if _t_set else None
-    _t_nb   = find_event(_sky_ev, "Astronomical night begins", after=_t_set)    if _t_set else None
-    _t_ne   = find_event(_sky_ev, "Astronomical night ends", after=_t_nb or _t_set) if _t_set else None
-
-    tw_after  = (_t_nb   - _t_set ).total_seconds() if (_t_set and _t_nb)   else None
-    tw_before = (_t_rise - _t_ne  ).total_seconds() if (_t_rise and _t_ne)  else None
-
-    # Sanity bound for the fixed twilight-offset approximation applied below: a
-    # real astronomical-twilight duration is minutes to a couple hours, never
-    # anywhere close to this. If it ever is, something's wrong with the inputs
-    # (e.g. bad ephemeris data) — log it and treat that night as degenerate
-    # rather than silently emit a night_start/night_end that could have drifted
-    # onto the wrong calendar day.
-    _MAX_SANE_TWILIGHT_OFFSET_S = 6 * 3600
 
     _t_loop0 = _time.monotonic()
     nights = []
@@ -344,27 +352,22 @@ def _compute_dark_hours_cycle(lat: float, lon: float, target_date: date, tz) -> 
 
         night_start = night_end = None
         dark_hours  = 0.0
-        if (sunset and sunrise and tw_after is not None and tw_before is not None
-                and tw_after <= _MAX_SANE_TWILIGHT_OFFSET_S
-                and tw_before <= _MAX_SANE_TWILIGHT_OFFSET_S):
-            night_start = sunset  + timedelta(seconds=tw_after)
-            night_end   = sunrise - timedelta(seconds=tw_before)
-            if night_end > night_start:
+        if sunset and sunrise:
+            night_start = find_event(all_events, "Astronomical night begins",
+                                     after=sunset, before=sunrise)
+            if night_start is not None:
+                night_end = find_event(all_events, "Astronomical night ends",
+                                       after=night_start, before=sunrise)
+            if night_start is not None and night_end is None:
+                # The sun must recross −18° before it can reach the horizon, so
+                # a begins without an ends means clipped input, not geometry.
+                log.warning("dark_cycle: unpaired astro-night begins for %s at offset %+d",
+                            night_date, offset)
+                night_start = None
+            if night_start and night_end:
                 intervals  = dark_moon_intervals(all_events, night_start, night_end)
                 total_secs = sum((e - s).total_seconds() for s, e in intervals)
                 dark_hours = total_secs / 3600
-            else:
-                # Degenerate window (offset pushed past a real boundary) — don't
-                # expose a night_start/night_end that's no longer meaningful.
-                log.warning(
-                    "dark_cycle: degenerate window for %s at offset %+d (night_end <= night_start)",
-                    night_date, offset,
-                )
-                night_start = night_end = None
-        elif tw_after is not None and (
-                tw_after > _MAX_SANE_TWILIGHT_OFFSET_S or (tw_before or 0) > _MAX_SANE_TWILIGHT_OFFSET_S):
-            log.warning("dark_cycle: implausible twilight offset for %s (tw_after=%s tw_before=%s) — skipping",
-                        night_date, tw_after, tw_before)
 
         nights.append({
             "sunset":      sunset,

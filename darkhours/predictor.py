@@ -496,9 +496,9 @@ def assemble_night(
     from lunar_cycle_dark_analysis()'s already-computed 30-night window instead
     of an independent sky_events() call. No event timeline, no moonrise/moonset —
     NightSummary (the calendar path's result type) doesn't carry any of those.
-    This extends the same fixed-twilight-offset approximation dark_score already
-    accepts (see sky_events.py) to moon_score/weather-windowing too, but only
-    for this path; output is otherwise unaffected.
+    The window's per-night twilight boundaries are exact (same dark_twilight_day
+    search sky_events uses — see sky_events.py), so this path differs from the
+    sky_events one only in what it omits, not in accuracy.
     """
     def _local(dt):
         return dt.astimezone(tz)
@@ -939,9 +939,7 @@ def assemble_night(
             log.debug("moon_altitude_track failed (non-fatal): %s", _mae)
 
     # --- Aurora outlook (fetches already resolved off-thread; per-location math
-    # is cheap). On the use_cycle_window path night_start/night_end come from
-    # the fixed-twilight-offset approximation — minutes-scale error against the
-    # 3-hour Kp bins, acceptable. Non-fatal on any failure.
+    # is cheap). Non-fatal on any failure.
     aurora_info = None
     if _aurora_future is not None and night_start and night_end:
         try:

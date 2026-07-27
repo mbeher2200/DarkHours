@@ -394,3 +394,110 @@ class TestLunarCycleDarkAnalysis:
         assert r2["tonight"]["sunset"] != "corrupted"
         assert r2["tonight"]["dark_hours"] == 5.0
         assert "new_key" not in r2["tonight"]
+
+    def test_cache_key_is_v3(self):
+        """v2 windows could be poisoned by the fixed twilight-offset broadcast
+        (see _compute_dark_hours_cycle) and carry no TTL; the v3 bump is what
+        orphans them everywhere at once. Guard against an accidental revert."""
+        import darkhours.sky_events as se
+        key = se._dark_cycle_db_key(40.0, -105.0, date(2026, 7, 2))
+        assert key.startswith("dark_cycle_v3|")
+
+
+# ---------------------------------------------------------------------------
+# _compute_dark_hours_cycle — exact per-night twilight (shoulder-season
+# regression). Calls the compute function directly: no cache layers involved.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.eph
+class TestDarkHoursCycleShoulderSeason:
+    """Regression for the fixed twilight-offset broadcast bug: when the
+    *target* night had no astronomical night (high-lat late summer), every
+    night in the 30-night window was zeroed — including real dark nights
+    later in the window — and the poisoned window was then cached with no
+    TTL and served, via the overlap hit, to dates that would have computed
+    correct values themselves. At 55°N astronomical darkness returns the
+    night of Aug 5–6 2026 (a ~1 h dip below −18°) and grows from there."""
+
+    LAT, LON = 55.0, 0.0
+
+    @staticmethod
+    def _tz(name="UTC"):
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+
+    def test_shoulder_window_reports_returning_darkness(self):
+        from darkhours.sky_events import _compute_dark_hours_cycle
+        target = date(2026, 8, 1)  # no astronomical night this night
+        nights = _compute_dark_hours_cycle(self.LAT, self.LON, target, self._tz())
+        by_date = {target + timedelta(days=i - 14): n for i, n in enumerate(nights)}
+
+        # Tonight and the nights just after genuinely lack astronomical night.
+        for d in [date(2026, 8, 1), date(2026, 8, 2), date(2026, 8, 3), date(2026, 8, 4)]:
+            assert by_date[d]["dark_hours"] == 0.0
+            assert by_date[d]["night_start"] is None
+
+        # Astronomical night exists again from early August (moon may still be
+        # up: night_start must be set even where dark_hours stays 0)…
+        for d in [date(2026, 8, 6), date(2026, 8, 7), date(2026, 8, 8)]:
+            assert by_date[d]["night_start"] is not None, f"no astro night reported for {d}"
+
+        # …and real moonless dark hours accumulate later in the window. The
+        # old broadcast reported 0.0 for every one of these.
+        for d in [date(2026, 8, 9) + timedelta(days=i) for i in range(8)]:
+            assert by_date[d]["dark_hours"] > 0.5, (
+                f"{d}: expected real dark hours, got {by_date[d]['dark_hours']}"
+            )
+
+    def test_same_calendar_night_agrees_across_windows(self):
+        """The poisoning repro: a night's dark_hours must not depend on which
+        target_date's window computed it. (Aug 12's window computes Aug 10
+        correctly; Aug 1's window used to zero it.)"""
+        from darkhours.sky_events import _compute_dark_hours_cycle
+        t1, t2 = date(2026, 8, 1), date(2026, 8, 12)
+        w1 = _compute_dark_hours_cycle(self.LAT, self.LON, t1, self._tz())
+        w2 = _compute_dark_hours_cycle(self.LAT, self.LON, t2, self._tz())
+        checked = 0
+        for i, n in enumerate(w1):
+            d = t1 + timedelta(days=i - 14)
+            j = (d - (t2 - timedelta(days=14))).days
+            if 0 <= j < 30:
+                assert abs(n["dark_hours"] - w2[j]["dark_hours"]) < 0.01, (
+                    f"{d}: {n['dark_hours']} (window {t1}) vs "
+                    f"{w2[j]['dark_hours']} (window {t2})"
+                )
+                checked += 1
+        assert checked >= 15  # windows overlap by 19 nights
+
+    def test_true_solstice_high_lat_is_legitimately_all_zero(self):
+        """At 60°N around the June solstice the whole window really has no
+        astronomical night — all-zero output is correct there, with no
+        fabricated night_start/night_end."""
+        from darkhours.sky_events import _compute_dark_hours_cycle
+        nights = _compute_dark_hours_cycle(60.0, 0.0, date(2026, 6, 21), self._tz())
+        assert all(n["dark_hours"] == 0.0 for n in nights)
+        assert all(n["night_start"] is None and n["night_end"] is None for n in nights)
+
+    def test_boundaries_match_sky_events_exactly(self):
+        """Per-night night_start/night_end must agree with the single-night
+        sky_events path (the parity oracle) to find_discrete precision — the
+        old approximation drifted by up to ~30 min at the window edges."""
+        from darkhours.sky_events import (
+            _compute_dark_hours_cycle, _compute_sky_events, find_event,
+        )
+        lat, lon = 39.74, -104.98  # Denver
+        tz = self._tz("America/Denver")
+        target = date(2026, 7, 26)
+        nights = _compute_dark_hours_cycle(lat, lon, target, tz)
+
+        for offset in (-14, 0, 15):  # both window edges + centre
+            d = target + timedelta(days=offset)
+            n = nights[offset + 14]
+            events = _compute_sky_events(lat, lon, d)
+            sunset = next(e["time"] for e in events
+                          if e["label"] == "Sunset"
+                          and e["time"].astimezone(tz).date() == d)
+            nb = find_event(events, "Astronomical night begins", after=sunset)
+            ne = find_event(events, "Astronomical night ends", after=nb)
+            assert abs((n["night_start"] - nb).total_seconds()) < 30
+            assert abs((n["night_end"] - ne).total_seconds()) < 30
