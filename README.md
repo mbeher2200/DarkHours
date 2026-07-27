@@ -11,7 +11,7 @@
 
 Pick a place and a date. DarkHours presents a score, an hour by hour plan of what to shoot and when, and a list of darker spots to drive to if you need to change plans.
 
-**Visit at: [https://darkhours.app](https://darkhours.app)**
+**This app is hosted at: [https://darkhours.app](https://darkhours.app)**
 
 ---
 
