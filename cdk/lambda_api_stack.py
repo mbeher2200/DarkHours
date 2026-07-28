@@ -46,6 +46,17 @@ from constructs import Construct
 
 _REPO = pathlib.Path(__file__).resolve().parents[1]
 
+# The repo whose CI publishes the /dark-sky/* destination pages. A GitHub repo slug is
+# public identity, not a secret, so it lives in source (same reasoning as CicdStack's
+# GITHUB_REPO). The numeric IDs are needed for GitHub's immutable-subject-claim format —
+# see the trust policy below and CicdStack's module docstring. `gh api repos/<owner>/<repo>`
+# prints both.
+_DESTINATIONS_REPO = os.environ.get(
+    "DESTINATIONS_GITHUB_REPO", "mbeher2200/darkhours-destinations",
+)
+_DESTINATIONS_OWNER_ID = os.environ.get("DESTINATIONS_GITHUB_OWNER_ID", "191662990")
+_DESTINATIONS_REPO_ID = os.environ.get("DESTINATIONS_GITHUB_REPO_ID", "1314433826")
+
 
 def _stage_worker_src() -> str:
     """Stage the minimal source the worker zip needs as the bundling input.
@@ -675,6 +686,90 @@ class LambdaApiStack(Stack):
             function=blog_rewrite_fn,
         )]
 
+        # --- Dark-sky destination pages: S3 origin for the darkhours-destinations repo ---
+        # Static per-destination guides (SEO landing pages) served at /dark-sky/*. Like the
+        # blog, the content lives in its own repo with its own CI (s3 sync + invalidation);
+        # unlike the blog, the bucket is CREATED here rather than imported by name. That is
+        # deliberate: with a CDK-managed bucket, S3BucketOrigin.with_origin_access_control()
+        # writes the OAC bucket policy automatically, so there is no manual policy step and
+        # no chicken-and-egg between "bucket needs the distribution ARN" and "distribution
+        # needs the bucket name". (The blog bucket predates this stack, which is the only
+        # reason it is imported and its policy was applied by hand.)
+        #
+        # A CloudFront distribution's behaviors cannot be split across stacks, so the
+        # /dark-sky* behavior has to live here regardless — keeping its origin here too
+        # means one origin's config is in one place instead of spread across two repos.
+        #
+        # RETAIN + no auto_delete_objects (contrast spa_bucket above): these objects are
+        # published by a different repo's pipeline and cannot be rebuilt from this source
+        # tree, so they must never be collateral damage of a stack teardown.
+        dest_bucket = s3.Bucket(
+            self, "DestinationsBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+        dest_origin = origins.S3BucketOrigin.with_origin_access_control(dest_bucket)
+
+        # Directory-index rewrite for the statically generated pages. Written inline (not
+        # created out-of-band like AstroBlogIndexRewrite) because it has to stay in lockstep
+        # with the generator's output, so it belongs versioned with this stack.
+        #
+        #   /dark-sky/          -> /dark-sky/index.html
+        #   /dark-sky/foo/      -> /dark-sky/foo/index.html
+        #   /dark-sky/foo       -> 301 /dark-sky/foo/          (query string preserved)
+        #   /dark-sky/_astro/x.js, /dark-sky/index.json -> untouched (dot in last segment)
+        #
+        # The 301 rather than a silent rewrite is an SEO choice: serving 200 on both the
+        # slashed and unslashed form creates two URLs for one page and makes Google dedupe
+        # them via rel=canonical. Redirecting removes the ambiguity at the edge instead.
+        # This function is only associated with /dark-sky*, so it never sees SPA or API paths.
+        _dark_sky_rewrite_js = """
+function handler(event) {
+  var req = event.request;
+  var uri = req.uri;
+
+  if (uri.endsWith('/')) {
+    req.uri = uri + 'index.html';
+    return req;
+  }
+
+  var last = uri.substring(uri.lastIndexOf('/') + 1);
+  if (last.indexOf('.') !== -1) {
+    return req;
+  }
+
+  var qs = '';
+  var q = req.querystring;
+  for (var k in q) {
+    var ek = encodeURIComponent(k);
+    if (q[k].multiValue) {
+      for (var i = 0; i < q[k].multiValue.length; i++) {
+        qs += (qs ? '&' : '?') + ek + '=' + encodeURIComponent(q[k].multiValue[i].value);
+      }
+    } else {
+      qs += (qs ? '&' : '?') + ek + (q[k].value ? '=' + encodeURIComponent(q[k].value) : '');
+    }
+  }
+
+  return {
+    statusCode: 301,
+    statusDescription: 'Moved Permanently',
+    headers: { 'location': { value: uri + '/' + qs } }
+  };
+}
+"""
+        dark_sky_rewrite_fn = cloudfront.Function(
+            self, "DarkSkyIndexRewrite",
+            code=cloudfront.FunctionCode.from_inline(_dark_sky_rewrite_js),
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
+        )
+        dark_sky_fn_assoc = [cloudfront.FunctionAssociation(
+            event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function=dark_sky_rewrite_fn,
+        )]
+
         # --- Access logs (standard logs) to S3 ---
         # Free from CloudFront itself; only S3 storage/request costs apply, which at this
         # traffic volume round to a few cents/month. 30-day expiry keeps it near-zero
@@ -724,6 +819,20 @@ class LambdaApiStack(Stack):
                     function_associations=blog_fn_assoc,
                     response_headers_policy=base_headers_policy,
                 ),
+                # base_headers_policy (no CSP) for now, matching /blog*. The destination
+                # pages are ours and will get a dedicated CSP once the static generator's
+                # real output is known — writing one blind risks blocking the hydration
+                # script of whatever the build emits, which is exactly the "CSP is the one
+                # header that can actually break a page" hazard called out above. Tighten
+                # this after the first content deploy, verified against the built HTML.
+                "/dark-sky*": cloudfront.BehaviorOptions(
+                    origin=dest_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                    cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                    function_associations=dark_sky_fn_assoc,
+                    response_headers_policy=base_headers_policy,
+                ),
             },
         )
 
@@ -737,6 +846,67 @@ class LambdaApiStack(Stack):
             distribution=dist,
             distribution_paths=["/*"],
         )
+
+        # --- Keyless deploy role for the darkhours-destinations repo ---
+        # That repo's CI publishes the /dark-sky/* pages: `aws s3 sync` into the bucket
+        # above, then one invalidation. It never runs CDK and owns no AWS resources, so
+        # this role is all the access it needs — no S3 read of anything else, no
+        # CloudFormation, no bootstrap-role assumption (contrast the deploy role in
+        # CicdStack, which does deploy stacks).
+        #
+        # The account's GitHub OIDC provider already exists (created by CicdStack); there
+        # can only be one per URL per account, so import it by its deterministic ARN rather
+        # than declaring a second one — this is the fallback CicdStack's own comment points
+        # at. Importing also keeps this role next to the bucket and distribution it grants
+        # on, so there is no cross-stack export to keep in sync.
+        gh_oidc_provider = iam.OpenIdConnectProvider.from_open_id_connect_provider_arn(
+            self, "GitHubOidcImported",
+            f"arn:aws:iam::{self.account}:oidc-provider/token.actions.githubusercontent.com",
+        )
+
+        # Both subject formats are accepted because GitHub's immutable subject claims
+        # (see CicdStack's module docstring) qualify the `sub` with numeric owner/repo IDs
+        # for repos renamed or transferred after 2026-07-15, and it is not worth a failed
+        # first deploy to guess which form a freshly-created repo emits. Both patterns are
+        # pinned to this exact owner+repo and to refs/heads/main, so accepting the pair
+        # widens nothing: a different repo matches neither.
+        _dest_owner, _dest_name = _DESTINATIONS_REPO.split("/")
+        _dest_allowed_subs = [
+            f"repo:{_dest_owner}/{_dest_name}:ref:refs/heads/main",
+            f"repo:{_dest_owner}@{_DESTINATIONS_OWNER_ID}/"
+            f"{_dest_name}@{_DESTINATIONS_REPO_ID}:ref:refs/heads/main",
+        ]
+        dest_deploy_role = iam.Role(
+            self, "DestinationsDeployRole",
+            role_name="darkhours-destinations-deploy",
+            description=(
+                "Assumed by the darkhours-destinations GitHub Actions workflow (main "
+                "branch) to publish the /dark-sky/* static pages."
+            ),
+            assumed_by=iam.WebIdentityPrincipal(
+                gh_oidc_provider.open_id_connect_provider_arn,
+                conditions={
+                    "StringEquals": {
+                        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                    },
+                    "StringLike": {
+                        "token.actions.githubusercontent.com:sub": _dest_allowed_subs,
+                    },
+                },
+            ),
+        )
+        # `s3 sync --delete` needs List (to diff), Put (to upload) and Delete (to prune);
+        # grant_read_write covers all three (its action list already includes
+        # s3:DeleteObject*), plus Get so sync compares instead of re-uploading everything.
+        dest_bucket.grant_read_write(dest_deploy_role)
+        # CreateInvalidation is scoped to this one distribution.
+        dest_deploy_role.add_to_policy(iam.PolicyStatement(
+            sid="InvalidateDarkSkyPaths",
+            actions=["cloudfront:CreateInvalidation"],
+            resources=[
+                f"arn:aws:cloudfront::{self.account}:distribution/{dist.distribution_id}",
+            ],
+        ))
 
         # CloudFront→Function-URL needs BOTH invoke actions. The OAC helper above only
         # grants lambda:InvokeFunctionUrl; since an AWS change (Oct 2025) Function URL
@@ -1171,6 +1341,14 @@ class LambdaApiStack(Stack):
         CfnOutput(self, "CloudFrontUrl", value=f"https://{dist.distribution_domain_name}")
         CfnOutput(self, "LambdaFunctionName", value=fn.function_name)
         CfnOutput(self, "SpaBucketName", value=spa_bucket.bucket_name)
+        # The three values the darkhours-destinations repo needs as Actions secrets:
+        # AWS_DEPLOY_ROLE_ARN, DESTINATIONS_BUCKET, CLOUDFRONT_DISTRIBUTION_ID.
+        CfnOutput(self, "DestinationsBucketName", value=dest_bucket.bucket_name,
+                  description="Set as the darkhours-destinations secret DESTINATIONS_BUCKET")
+        CfnOutput(self, "DestinationsDeployRoleArn", value=dest_deploy_role.role_arn,
+                  description="Set as the darkhours-destinations secret AWS_DEPLOY_ROLE_ARN")
+        CfnOutput(self, "DistributionId", value=dist.distribution_id,
+                  description="Set as the darkhours-destinations secret CLOUDFRONT_DISTRIBUTION_ID")
         CfnOutput(self, "WebAclArn", value=web_acl.attr_arn)
         CfnOutput(self, "AlarmTopicArn", value=alarm_topic.topic_arn)
         CfnOutput(self, "WafLogGroupName", value=waf_log_group.log_group_name)
