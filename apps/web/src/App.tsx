@@ -690,9 +690,7 @@ export default function App() {
         <p className="colophon-tagline">
           DarkHours is free,{' '}
           <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
-          , and will never require your email address. Built by{' '}
-          <a href="/blog/about" target="_blank" rel="noreferrer">Miguel Beher</a>
-          , a landscape astrophotographer — read more on the{' '}
+          , and will never require your email address. Follow our{' '}
           <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
         </p>
 
