@@ -1,13 +1,22 @@
-import { useState, useRef, useEffect, type FormEvent } from 'react'
+import { useState, useRef, useEffect, lazy, Suspense, type FormEvent } from 'react'
 import './App.css'
 import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { tonightIso, toIsoDate, defaultImperial, availabilityFor } from './format'
-import ReportCard from './ReportCard'
 import DatePicker from './DatePicker'
 import type { NightReport } from './types'
 import { readLocalStorage } from './env'
 import { FEATURES } from './content/features'
+
+// ReportCard (and everything it pulls in — report/*, CalendarRangePicker,
+// OutlookTelemetryRibbon) only ever renders after a successful /night fetch,
+// so it's split into its own chunk to keep it out of the initial bundle that
+// gates first paint. `warmReportCard` shares the same module-cache entry as
+// the lazy() import below (same specifier), so calling it while the /night
+// request is in flight (see runQuery) makes the chunk fetch overlap with the
+// API round trip instead of adding visible latency once the report is ready.
+const warmReportCard = () => import('./ReportCard')
+const ReportCard = lazy(warmReportCard)
 
 type Mode = 'place' | 'coords'
 
@@ -104,6 +113,7 @@ export default function App() {
     setScopeOpen(false)
     setLoading(true)
     setError(null)
+    warmReportCard() // overlap the ReportCard chunk fetch with the /night request below
     try {
       const r = await fetchNight(q)
       setReport(r)
@@ -646,17 +656,19 @@ export default function App() {
         </div>
       )}
       {report && !loading && (
-        <ReportCard
-          report={report}
-          showWeather={reportWeather}
-          showTargets={reportTargets}
-          showSatellites={reportSatellites}
-          imperial={imperial}
-          onToggleUnits={toggleUnits}
-          onDateDetail={handleDateDetail}
-          onSelectLocation={selectNearbyLocation}
-          redMode={redMode}
-        />
+        <Suspense fallback={<div className="card">Loading report…</div>}>
+          <ReportCard
+            report={report}
+            showWeather={reportWeather}
+            showTargets={reportTargets}
+            showSatellites={reportSatellites}
+            imperial={imperial}
+            onToggleUnits={toggleUnits}
+            onDateDetail={handleDateDetail}
+            onSelectLocation={selectNearbyLocation}
+            redMode={redMode}
+          />
+        </Suspense>
       )}
 
       <footer className="colophon">
