@@ -8,10 +8,14 @@
 - [Blog](https://darkhours.app/blog/): Astrophotography trip reports, travel, and software notes from the app's creator
 - [Blog RSS feed](https://darkhours.app/blog/rss.xml): Full-text feed of blog posts
 - [Blog llms.txt](https://darkhours.app/blog/llms.txt): AI-crawler summary of the blog specifically
+- [Dark-sky destinations](https://darkhours.app/dark-sky/): Trip-planning guides for US dark-sky destinations
+- [Dark-sky llms.txt](https://darkhours.app/dark-sky/llms.txt): AI-crawler summary of the destinations guides specifically
 - [Sitemap](https://darkhours.app/sitemap.xml): App page URLs
 - [Blog sitemap](https://darkhours.app/blog/sitemap-index.xml): Blog post URLs
+- [Dark-sky sitemap](https://darkhours.app/dark-sky/sitemap-index.xml): Destination guide URLs
 
 ## Notes
 
 - DarkHours is free and open source.
 - The blog is a separate Astro site served at the `/blog/` path of this same domain.
+- The dark-sky destination guides are a separate Astro site served at the `/dark-sky/` path of this same domain.
