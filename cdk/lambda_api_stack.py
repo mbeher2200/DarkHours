@@ -867,11 +867,32 @@ function handler(event) {
 
         # Upload the built SPA and invalidate the edge cache on every deploy. The asset
         # path is resolved relative to this file so it works regardless of cwd.
+        #
+        # Split into two deployments so *.html gets an explicit charset: S3's default
+        # content-type guesser (same one `aws s3 sync` uses) sets `text/html` with no
+        # charset param, which makes any consumer that trusts the HTTP header instead of
+        # sniffing the document (Python `requests`, many bots/aggregators, unfurl tools)
+        # mis-decode non-ASCII bytes as ISO-8859-1 — mirrors the fix already shipped for
+        # the /dark-sky/* pipeline (darkhours-destinations repo). The non-html pass keeps
+        # `prune` (its default) so stale assets still get removed; the html-only pass
+        # must NOT prune, or it would delete every non-html key it doesn't know about.
         spa_dist_path = os.path.join(os.path.dirname(__file__), "..", "apps", "web", "dist")
         s3deploy.BucketDeployment(
             self, "SpaDeploy",
             sources=[s3deploy.Source.asset(spa_dist_path)],
             destination_bucket=spa_bucket,
+            exclude=["*.html"],
+            distribution=dist,
+            distribution_paths=["/*"],
+        )
+        s3deploy.BucketDeployment(
+            self, "SpaDeployHtml",
+            sources=[s3deploy.Source.asset(spa_dist_path)],
+            destination_bucket=spa_bucket,
+            exclude=["*"],
+            include=["*.html"],
+            content_type="text/html; charset=utf-8",
+            prune=False,
             distribution=dist,
             distribution_paths=["/*"],
         )
