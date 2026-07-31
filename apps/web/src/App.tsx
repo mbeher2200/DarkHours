@@ -691,7 +691,8 @@ export default function App() {
           DarkHours is free,{' '}
           <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
           , and will never require your email address. Follow our{' '}
-          <a href="/blog/" target="_blank" rel="noreferrer">blog</a>!
+          <a href="/blog/" target="_blank" rel="noreferrer">blog</a>, or browse our{' '}
+          <a href="/dark-sky/" target="_blank" rel="noreferrer">dark sky guides</a>!
         </p>
 
         <p className="colophon-legal">
