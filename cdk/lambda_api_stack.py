@@ -836,6 +836,35 @@ function handler(event) {
             },
         )
 
+        # with_origin_access_control() above only grants s3:GetObject, so a request for a
+        # /dark-sky/* key that doesn't exist (typo'd URL, not-yet-published destination
+        # page, stray /dark-sky/sitemap.xml probe) comes back as 403 rather than 404 — S3
+        # withholds the "not found" distinction from a principal that can't list the
+        # bucket. Googlebot then logs it as "blocked" instead of "not found", which is a
+        # worse Search Console signal. Granting ListBucket (on the bucket itself, not
+        # bucket/*) to the same OAC-scoped principal is the standard fix and only affects
+        # this one bucket of public static pages — deliberately not done via a
+        # distribution-level error_responses 403->404 remap, since that config applies to
+        # every behavior on `dist` and would also mask real 403s from the WAF rate-limit
+        # rules on /nearby, /calendar, and the site overall.
+        dest_bucket.add_to_resource_policy(
+            iam.PolicyStatement(
+                sid="AllowCloudFrontServicePrincipalListBucket",
+                effect=iam.Effect.ALLOW,
+                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
+                actions=["s3:ListBucket"],
+                resources=[dest_bucket.bucket_arn],
+                conditions={
+                    "StringEquals": {
+                        "AWS:SourceArn": (
+                            f"arn:aws:cloudfront::{self.account}:"
+                            f"distribution/{dist.distribution_id}"
+                        ),
+                    },
+                },
+            )
+        )
+
         # Upload the built SPA and invalidate the edge cache on every deploy. The asset
         # path is resolved relative to this file so it works regardless of cwd.
         spa_dist_path = os.path.join(os.path.dirname(__file__), "..", "apps", "web", "dist")
