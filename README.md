@@ -1,6 +1,6 @@
 # DarkHours
 
-**DarkHours is a precision landscape astrophotography planning tool to help you determine if a given location and night is worth the trip. If it isn't, it helps you find another place and time.**
+**DarkHours is a free, open-source astrophotography planning app for moon phase, weather, and light pollution forecasting.**
 
 [![Try it live](https://img.shields.io/badge/darkhours.app-live-brightgreen)](https://darkhours.app)
 [![Deploy](https://github.com/mbeher2200/DarkHours/actions/workflows/deploy.yml/badge.svg)](https://github.com/mbeher2200/DarkHours/actions/workflows/deploy.yml)

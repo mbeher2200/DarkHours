@@ -1,6 +1,6 @@
 # DarkHours
 
-> DarkHours is a free astrophotography planning app for finding dark skies — moon phase, weather, and light-pollution forecasting for any location and date, so you know when and where the sky will actually be clear and dark.
+> DarkHours is a free, open-source astrophotography planning app for moon phase, weather, and light pollution forecasting.
 
 ## Site
 
