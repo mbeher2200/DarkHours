@@ -765,48 +765,10 @@ function handler(event) {
             code=cloudfront.FunctionCode.from_inline(_dark_sky_rewrite_js),
             runtime=cloudfront.FunctionRuntime.JS_2_0,
         )
-
-        # Swaps S3's raw NoSuchKey/AccessDenied XML body (which echoes the S3 key plus
-        # AWS's own RequestId/HostId — see the ListBucket grant below for why 404 is now
-        # reachable at all) for a static, empty-of-request-data page. Only touches 404s:
-        # a distribution-level error_responses remap was deliberately avoided elsewhere in
-        # this file for touching every behavior on `dist`, and the same reasoning applies
-        # here — leave WAF-block 403s and every other behavior's error body untouched.
-        # Only content-type is overwritten (not the whole headers object), so the security
-        # headers already added by base_headers_policy below survive unchanged.
-        _dark_sky_error_page_js = """
-function handler(event) {
-  var response = event.response;
-
-  if (response.statusCode === 404) {
-    response.statusDescription = 'Not Found';
-    response.headers['content-type'] = { value: 'text/html; charset=UTF-8' };
-    response.body = {
-      encoding: 'text',
-      data: '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        + '<title>404 Not Found</title></head><body><h1>404 Not Found</h1>'
-        + '<p>The page you requested does not exist.</p></body></html>'
-    };
-  }
-
-  return response;
-}
-"""
-        dark_sky_error_page_fn = cloudfront.Function(
-            self, "DarkSkyErrorPage",
-            code=cloudfront.FunctionCode.from_inline(_dark_sky_error_page_js),
-            runtime=cloudfront.FunctionRuntime.JS_2_0,
-        )
-        dark_sky_fn_assoc = [
-            cloudfront.FunctionAssociation(
-                event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
-                function=dark_sky_rewrite_fn,
-            ),
-            cloudfront.FunctionAssociation(
-                event_type=cloudfront.FunctionEventType.VIEWER_RESPONSE,
-                function=dark_sky_error_page_fn,
-            ),
-        ]
+        dark_sky_fn_assoc = [cloudfront.FunctionAssociation(
+            event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function=dark_sky_rewrite_fn,
+        )]
 
         # --- Access logs (standard logs) to S3 ---
         # Free from CloudFront itself; only S3 storage/request costs apply, which at this
