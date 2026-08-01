@@ -906,6 +906,63 @@ def _sqm_to_bortle_array(sqm_arr: "np.ndarray") -> "np.ndarray":
     return out
 
 
+def _composite_bortle_grid(
+    viirs_array: "np.ndarray",
+    falchi_array: "np.ndarray | None" = None,
+    viirs_sqm_arr: "np.ndarray | None" = None,
+) -> "tuple[np.ndarray, np.ndarray]":
+    """
+    Build a composite Bortle-class array from a VIIRS radiance window, with
+    Falchi 2016 filling in VIIRS-zero pixels (dark sites below VIIRS's
+    detection floor) — same source-selection as lookup()'s single-point path,
+    vectorized. Factored out of _extract_dark_sky_candidates so other
+    raster-window consumers (e.g. offline map rendering) don't duplicate the
+    formula.
+
+    viirs_sqm_arr: pass a pre-computed VIIRS SQM array to skip one log10 pass
+    if the caller already has it (as _extract_dark_sky_candidates does).
+
+    Returns (bortle_arr, sqm_arr) — bortle_arr is int8 (0 = no data). Pixels
+    where both sources read zero are Bortle 1 by convention in bortle_arr,
+    but stay NaN in sqm_arr (no measured value, just "at least this dark").
+    """
+    import numpy as np
+
+    if viirs_sqm_arr is not None:
+        sqm_viirs = viirs_sqm_arr
+    else:
+        sqm_viirs = np.where(
+            viirs_array > 0,
+            21.7 - 2.5 * np.log10(viirs_array + 0.6),
+            np.nan,
+        )
+    bortle_arr = _sqm_to_bortle_array(sqm_viirs)
+
+    if falchi_array is not None:
+        viirs_zero    = viirs_array == 0
+        falchi_scaled = falchi_array * _FALCHI_SCALE
+        sqm_falchi = np.where(
+            falchi_scaled > 0,
+            _SQM_NATURAL - 2.5 * np.log10(
+                (falchi_scaled + _L_NATURAL) / _L_NATURAL
+            ),
+            np.nan,
+        )
+        falchi_bortle = _sqm_to_bortle_array(sqm_falchi)
+        # VIIRS-zero AND Falchi-zero → pristine sky (Bortle 1)
+        falchi_bortle = np.where(
+            np.isnan(sqm_falchi) & viirs_zero, 1, falchi_bortle
+        )
+        bortle_arr = np.where(
+            viirs_zero & (bortle_arr == 0), falchi_bortle, bortle_arr
+        )
+        sqm_arr = np.where(viirs_array > 0, sqm_viirs, sqm_falchi)
+    else:
+        sqm_arr = sqm_viirs
+
+    return bortle_arr, sqm_arr
+
+
 def _load_raster_window(
     source_key: str,
     min_lat: float,
@@ -1200,45 +1257,9 @@ def _extract_dark_sky_candidates(
         land_mask = _glm.is_land(lat_grid, lon_grid)
 
     # ── Composite Bortle array ────────────────────────────────────────────────
-    # VIIRS primary: any pixel with measurable radiance.
-    # Reuse pre-computed SQM when the caller provides it (saves one log10 pass).
-    if viirs_sqm_arr is not None:
-        sqm_viirs = viirs_sqm_arr
-    else:
-        sqm_viirs = np.where(
-            viirs_array > 0,
-            21.7 - 2.5 * np.log10(viirs_array + 0.6),
-            np.nan,
-        )
-    bortle_arr = _sqm_to_bortle_array(sqm_viirs)
-
-    # Falchi fills VIIRS-zero pixels (dark sites below VIIRS detection floor)
-    if falchi_array is not None:
-        viirs_zero  = viirs_array == 0
-        falchi_scaled = falchi_array * _FALCHI_SCALE
-        sqm_falchi = np.where(
-            falchi_scaled > 0,
-            _SQM_NATURAL - 2.5 * np.log10(
-                (falchi_scaled + _L_NATURAL) / _L_NATURAL
-            ),
-            np.nan,
-        )
-        falchi_bortle = _sqm_to_bortle_array(sqm_falchi)
-        # VIIRS-zero AND Falchi-zero → pristine sky (Bortle 1)
-        falchi_bortle = np.where(
-            np.isnan(sqm_falchi) & viirs_zero, 1, falchi_bortle
-        )
-        bortle_arr = np.where(
-            viirs_zero & (bortle_arr == 0), falchi_bortle, bortle_arr
-        )
-
-    # Combined SQM array: mirrors bortle_arr source selection.
-    # VIIRS-measured pixels use sqm_viirs; Falchi-filled pixels use sqm_falchi;
-    # pristine sky pixels (both sources zero) have NaN → stored as None.
-    if falchi_array is not None:
-        sqm_arr = np.where(viirs_array > 0, sqm_viirs, sqm_falchi)
-    else:
-        sqm_arr = sqm_viirs
+    # VIIRS primary (any pixel with measurable radiance), Falchi fills VIIRS-zero
+    # pixels (dark sites below VIIRS's detection floor) — see _composite_bortle_grid.
+    bortle_arr, sqm_arr = _composite_bortle_grid(viirs_array, falchi_array, viirs_sqm_arr)
 
     # ── Vectorised haversine distance ─────────────────────────────────────────
     dlat = np.radians(lat_grid - origin_lat)
