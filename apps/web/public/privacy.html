@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href="https://darkhours.app/privacy.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="How DarkHours collects and uses data: no accounts, no tracking cookies, and privacy-friendly analytics." />
+    <title>Privacy — DarkHours</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Privacy-friendly analytics by Plausible -->
+    <script async src="https://plausible.io/js/pa-dNdadDzL5KmlgdiqqJYJx.js"></script>
+    <style>
+      :root {
+        --bg: #E8EAEE;
+        --card: #F4F5F7;
+        --text-h: #111316;
+        --text: #3B4455;
+        --text-dim: #6B7585;
+        --accent: #4A5EA8;
+        --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100svh;
+        background: var(--bg);
+        letter-spacing: 0.01em;
+        font: 1rem/1.6 var(--sans);
+        color: var(--text);
+      }
+      .app {
+        width: 100%;
+        max-width: clamp(300px, 95vw, 720px);
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      .masthead {
+        text-align: center;
+        margin-bottom: 24px;
+      }
+      .masthead a {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--text-h);
+        text-decoration: none;
+      }
+      .masthead-logo {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 24px;
+      }
+      .masthead-logo-cell { height: 4px; border-radius: 1px; }
+      .card {
+        background: var(--card);
+        border-top: 1px solid rgba(255, 255, 255, 0.80);
+        border-left: 1px solid rgba(255, 255, 255, 0.80);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+        border-right: 1px solid rgba(0, 0, 0, 0.18);
+        border-radius: 3px;
+        padding: 24px;
+      }
+      h1 { margin: 0 0 16px; font-size: 1.25rem; color: var(--text-h); }
+      p { margin: 0 0 14px; color: var(--text); }
+      p:last-child { margin-bottom: 0; }
+      a { color: var(--accent); }
+      .back {
+        text-align: center;
+        margin-top: 24px;
+        font-size: 13px;
+      }
+      .back a { color: var(--text-dim); text-decoration: none; }
+      .back a:hover { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="masthead">
+        <a href="/">
+          <span class="masthead-logo" aria-hidden="true">
+            <span class="masthead-logo-cell" style="background:#C85656; width:14px"></span>
+            <span class="masthead-logo-cell" style="background:#D99B41; width:20px"></span>
+            <span class="masthead-logo-cell" style="background:#3A8772; width:10px"></span>
+            <span class="masthead-logo-cell" style="background:#5BC0DE; width:24px"></span>
+          </span>
+          DarkHours
+        </a>
+      </header>
+
+      <main class="card">
+        <h1>Privacy</h1>
+
+        <p>
+          DarkHours uses <a href="https://plausible.io">Plausible Analytics</a> to see how many
+          people visit the site and which pages they read, and nothing else.
+        </p>
+
+        <p>
+          Plausible doesn't use cookies, doesn't store IP addresses, and can't track you across
+          sites or devices. It generates a daily-rotating anonymous count instead of a persistent
+          identifier. Full detail on exactly what's collected is in
+          <a href="https://plausible.io/data-policy">Plausible's data policy</a>.
+        </p>
+
+        <p>
+          DarkHours itself doesn't have accounts, doesn't ask for an email address, and doesn't
+          set any tracking cookies. Your search history and unit/night-vision preferences are
+          saved in your browser's local storage. They stay on your device and are never sent to
+          our servers.
+        </p>
+
+        <p>
+          Location and date data you enter is used only to generate the report you asked for, by
+          querying weather, light pollution, and satellite data providers. It isn't logged
+          against your identity or stored beyond what's needed to serve that request.
+        </p>
+
+        <p>
+          Questions? Reach out via <a href="https://github.com/mbeher2200/DarkHours">GitHub</a>.
+        </p>
+      </main>
+
+      <p class="back"><a href="/">&larr; Back to DarkHours</a></p>
+    </div>
+  </body>
+</html>
