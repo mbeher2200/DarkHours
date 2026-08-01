@@ -1459,6 +1459,85 @@ def _overpass_natural_areas_in_radius(
     return areas
 
 
+def _overpass_ways_in_bbox(
+    min_lat: float, max_lat: float, min_lon: float, max_lon: float,
+    highway_types: tuple[str, ...],
+) -> list[dict]:
+    """
+    Fetch road/trail line geometry (OSM ways tagged `highway`) within a
+    bounding box. One HTTP call covers the whole box.
+
+    highway_types: OSM `highway` tag values to include, e.g.
+      ("motorway", "trunk", "primary", "secondary", "tertiary",
+       "unclassified", "residential", "service") for roads, or
+      ("path", "footway", "track") for trails — callers combine results
+      from two calls (one per style) rather than mixing tags in one query,
+      so roads/trails can be drawn with different line styles.
+
+    Returns list of dicts: {name, highway, coords} where coords is an
+    ordered [(lat, lon), ...] polyline for that way (`out geom;` inlines
+    node coordinates, no separate `>;out skel qt;` recursion needed).
+
+    Not used by the live API/worker — this is a primitive for offline
+    map-rendering tooling (see darkhours-destinations' scripts/). No
+    caller-side AWS-backend gating like _overpass_natural_areas_in_radius
+    has, since nothing in the request-serving path calls this.
+
+    Cached per bbox (rounded to ~350 ft) + highway-type set for 90 days.
+    No result-size cap: fine for the low-road-density NPS-backcountry
+    boxes this is built for, but a dense urban bbox could return a large
+    payload — not a concern this primitive tries to solve.
+    """
+    cache_key = (
+        f"overpass_ways|{min_lat:.3f}|{min_lon:.3f}|{max_lat:.3f}|{max_lon:.3f}"
+        f"|{','.join(sorted(highway_types))}"
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    highway_pattern = "|".join(highway_types)
+    query = (
+        f"[out:json][timeout:60];\n"
+        f'way["highway"~"^({highway_pattern})$"]'
+        f"({min_lat:.5f},{min_lon:.5f},{max_lat:.5f},{max_lon:.5f});\n"
+        f"out geom;"
+    )
+
+    params = urllib.parse.urlencode({"data": query})
+    url    = f"{_OVERPASS_URL}?{params}"
+    with _rl.acquire("overpass"):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "DarkHours/1.0 (light-pollution-research)"},
+            )
+            with _http.urlopen(req, timeout=65) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            log.debug("Overpass ways-in-bbox failed for (%.4f,%.4f)-(%.4f,%.4f): %s",
+                       min_lat, min_lon, max_lat, max_lon, e)
+            cache.set(cache_key, [], ttl_seconds=300)
+            return []
+
+    ways = []
+    for el in data.get("elements", []):
+        geometry = el.get("geometry")
+        if not geometry:
+            continue
+        tags = el.get("tags", {})
+        ways.append({
+            "name":    tags.get("name"),
+            "highway": tags.get("highway", ""),
+            "coords":  [(pt["lat"], pt["lon"]) for pt in geometry],
+        })
+
+    log.debug("Overpass ways-in-bbox: %d ways found for (%.4f,%.4f)-(%.4f,%.4f)",
+               len(ways), min_lat, min_lon, max_lat, max_lon)
+    cache.set(cache_key, ways, ttl_seconds=_GEO_CACHE_TTL)
+    return ways
+
+
 # National forests have bboxes 60–135 miles wide — far too coarse for
 # containment matching (the rectangle includes towns, private land, gaps).
 # Wilderness areas and monuments are 5–20 miles wide and are reliable.
