@@ -167,3 +167,29 @@ html.red-mode .es-caps-label { color: var(--text-dim); }
 }
 html.red-mode .es-cap-k { color: var(--accent); }
 html.red-mode .es-qs-hook, html.red-mode .es-cap-v, html.red-mode .es-caps-more-body { color: var(--text-dim); }
+
+/* ── common questions (empty state) ─────────────────────────── */
+.es-faq {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+.es-faq-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.es-faq-q {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.es-faq-a {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+html.red-mode .es-faq-a { color: var(--text-dim); }

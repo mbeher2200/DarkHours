@@ -629,6 +629,75 @@ export default function App() {
 
           <div className="es-divider" />
 
+          <h2 className="es-caps-label">Common questions</h2>
+
+          <div className="es-faq">
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">What is Bortle class?</h3>
+              <p className="es-faq-a">
+                The Bortle scale rates night sky darkness from 1 (the darkest skies on Earth) to 9 (inner-city glow).
+                DarkHours calculates it from measured light pollution data at your exact coordinates. Read more on{' '}
+                <a href="https://en.wikipedia.org/wiki/Bortle_scale" target="_blank" rel="noreferrer">Wikipedia</a>.
+              </p>
+            </div>
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">Why a geometric mean instead of an average for the Night Quality Score?</h3>
+              <p className="es-faq-a">
+                A plain average lets three good numbers hide one dealbreaker: a night with perfect moonlight and
+                clear skies could still score well despite crushing light pollution. A geometric mean can't hide it:
+                one bad factor drags the whole score down, the same way a cloudy night ruins a shoot regardless of
+                how dark it is otherwise.
+              </p>
+            </div>
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">How accurate is the moonlight model?</h3>
+              <p className="es-faq-a">
+                DarkHours uses a published astronomical model instead of just checking whether the moon is above
+                the horizon: Krisciunas &amp; Schaefer (1991, PASP) for lunar brightness, combined with a more recent
+                single-scatter model (Winkler, 2022) for how that light forward-scatters through haze and smoke.
+                A thin crescent barely registers; a bright gibbous moon near your subject gets flagged, and the
+                usable imaging window gets cut off exactly when the added sky glow flattens contrast on faint
+                targets.
+              </p>
+            </div>
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">How does the weather forecast work?</h3>
+              <p className="es-faq-a">
+                Forecasts come from Open-Meteo, with seeing and transparency layered in from 7Timer's ASTRO model.
+                The scoring underneath is tuned for photographers, not general weather: wind is scored on a
+                quadratic curve that reaches zero around 38 mph (17 m/s), counting gusts as well as sustained
+                speed, since a gust is what shakes a tripod mid-exposure even when the sustained reading looks
+                calm. Humidity above 50% is penalized on a sliding scale for dew and fog risk. Any active
+                precipitation, or visibility under 1,000 meters, is a hard stop regardless of what the rest of the
+                numbers say.
+              </p>
+            </div>
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">How does "find dark sky nearby" pick the best locations?</h3>
+              <p className="es-faq-a">
+                It samples Bortle class on a grid across your search radius, then ranks results by darkness first,
+                distance second. The results are cross-referenced against a public-land index (so private,
+                military, or tribal land never gets suggested) and a routable OpenStreetMap points-of-interest
+                index, so a dark spot only surfaces if it lines up with an actual parking lot, viewpoint,
+                campsite, or rest area. That means every result comes back named, reachable, with drive time, road
+                distance, and a warning if the route includes unpaved roads.
+              </p>
+            </div>
+            <div className="es-faq-item">
+              <h3 className="es-faq-q">Why these specific targets?</h3>
+              <p className="es-faq-a">
+                DarkHours is built for landscape astrophotography, a stationary wide-field lens, not a telescope
+                on a tracking mount hunting faint deep-sky detail. So the 63-target catalog is filtered by angular
+                size and surface brightness: nothing under about 9 arcminutes across, and nothing so diffuse it
+                would just read as noise in a still exposure. That's why the list leans toward large, prominent
+                objects like the Andromeda Galaxy, the Pleiades, and Milky Way regions, rather than faint targets
+                that need a telescope to resolve.
+              </p>
+            </div>
+          </div>
+
+          <div className="es-divider" />
+
           <div className="es-quickstart">
             <span className="es-quickstart-label">View a sample report</span>
             <div className="es-quickstart-btns">
@@ -700,7 +769,9 @@ export default function App() {
         </div>
 
         <p className="colophon-tagline">
-          DarkHours is free,{' '}
+          DarkHours is built by{' '}
+          <a href="/blog/about" target="_blank" rel="noreferrer">Miguel Beher</a>
+          , free and{' '}
           <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
           , and will never require your email address. Follow our{' '}
           <a href="/blog/" target="_blank" rel="noreferrer">blog</a>, or browse our{' '}
@@ -710,6 +781,7 @@ export default function App() {
         <p className="colophon-legal">
           © 2026 DarkHours contributors. Released under the{' '}
           <a href="https://github.com/mbeher2200/DarkHours/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License</a>.
+          {' '}<a href="/privacy.html">Privacy</a>.
         </p>
       </footer>
     </div>
