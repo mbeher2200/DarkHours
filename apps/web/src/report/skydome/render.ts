@@ -323,7 +323,10 @@ export class SkyRenderer {
   }
 
   render() {
-    if (!this.statics) return
+    // Guards the pre-measurement window: W/H start at 0 until the first
+    // ResizeObserver delivery calls setSize, and a draw before that turns
+    // the diffuse-canvas scale factor into Infinity (NaN gradient stops).
+    if (!this.statics || this.W < 1 || this.H < 1) return
     const cam = this.camera()
     this.drawDiffuse(cam)
     const ctx = this.ctx

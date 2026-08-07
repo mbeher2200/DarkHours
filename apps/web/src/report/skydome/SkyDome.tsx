@@ -166,6 +166,9 @@ export function SkyDome({ summary, report }: {
   // The 12k-star recompute is coalesced to one run per animation frame: a fast
   // scrub emits many input events per frame, and running the tick synchronously
   // in each commit saturates a phone's main thread and makes the slider stick.
+  // The draw itself always goes through requestDraw — the one scheduling path
+  // that ends in renderer.render() — so a frame can never be drawn before
+  // SkyRenderer has a measured size.
   const tickParamsRef = useRef<{ utcMs: number; cloudFrac: number; aod: number | null } | null>(null)
   const tickRafRef = useRef(0)
   useEffect(() => {
@@ -188,13 +191,13 @@ export function SkyDome({ summary, report }: {
       const ren = rendererRef.current
       if (!params || !ren) return
       setTickResult(ren.tick(params))
-      ren.render()
+      requestDraw()
     })
-  }, [report, timeMs, cloudFrac, aod, catState, mwReady])
-  useEffect(() => () => {
-    if (tickRafRef.current) cancelAnimationFrame(tickRafRef.current)
-    tickRafRef.current = 0
-  }, [])
+    return () => {
+      if (tickRafRef.current) cancelAnimationFrame(tickRafRef.current)
+      tickRafRef.current = 0
+    }
+  }, [report, timeMs, cloudFrac, aod, catState, mwReady, requestDraw])
 
   // ── View changes redraw only (no recompute) ─────────────────────────────────
   useEffect(() => {
