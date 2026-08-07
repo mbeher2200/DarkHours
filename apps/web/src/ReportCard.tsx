@@ -490,7 +490,7 @@ export default function ReportCard({
             <div className="overall-label">{scoreLabel(r.score)}</div>
           </div>
           <div className="overall-sub">
-            <InfoTip tip={<>Weighted geometric mean of Weather 40% · Lunar 25% · Dark Hours 25% · Dark Sky 10% (weights redistribute when a factor is unavailable). Geometric means one hard zero — full overcast, full moon — zeroes the whole night, just like it does in the field.</>}>
+            <InfoTip tip={<>Weighted geometric mean of Weather 40% · Lunar 25% · Dark Hours 25% · Dark Sky 10% (weights redistribute when a factor is unavailable). Geometric means one hard zero — a full moon, a total washout — zeroes the whole night, just like it does in the field. Clouds also get a veto: below 4/10 on weather the night is capped at its weather score, because no amount of moonless dark sky makes an overcast night shootable.</>}>
               0–10 composite score
             </InfoTip>
           </div>
@@ -525,18 +525,18 @@ export default function ReportCard({
         )}
 
         <MetaRow
-          k="Clear Dark Sky"
+          k="Dark Hours"
           v={darkStrCard}
-          tip={<>Hours you can actually shoot: astronomical darkness (sun ≥18° below the horizon), minus moon interference, minus hours clouded over (&gt;50% cover).</>}
+          tip={<>Hours you can actually shoot: astronomical darkness (sun ≥18° below the horizon), minus moon interference, minus hours clouded over (&gt;50% cover). The bar beside it rates the astronomy alone, so a clouded-out night reads "None" here next to a high bar.</>}
           score={r.score_components.dark}
-          scoreTip={<>25% of the composite — tonight's moon-free dark hours measured against this lunar cycle's average, so the score reflects what this month can actually offer.</>}
+          scoreTip={<>25% of the composite — tonight's moon-free dark hours measured against this lunar cycle's best, so the score reflects what this month can actually offer. Astronomy only: it answers "how good is the sky geometry tonight", not "will you get to use it". Clouds are scored under Weather, and veto the overall score when the night is unshootable.</>}
         />
         {showWeather && r.weather_score != null && (
           <MetaRow
             k="Weather"
             v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  ·  ${r.wx_source}` : ''}`}
             score={r.score_components.weather}
-            scoreTip={<>40% of the composite — hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity.</>}
+            scoreTip={<>40% of the composite, and a veto below 4/10 — under that line the whole night is capped at this score. Hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity. Low and mid cloud block outright; high cirrus counts for 0.8 of that, since it dims and bloats stars rather than hiding them.</>}
           />
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~16-day forecast horizon)" />}

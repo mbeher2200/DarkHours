@@ -53,7 +53,7 @@ report = assemble_night(
     display_name="Death Valley",
 )
 print(report.score)           # 0–10
-print(report.dark_hours)      # clear dark sky hours tonight
+print(report.dark_hours)      # moon-free hours of astronomical night (not cloud-adjusted)
 print(report.active_showers)  # active meteor showers
 ```
 

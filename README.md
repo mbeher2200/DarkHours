@@ -17,7 +17,7 @@ Pick a place and a date. DarkHours presents a score, an hour by hour plan of wha
 
 ## What you get
 
-**The night's score.** The Night Quality Score runs 1 to 10. It folds together weather, moonlight, clear dark hours, and light pollution data. We use a geometric mean, not a plain average. This means that one dealbreaker can't hide behind three good numbers. A clouded out night scores like a clouded out night should.
+**The night's score.** The Night Quality Score runs 1 to 10. It folds together weather, moonlight, dark hours, and light pollution data. We use a geometric mean, not a plain average, so one dealbreaker can't hide behind three good numbers. Clouds get the last word on top of that: below 4 out of 10 on weather, the night is capped at its weather score. A clouded out night scores like a clouded out night should, however new the moon is.
 
 **Moonlight math.** Most apps say the moon is up, so you're done. That's lazy. DarkHours figures out how much the moon actually brightens the sky at each target. A thin crescent barely counts. A bright gibbous moon next to your subject gets flagged, and the imaging window gets cut off exactly when the contrast dies.
 
@@ -83,8 +83,10 @@ The Night Quality Score (1 to 10) is a weighted geometric mean of four things:
 |--------|-------:|------------------|
 | Seeing and cloud cover | 40% | Cn2 profile integration via 7Timer ASTRO/GFS, adjusted for clouds |
 | Lunar interference | 25% | K&S sky brightening credit, not raw illumination percent |
-| Clear dark sky hours | 25% | Effective dark time, corrected for the moon |
+| Dark hours | 25% | Effective dark time, corrected for the moon |
 | Bortle scale | 10% | VIIRS 2025 satellite radiance, with a Falchi 2016 fallback for truly dark sites |
+
+Clouds also get a veto. Below a weather score of 4 out of 10, the night is capped at its weather score, because no amount of dark, moonless sky makes an overcast night shootable. Above that line the geometric mean stands on its own, so a night with real usable time keeps its full range.
 
 If a factor is not available, like a date that's past the forecast window, the weights shift on their own. A night two months out still lines up fairly against tonight.
 
