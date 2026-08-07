@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pages served by apps/web itself. The blog and the dark-sky guides live in
+  separate repos with their own CI and publish their own sitemaps; all three are
+  tied together by sitemap.xml, which is a <sitemapindex>. Add app routes here,
+  not there — a sitemap file may not mix <urlset> and <sitemap> entries.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://darkhours.app/</loc>
+    <lastmod>2026-08-07</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

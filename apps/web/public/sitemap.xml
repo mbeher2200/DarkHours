@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://darkhours.app/</loc>
-    <lastmod>2026-07-26</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>1.0</priority>
-  </url>
-</urlset>
+<!--
+  The one sitemap URL declared in robots.txt and submitted to Search Console.
+  It is an index, not a urlset: app pages are in sitemap-pages.xml, and the blog
+  and dark-sky guides are published by their own repos' CI into the same bucket.
+  Before this existed, /sitemap.xml listed only the homepage, so the guides were
+  discoverable to crawlers via robots.txt alone and only 1 of 3 was indexed.
+
+  No <lastmod> on the two externally-published children on purpose: this repo
+  cannot know when their CI last ran, and a stale lastmod is a worse crawl hint
+  than none. Each child carries its own accurate lastmod internally.
+-->
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://darkhours.app/sitemap-pages.xml</loc>
+    <lastmod>2026-08-07</lastmod>
+  </sitemap>
+  <sitemap>
+    <loc>https://darkhours.app/blog/sitemap-index.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://darkhours.app/dark-sky/sitemap-index.xml</loc>
+  </sitemap>
+</sitemapindex>

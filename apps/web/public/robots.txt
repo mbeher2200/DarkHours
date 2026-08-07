@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 
+# One entry point. /sitemap.xml is a <sitemapindex> pointing at sitemap-pages.xml
+# plus the blog and dark-sky sitemaps published by their own repos' CI. Declaring
+# all three here separately let them drift out of sync with the index.
 Sitemap: https://darkhours.app/sitemap.xml
-Sitemap: https://darkhours.app/blog/sitemap-index.xml
-Sitemap: https://darkhours.app/dark-sky/sitemap-index.xml
