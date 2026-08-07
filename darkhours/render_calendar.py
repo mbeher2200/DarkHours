@@ -30,7 +30,9 @@ def print_calendar(summaries: list, display_name: str,
     print(f"{period_str}\n")
 
     # Column headers — exact names as in the nightly report
-    headers = ("Date", "Night Quality Score", "Clear Dark Hours", "Weather", "Moon")
+    # "Dark Hours", not "Clear Dark Hours": _dark_str reports summary.dark_hours,
+    # which is moon-free astronomical darkness with no cloud correction applied.
+    headers = ("Date", "Night Quality Score", "Dark Hours", "Weather", "Moon")
     aligns  = ("l",    "r",                   "r",                "r",       "l")
 
     # Per-row value formatters

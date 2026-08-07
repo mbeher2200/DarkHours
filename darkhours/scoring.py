@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Night sky scoring — converts raw sky/weather metrics into 0–10 scores."""
 
+# Below this weather score, clouds stop being one factor among four and become a
+# hard gate: the night is unshootable regardless of how dark or moon-free it is.
+# See WEATHER_VETO_THRESHOLD's use in rate_night for why a ceiling is needed at
+# all, and why it only applies below the threshold rather than always.
+WEATHER_VETO_THRESHOLD = 4.0
+
 
 def rate_night(
     moon_score: float,
@@ -25,6 +31,26 @@ def rate_night(
     The geometric mean naturally punishes low factors — a single zero
     (complete cloud cover, full moon) zeros the whole score, and a factor
     of 1/10 with 40% weight contributes (0.1)^0.4 ≈ 0.25× to the product.
+
+    Weather veto
+    ------------
+    The geometric mean is proportional, and that under-punishes bad weather: a
+    true zero zeros the night, but a 3/10 at 40% weight only removes ~40% of the
+    total, so three near-perfect factors carry the rest.  A new-moon night under
+    100% cirrus scored 6.0 ("Good") with *zero* clear dark hours — clouds are a
+    hard gate, not a proportional penalty.
+
+    So when weather < WEATHER_VETO_THRESHOLD, the overall score is capped at the
+    weather score. Above the threshold the geometric mean stands unmodified, so
+    nights with genuinely usable time keep their full range (a night that's 4.8
+    on weather but otherwise excellent still scores 7.2, not 4.8). The cap is
+    deliberately one-sided rather than an always-on ceiling: weather is usually
+    the weakest of the four factors, so an unconditional cap would collapse the
+    model into "the weather score" on nearly every night.
+
+    When weather is unavailable (beyond the forecast horizon, provider outage)
+    there is nothing to veto with, and the geometric mean over the remaining
+    factors stands — the same graceful degradation as the weight redistribution.
     """
     named = {
         "weather": (weather_score, 0.40),
@@ -45,6 +71,9 @@ def rate_night(
         wgm *= (s / 10) ** norm[k]
 
     score = round(10 * wgm, 1)
+
+    if weather_score is not None and weather_score < WEATHER_VETO_THRESHOLD:
+        score = round(min(score, weather_score), 1)
 
     components = {k: round(s, 1) for k, (s, _) in available.items()}
     return {"score": score, "components": components}

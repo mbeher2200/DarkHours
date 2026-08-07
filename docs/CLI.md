@@ -209,8 +209,8 @@ Calendar — Sedona, Coconino County, Arizona, United States
 Light Pollution:    SQM 18.7  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]  ·  Score 3.3/10
 June 2026
 
-  Date        Night Quality Score  Clear Dark Hours  Weather  Moon
-  ----------  -------------------  ----------------  -------  ----
+  Date        Night Quality Score  Dark Hours  Weather  Moon
+  ----------  -------------------  ----------  -------  ----
   2026-06-01               0.0/10            0h 00m        —  0.0
   2026-06-11               7.8/10            6h 00m        —  9.9
   2026-06-12               8.3/10            5h 58m        —  10.0
@@ -244,6 +244,16 @@ score = (weather^0.40) × (lunar^0.25) × (dark_hours^0.25) × (light_pollution^
 ```
 
 A geometric mean lets every factor pull its own weight. One zero factor, full cloud or full moon, zeros the whole score. A factor of 1/10 at 40% weight multiplies the product by roughly 0.25, so a bad factor drags the score down hard with no separate penalty term bolted on.
+
+**The weather veto.** Proportional weighting alone still under-punishes clouds. A weather score of 3/10 at 40% weight removes only about 40% of the total, so three near-perfect factors carry the rest: a new moon under 100% cirrus, with zero clear dark hours, used to score 6.0 and read as "Good". So when the weather score falls below `WEATHER_VETO_THRESHOLD` (4.0), the composite is capped at the weather score:
+
+```
+if weather < 4.0:  score = min(score, weather)
+```
+
+The cap is deliberately one-sided. Weather is usually the weakest of the four factors, so an unconditional ceiling would flatten the model into "the weather score" on nearly every night, dragging down nights that have genuinely usable time. Above the threshold nothing changes. With no weather data at all there is nothing to veto with, and the geometric mean over the remaining factors stands.
+
+Note that **Dark Sky Hours is astronomical only**: moon-free hours within astronomical night, measured against the lunar cycle. It does not subtract clouds. Clouds are scored once under Weather and then applied again as the veto above. The "Clear Dark Sky Hours" line in the report *is* cloud-corrected, so that line can read `None (overcast)` next to a high Dark Sky Hours score. That is the two of them measuring different things, by design.
 
 **Score interpretation:**
 
@@ -366,17 +376,27 @@ Weather  [NOAA/NWS + 7Timer]:
 
 ### Wx Rating formula
 
-A weighted combination of every hourly parameter available:
+Not a weighted average. Dealbreakers multiply, and quality factors set the ceiling they multiply against:
 
-| Factor | Weight | Notes |
-|--------|--------|-------|
-| Cloud cover | 50% | Non-linear. Heavy cloud is penalised harder above 50% |
-| Seeing | 20% | Atmospheric steadiness |
-| Transparency | 15% | Sky clarity and extinction |
-| Wind speed | 10% | Vibration, tracking error, turbulence |
-| Humidity | 5% | Dew risk. No penalty below 50%, zero score above 90% |
+```
+rating = 10 × base_quality × (limiter₁ × limiter₂ × … )
+```
 
-Any precipitation caps the Wx Rating at 1. Weights redistribute on their own when a field is missing.
+**Hard gates**, either of which forces a 1: any precipitation type other than `none` (this covers rain, snow, freezing rain, ice pellets, fog, and thunderstorms uniformly), or horizontal visibility under 1000 m.
+
+**Limiters**, each a 0-to-1 multiplier. Any one of them near zero ruins the hour on its own, which is the point:
+
+| Limiter | Behaviour |
+|---------|-----------|
+| Cloud cover | Low and mid layers are treated as independent odds of an opaque sky: `1 − (1 − low)(1 − mid)`. High cirrus adds at 0.8 weight, since it dims and bloats stars rather than hiding them outright. The total runs through a 1.5 power curve |
+| Wind | Scales with velocity squared (dynamic pressure), capped at 17 m/s. Uses the worse of sustained speed and gust |
+| Transparency | Excellent 1.0, Good 0.8, Fair 0.4, Poor 0.1 |
+| Aerosols | The worse of aerosol optical depth and PM2.5, so a shallow trapped smoke layer can't hide behind a moderate satellite column reading |
+| Visibility | 1.0 above 20 km, tapering linearly to 0.7 at 10 km, then log-scaled below that |
+
+**Quality base**, the averaged ceiling: seeing (1.0 arcsec or better is excellent, 4.0 is poor) and humidity (no penalty below 50%, zero at 100%). With neither available the base is 1.0 and the limiters act alone.
+
+Cloud cover falls back to plain total cover on the same 1.5 power curve when a provider gives no low/mid/high split. The rating floors at 1, never 0, so a single unusable hour doesn't zero a whole night's average on its own. That floor is why the night-level weather veto exists: see [Night Quality Score](#night-quality-score).
 
 ### Providers
 
@@ -507,8 +527,8 @@ Calendar — Grand Canyon Village, Coconino County, Arizona, United States
 Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
 March 2026
 
-  Date        Night Quality Score  Clear Dark Hours  Weather  Moon
-  ----------  -------------------  ----------------  -------  ----
+  Date        Night Quality Score  Dark Hours  Weather  Moon
+  ----------  -------------------  ----------  -------  ----
   2026-03-01               0.0/10            0h 00m        —  0.0
   2026-03-02               0.0/10            0h 00m        —  0.0  ·  *** Total lunar eclipse at  4:33 AM  (mag umbral 1.149) ***
   ...

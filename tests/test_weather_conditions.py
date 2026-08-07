@@ -201,10 +201,20 @@ class TestRateConditions:
 
     def test_cloud_tiers_high_cirrus_penalized_less_than_low_mid(self):
         """Same magnitude split between high-only vs low-only cloud cover — high/cirrus
-        gets the lighter 0.6 weight, so it should score strictly higher."""
+        gets the lighter _HIGH_CLOUD_WEIGHT, so it should score strictly higher."""
         high_only = rate_conditions(_wp(cloud_cover_low_pct=0, cloud_cover_mid_pct=0, cloud_cover_high_pct=80))
         low_only  = rate_conditions(_wp(cloud_cover_low_pct=80, cloud_cover_mid_pct=0, cloud_cover_high_pct=0))
         assert high_only > low_only
+
+    def test_solid_cirrus_overcast_is_a_poor_hour(self):
+        """
+        100% high cloud and nothing else. At the old 0.6 weight this rated 5/10 —
+        a "usable" hour under an unbroken cirrus deck, which lifted whole overcast
+        nights into the middle of the scale. It should land in the poor band.
+        """
+        assert rate_conditions(
+            _wp(cloud_cover_pct=100, cloud_cover_low_pct=0, cloud_cover_mid_pct=0, cloud_cover_high_pct=100)
+        ) == 3
 
     def test_cloud_tiers_fall_back_to_total_when_tiers_absent(self):
         """No tier fields set — reproduces the pre-upgrade cloud_cover_pct-only score."""

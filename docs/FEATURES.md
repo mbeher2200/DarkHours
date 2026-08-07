@@ -8,9 +8,10 @@ usable from the command line — CLI-only extras are labeled.
 <!-- source: scoring.py, predictor.py -->
 ## Night Quality Score
 One 0–10 score that answers "is tonight worth it?" — a weighted blend of weather
-(40%), lunar interference (25%), clear dark hours (25%), and light pollution
-(10%). A geometric mean, so one ruined factor can't be averaged away: a
-clouded-out night scores like a clouded-out night.
+(40%), lunar interference (25%), dark hours (25%), and light pollution
+(10%). A geometric mean, so one ruined factor can't be averaged away, plus a
+weather veto: below 4/10 on weather the whole night is capped at that score, so a
+clouded-out night scores like a clouded-out night no matter how new the moon is.
 
 <!-- source: moonlight.py -->
 ## Moonlight modeled, not feared

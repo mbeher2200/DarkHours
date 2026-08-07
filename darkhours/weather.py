@@ -551,6 +551,11 @@ def night_aod(points: list, start: datetime, end: datetime) -> "float | None":
 # Conditions rating
 # ---------------------------------------------------------------------------
 
+# How much high/cirrus cloud counts toward an opaque sky, relative to low/mid
+# stratus. See the derivation at its use site in rate_conditions.
+_HIGH_CLOUD_WEIGHT = 0.8
+
+
 def rate_conditions(p: 'WeatherPoint') -> int:
     """
     Rate sky conditions for astrophotography from 1 (unusable) to 10 (perfect).
@@ -585,8 +590,13 @@ def rate_conditions(p: 'WeatherPoint') -> int:
         # assumption: opaque = 1 - P(clear from low) * P(clear from mid).
         opaque_cloud = 1.0 - (1.0 - low) * (1.0 - mid)
         # High/cirrus still scatters light and blurs stars (star bloat, transparency loss)
-        # but rarely fully blocks the sky — lighter 0.6 weight into the same curve.
-        effective_cloud = min(1.0, opaque_cloud + 0.6 * high)
+        # but rarely fully blocks the sky — lighter weight into the same curve.
+        # Was 0.6, which capped total cirrus overcast at a 46% penalty: a solid
+        # 100%-cirrus hour still rated 5/10, and a whole night of it averaged 3.0.
+        # That's optimistic for deep-sky work, where continuous cirrus kills faint
+        # detail outright; 0.8 puts such an hour at 3/10 while still ranking cirrus
+        # ahead of the equivalent low/mid stratus.
+        effective_cloud = min(1.0, opaque_cloud + _HIGH_CLOUD_WEIGHT * high)
         limiters.append(max(0.0, 1.0 - effective_cloud ** 1.5))
     elif p.cloud_cover_pct is not None:
         # Fallback for sources without cloud-tier data (7Timer-only points, pre-upgrade

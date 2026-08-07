@@ -205,7 +205,7 @@ export default function OutlookTelemetryRibbon({
                 {sc && (
                   <div className="telemetry-mini-bars">
                     {sc.bortle != null && <ScoreBar label="Light Pollution" value={sc.bortle} />}
-                    {sc.dark   != null && <ScoreBar label="Clear Dark Sky"  value={sc.dark} />}
+                    {sc.dark   != null && <ScoreBar label="Dark Hours"  value={sc.dark} />}
                     {selected.weather_informed && sc.weather != null && <ScoreBar label="Weather" value={sc.weather} />}
                     {sc.moon   != null && <ScoreBar label="Lunar Conditions" value={sc.moon} />}
                   </div>

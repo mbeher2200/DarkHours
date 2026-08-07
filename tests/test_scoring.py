@@ -111,6 +111,45 @@ class TestRateNight:
         assert result["score"] == pytest.approx(expected_score, abs=0.05)
 
 
+class TestWeatherVeto:
+    """Below WEATHER_VETO_THRESHOLD, clouds gate the night instead of scaling it."""
+
+    def test_clouded_out_new_moon_cannot_score_good(self):
+        """
+        The regression this veto exists for: 2026-08-12 at 40.52,-109.54 — a new
+        moon under 100% cirrus, zero clear dark hours, scored 6.0 ("Good") on the
+        strength of its moon and dark-hours components alone.
+        """
+        result = rate_night(moon_score=10.0, dark_score=9.8, weather_score=1.8, bortle_score=7.8)
+        assert result["score"] == pytest.approx(1.8, abs=0.05)
+
+    def test_veto_caps_at_weather_score(self):
+        for wx in (0.5, 1.0, 2.0, 3.9):
+            score = rate_night(10, 10, wx, 10)["score"]
+            assert score == pytest.approx(wx, abs=0.05), f"weather {wx} should cap the night"
+
+    def test_above_threshold_leaves_geometric_mean_intact(self):
+        """A merely-mediocre night keeps its full range — the cap is one-sided."""
+        result = rate_night(moon_score=10.0, dark_score=9.6, weather_score=4.8, bortle_score=7.8)
+        assert result["score"] == pytest.approx(7.2, abs=0.05)
+        assert result["score"] > 4.8
+
+    def test_veto_never_raises_a_score(self):
+        """min(), not assignment: a weak night below the threshold stays weak."""
+        result = rate_night(moon_score=1.0, dark_score=1.0, weather_score=3.9, bortle_score=1.0)
+        assert result["score"] < 3.9
+
+    def test_missing_weather_is_not_vetoed(self):
+        """Beyond the forecast horizon there is nothing to veto with."""
+        result = rate_night(10, 10, None, 10)
+        assert result["score"] == pytest.approx(10.0, abs=0.05)
+
+    def test_components_unchanged_by_veto(self):
+        """The veto adjusts the composite only — the bars still report raw components."""
+        result = rate_night(10.0, 9.8, 1.8, 7.8)
+        assert result["components"] == {"weather": 1.8, "moon": 10.0, "dark": 9.8, "bortle": 7.8}
+
+
 # ---------------------------------------------------------------------------
 # weighted_weather_score
 # ---------------------------------------------------------------------------

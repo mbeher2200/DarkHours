@@ -24,7 +24,7 @@ export function cell(isFetching: boolean, value: React.ReactNode): React.ReactNo
 
 // ── Metadata row ─────────────────────────────────────────────────────────────
 // `score` ties the row to its composite-score factor (Bortle → Light Pollution,
-// dark hours → Clear Dark Sky, etc.) via an inline bar; `scoreTip` carries the
+// dark → Dark Hours, etc.) via an inline bar; `scoreTip` carries the
 // weighting/methodology explainer that used to live on the standalone score
 // bars, now surfaced through a small "?" badge so it isn't lost.
 

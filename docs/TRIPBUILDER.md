@@ -76,6 +76,8 @@ Trip Builder uses the same Night Quality Score formula as the single-night repor
 
 Near dates and far dates run through the same redistribution logic. So scores from one run line up against each other, no matter the date.
 
+One asymmetry to keep in mind when reading a mixed range: the weather veto (below 4/10 on weather, the night is capped at its weather score) can only fire on dates that have weather. A clouded-out night inside the forecast window will rank below an unknown night past it, because the far night is being scored on its astronomy alone. Use `--no-weather` when you want every date judged on the same footing.
+
 ---
 
 ## Caching
