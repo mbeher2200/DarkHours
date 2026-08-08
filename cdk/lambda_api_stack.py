@@ -313,12 +313,15 @@ class LambdaApiStack(Stack):
         # max_concurrency caps how many worker invocations SQS drives in parallel. Without
         # it, a backlog of jobs can hold every slot in the account-wide Lambda concurrency
         # pool for up to the worker's 900s timeout, throttling the API into user-facing
-        # 5xx — the API and the worker draw from the same pool. This is sized against that
-        # pool (currently 10), not against job throughput, so it is deliberately low:
-        # raise it once the account's concurrent-executions quota is raised, or jobs will
-        # queue rather than fan out. See docs/OBSERVABILITY.md § Capacity limits.
+        # 5xx — the API and the worker draw from the same pool. So this is sized against
+        # that pool: it leaves the API ample room at the account quota of 1000, while
+        # still letting jobs fan out instead of queuing.
+        #
+        # DO NOT raise this above ~half the account's concurrent-executions quota, and
+        # lower it if that quota is ever reduced — the two move together.
+        # See docs/OBSERVABILITY.md § Capacity limits.
         worker.add_event_source(
-            lambda_events.SqsEventSource(jobs_queue, batch_size=1, max_concurrency=5)
+            lambda_events.SqsEventSource(jobs_queue, batch_size=1, max_concurrency=50)
         )
 
         # --- Provider health monitor read (circuit breaker's monitor-driven recovery) ---

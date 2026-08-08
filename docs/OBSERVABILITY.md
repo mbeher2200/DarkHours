@@ -158,7 +158,7 @@ Three ceilings govern how much traffic this stack absorbs. Two of them live outs
 so they are invisible in the templates and easy to rediscover the hard way.
 
 **Lambda concurrent executions (account-wide).** This account ran at **10** — AWS's default
-is 1000, and the account was never raised. The API and the worker draw from that same pool,
+is 1000 — until an increase back to 1000 was requested on 2026-08-08. The API and the worker draw from that same pool,
 so it is a shared ceiling, not a per-function one. Check and raise it with:
 
 ```
@@ -174,14 +174,17 @@ time it is non-zero, users have already seen 5xx.
 **Worker SQS concurrency.** `max_concurrency` on the worker's `SqsEventSource`
 (`cdk/lambda_api_stack.py`) is what stops a job backlog from consuming the whole pool and
 starving the API. It is sized against the account quota above, so the two must move
-together — raising the quota without raising this just leaves jobs queuing.
+together: raising the quota without raising this just leaves jobs queuing, and raising this
+without the quota re-opens the starvation path it exists to close. Keep it at roughly half
+the quota or below.
 
 **Cache table capacity.** The cache table is created outside CDK and imported by name
 (`dynamodb.Table.from_table_name`), so its billing mode is *not* under CloudFormation and a
 `cdk deploy` will not reassert it. It ran provisioned at 25 RCU / 25 WCU with no autoscaling
 — exactly the legacy always-free-tier allowance, which is why DynamoDB billed ~$0. Under
 load, short spikes above 25 survive only on burst credit (~300s of unused capacity); a
-sustained overrun throttles. Inspect and switch with:
+sustained overrun throttles. It was switched to on-demand on 2026-08-08 after a surge peaked
+at ~2x provisioned read capacity for a full minute; expect ~$2/mo at that traffic level. Inspect and switch with:
 
 ```
 aws dynamodb describe-table --table-name "$PYNIGHTSKY_CACHE_TABLE" \
