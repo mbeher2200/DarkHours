@@ -552,13 +552,18 @@ class LambdaApiStack(Stack):
         #                                sized for someone actively comparing several spots in
         #                                one session rather than a single opt-in click.
         #   5  RateLimitPerIp          — block any single IP exceeding 150 requests / 5 min
-        #                                across all endpoints. Raised alongside the calendar
-        #                                auto-fire above: each location view now costs ~1
-        #                                /night + 1 /calendar submit + a few /jobs/{id} polls
-        #                                (polls aren't covered by the per-endpoint rules, only
-        #                                this global one), plus typeahead /suggest calls. Still
-        #                                well below anything a scripted scraper needs seconds,
-        #                                not minutes, to exceed.
+        #                                across the API surface (scoped: /night, /suggest,
+        #                                /nearby, /calendar, /jobs, /healthz). Raised alongside
+        #                                the calendar auto-fire above: each location view now
+        #                                costs ~1 /night + 1 /calendar submit + a few
+        #                                /jobs/{id} polls (polls aren't covered by the
+        #                                per-endpoint rules, only this one), plus typeahead
+        #                                /suggest calls. Still well below anything a scripted
+        #                                scraper needs seconds, not minutes, to exceed.
+        #                                The scope-down matters: while this rule counted
+        #                                static assets too, real sessions were tripping it on
+        #                                favicons and bundle fetches and getting 403s on the
+        #                                API calls that followed.
         # Total ~931 WCU, still under the 1500-WCU default WebACL capacity (rate-based rule cost
         # doesn't scale with the numeric limit). Managed groups use override_action=none so each
         # group's own block/count actions apply unchanged — except CommonRuleSet, see above.
@@ -649,8 +654,35 @@ class LambdaApiStack(Stack):
                     action=wafv2.CfnWebACL.RuleActionProperty(block={}),
                     statement=wafv2.CfnWebACL.StatementProperty(
                         rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                            limit=150,                 # requests per IP per 5-min window
+                            limit=150,                 # API requests per IP per 5-min window
                             aggregate_key_type="IP",
+                            # Scoped to the API surface. Unscoped, this counted every asset
+                            # CloudFront served — favicons, images, the JS bundle — so a
+                            # single engaged session could exhaust 150 on static files alone
+                            # and get 403s on the API calls that matter. Static assets are
+                            # served from S3 and cost nothing to serve; only the Lambda-backed
+                            # paths are worth rate limiting. Mirrors the STARTS_WITH style of
+                            # the two per-endpoint rules above.
+                            scope_down_statement=wafv2.CfnWebACL.StatementProperty(
+                                or_statement=wafv2.CfnWebACL.OrStatementProperty(
+                                    statements=[
+                                        wafv2.CfnWebACL.StatementProperty(
+                                            byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
+                                                field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(uri_path={}),
+                                                positional_constraint="STARTS_WITH",
+                                                search_string=path,
+                                                text_transformations=[wafv2.CfnWebACL.TextTransformationProperty(
+                                                    priority=0, type="NONE",
+                                                )],
+                                            ),
+                                        )
+                                        for path in (
+                                            "/night", "/suggest", "/nearby",
+                                            "/calendar", "/jobs", "/healthz",
+                                        )
+                                    ],
+                                ),
+                            ),
                         ),
                     ),
                     visibility_config=vis("RateLimitPerIp"),
@@ -885,12 +917,44 @@ function handler(event) {
         # the /dark-sky/* pipeline (darkhours-destinations repo). The non-html pass keeps
         # `prune` (its default) so stale assets still get removed; the html-only pass
         # must NOT prune, or it would delete every non-html key it doesn't know about.
+        #
+        # Each pass also sets Cache-Control, which nothing here did before: objects landed
+        # with no cache header at all, so browsers fell back to heuristic freshness off
+        # Last-Modified — and Last-Modified is the deploy timestamp, so the heuristic window
+        # was ~nothing and every navigation revalidated every asset. In the WAF logs a single
+        # session showed 146 favicon round-trips in one hour for this reason. Three tiers:
+        #
+        #   assets/*   content-hashed by Vite (index-<hash>.js), so the URL changes whenever
+        #              the bytes do -> immutable, cache for a year, never revalidate.
+        #   other      favicons, images, *.bin, robots/sitemap: stable names, so a fixed TTL.
+        #              One day is the trade: a returning browser can be up to a day stale on
+        #              these after a deploy, which is fine for content that rarely changes.
+        #   *.html     the entry point that names the current asset hashes. no-cache means
+        #              "store it, but revalidate every time" -> cheap 304s, and a deploy is
+        #              picked up on the next navigation instead of a day later.
+        #
+        # Pruning stays scoped per pass: assets/* prunes within itself (so superseded
+        # bundles don't accumulate), the non-html pass prunes everything it owns, and the
+        # html pass must NOT prune or it would delete every non-html key it doesn't know.
         spa_dist_path = os.path.join(os.path.dirname(__file__), "..", "apps", "web", "dist")
+        s3deploy.BucketDeployment(
+            self, "SpaDeployAssets",
+            sources=[s3deploy.Source.asset(spa_dist_path)],
+            destination_bucket=spa_bucket,
+            exclude=["*"],
+            include=["assets/*"],
+            cache_control=[s3deploy.CacheControl.from_string(
+                "public, max-age=31536000, immutable",
+            )],
+            distribution=dist,
+            distribution_paths=["/*"],
+        )
         s3deploy.BucketDeployment(
             self, "SpaDeploy",
             sources=[s3deploy.Source.asset(spa_dist_path)],
             destination_bucket=spa_bucket,
-            exclude=["*.html"],
+            exclude=["*.html", "assets/*"],
+            cache_control=[s3deploy.CacheControl.from_string("public, max-age=86400")],
             distribution=dist,
             distribution_paths=["/*"],
         )
@@ -901,6 +965,7 @@ function handler(event) {
             exclude=["*"],
             include=["*.html"],
             content_type="text/html; charset=utf-8",
+            cache_control=[s3deploy.CacheControl.from_string("no-cache")],
             prune=False,
             distribution=dist,
             distribution_paths=["/*"],

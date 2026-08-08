@@ -192,3 +192,27 @@ aws dynamodb update-table --table-name "$PYNIGHTSKY_CACHE_TABLE" --billing-mode 
 Billing mode can only be switched once per 24 hours. Note that the cache does nearly as many
 writes as reads, so table load scales close to linearly with traffic rather than flattening
 as the cache warms.
+
+## Edge caching and the per-IP rate limit
+
+These two interact, and getting one wrong shows up as the other misbehaving.
+
+**Cache-Control is set at upload**, per `BucketDeployment` pass in `cdk/lambda_api_stack.py`,
+not by a CloudFront response-headers policy. Three tiers: `assets/*` is content-hashed so it
+is `immutable` for a year; other static files get a one-day TTL; `*.html` is `no-cache` so a
+deploy is picked up on the next navigation rather than a day later. Before this was set,
+objects landed with no cache header at all and browsers revalidated everything on every
+navigation — one session in the WAF logs made 146 favicon round-trips in an hour.
+
+**`RateLimitPerIp` is scoped to the API surface** (`/night`, `/suggest`, `/nearby`,
+`/calendar`, `/jobs`, `/healthz`). It must stay scoped. Unscoped it counted every asset
+CloudFront served, so an engaged session could spend its 150-request budget on favicons and
+bundle fetches and then get 403s on the API calls that actually mattered. If you add a new
+Lambda-backed path, add it to the scope-down list too — a path that isn't listed is not rate
+limited at all.
+
+To see what the limiter is actually catching, query the WAF log group
+(`aws-waf-logs-pynightsky`, 30-day retention) grouped by `terminatingRuleId` and
+`httpRequest.uri`. Check whether blocked clients are also making real API calls before
+treating them as abusive: a client that fetches `/suggest`, `/night` and then polls
+`/jobs/{id}` is a user, not a scraper.
