@@ -310,7 +310,16 @@ class LambdaApiStack(Stack):
         worker.add_to_role_policy(geo_policy)
         worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
         worker.add_to_role_policy(route_policy)
-        worker.add_event_source(lambda_events.SqsEventSource(jobs_queue, batch_size=1))
+        # max_concurrency caps how many worker invocations SQS drives in parallel. Without
+        # it, a backlog of jobs can hold every slot in the account-wide Lambda concurrency
+        # pool for up to the worker's 900s timeout, throttling the API into user-facing
+        # 5xx — the API and the worker draw from the same pool. This is sized against that
+        # pool (currently 10), not against job throughput, so it is deliberately low:
+        # raise it once the account's concurrent-executions quota is raised, or jobs will
+        # queue rather than fan out. See docs/OBSERVABILITY.md § Capacity limits.
+        worker.add_event_source(
+            lambda_events.SqsEventSource(jobs_queue, batch_size=1, max_concurrency=5)
+        )
 
         # --- Provider health monitor read (circuit breaker's monitor-driven recovery) ---
         # Least-privilege on purpose: dynamodb:GetItem only (the breaker does single-key
