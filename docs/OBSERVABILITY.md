@@ -151,3 +151,44 @@ aws budgets create-notification \
   --notification Type=ACTUAL,ComparisonOperator=GREATER_THAN,Threshold=80,ThresholdType=PERCENTAGE \
   --subscribers SubscriptionType=EMAIL,Address=<you>
 ```
+
+## Capacity limits
+
+Three ceilings govern how much traffic this stack absorbs. Two of them live outside CDK,
+so they are invisible in the templates and easy to rediscover the hard way.
+
+**Lambda concurrent executions (account-wide).** This account ran at **10** — AWS's default
+is 1000, and the account was never raised. The API and the worker draw from that same pool,
+so it is a shared ceiling, not a per-function one. Check and raise it with:
+
+```
+aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384
+aws service-quotas request-service-quota-increase \
+  --service-code lambda --quota-code L-B99A9384 --desired-value 1000
+```
+
+Watch `AWS/Lambda ConcurrentExecutions` with no dimensions (account-wide, `Maximum`) against
+whatever that value currently is. Per-function `Throttles` is the lagging indicator: by the
+time it is non-zero, users have already seen 5xx.
+
+**Worker SQS concurrency.** `max_concurrency` on the worker's `SqsEventSource`
+(`cdk/lambda_api_stack.py`) is what stops a job backlog from consuming the whole pool and
+starving the API. It is sized against the account quota above, so the two must move
+together — raising the quota without raising this just leaves jobs queuing.
+
+**Cache table capacity.** The cache table is created outside CDK and imported by name
+(`dynamodb.Table.from_table_name`), so its billing mode is *not* under CloudFormation and a
+`cdk deploy` will not reassert it. It ran provisioned at 25 RCU / 25 WCU with no autoscaling
+— exactly the legacy always-free-tier allowance, which is why DynamoDB billed ~$0. Under
+load, short spikes above 25 survive only on burst credit (~300s of unused capacity); a
+sustained overrun throttles. Inspect and switch with:
+
+```
+aws dynamodb describe-table --table-name "$PYNIGHTSKY_CACHE_TABLE" \
+  --query 'Table.{Billing:BillingModeSummary.BillingMode,RCU:ProvisionedThroughput.ReadCapacityUnits}'
+aws dynamodb update-table --table-name "$PYNIGHTSKY_CACHE_TABLE" --billing-mode PAY_PER_REQUEST
+```
+
+Billing mode can only be switched once per 24 hours. Note that the cache does nearly as many
+writes as reads, so table load scales close to linearly with traffic rather than flattening
+as the cache warms.
