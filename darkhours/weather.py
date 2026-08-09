@@ -555,14 +555,66 @@ def night_aod(points: list, start: datetime, end: datetime) -> "float | None":
 # stratus. See the derivation at its use site in rate_conditions.
 _HIGH_CLOUD_WEIGHT = 0.8
 
+# --- Dew risk ---------------------------------------------------------------
+# Dew is the one adverse condition on this list a shooter can actually manage in
+# the field: a heater strap, a dew shield, or just wiping the corrector keeps the
+# night going. It's a heads-up, not a dealbreaker, and the UI already flags it
+# independently of the score (the dew-point readout turns red at the same spread
+# threshold used below). So it shades a rating rather than gating one, and is
+# floored at _DEW_FLOOR — worst case a 20% haircut.
+#
+# Being soft here is only safe because the genuinely unshootable end of the
+# moisture spectrum is already caught upstream: fog arrives as a non-"none"
+# precip_type (hard gate 1) or as sub-1000 m visibility (hard gate 2). What's
+# left for this term is the manageable middle.
+_DEW_FLOOR = 0.80
+
+# Dew-point spread (°C) at or above which there's no meaningful condensation
+# risk. 5.0 matches the threshold the SPA already uses to flag the dew-point
+# readout (see NightTimeline.tsx) so the warning and the penalty start together.
+_DEW_CLEAR_SPREAD_C = 5.0
+
+# Relative-humidity onset for the fallback path, used only when temperature or
+# dew point is missing. At typical night temperatures 75% RH ≈ a 4.4 °C spread,
+# so the two paths agree to within ~0.02 of each other across their whole range.
+_DEW_RH_ONSET_PCT = 75.0
+
+
+def _dew_risk_factor(p: 'WeatherPoint') -> float | None:
+    """
+    Bounded dew-risk multiplier in [_DEW_FLOOR, 1.0], or None when the point
+    carries neither dew point nor humidity.
+
+    Keyed off dew-point spread (air temperature minus dew point), which is the
+    direct physical measure of how close the air is to condensing — raw RH is
+    only a proxy for it. Falls back to RH when the spread can't be computed.
+
+    Note the interaction with clear skies: radiative cooling under a cloudless
+    sky drives temperature down toward the dew point, so high RH is partly a
+    *symptom* of the very conditions the cloud limiter is rewarding. That's the
+    other half of why this term is capped — left unbounded it quietly claws back
+    the credit a clear night just earned.
+    """
+    if p.temperature_c is not None and p.dew_point_c is not None:
+        spread = p.temperature_c - p.dew_point_c
+        clear_frac = spread / _DEW_CLEAR_SPREAD_C
+    elif p.humidity_pct is not None:
+        over = p.humidity_pct - _DEW_RH_ONSET_PCT
+        clear_frac = 1.0 - over / (100.0 - _DEW_RH_ONSET_PCT)
+    else:
+        return None
+
+    clear_frac = max(0.0, min(1.0, clear_frac))
+    return _DEW_FLOOR + (1.0 - _DEW_FLOOR) * clear_frac
+
 
 def rate_conditions(p: 'WeatherPoint') -> int:
     """
     Rate sky conditions for astrophotography from 1 (unusable) to 10 (perfect).
 
     Uses a multiplicative limiting-factor model for dealbreakers (clouds, wind, transparency,
-    aerosols, visibility) and an additive quality model for atmospheric steadiness (seeing,
-    humidity).
+    aerosols, visibility), an additive quality model for atmospheric steadiness (seeing), and
+    a bounded advisory factor for dew risk that can shade a rating but never gate one.
     """
     # Hard gate 1: any non-"none" precip_type. Covers rain/snow/frzr/icep/fog/tstorm
     # uniformly, since fog/tstorm are just additional non-"none" string values.
@@ -684,19 +736,28 @@ def rate_conditions(p: 'WeatherPoint') -> int:
         seeing_score = max(0.0, min(1.0, (4.0 - p.seeing_arcsec) / 3.0))
         base_factors.append(seeing_score)
 
-    if p.humidity_pct is not None:
-        # Penalizes high humidity due to dew/fog risk. Starts dropping linearly after 50%.
-        humid_score = max(0.0, 1.0 - max(0.0, p.humidity_pct - 50.0) / 50.0)
-        base_factors.append(humid_score)
+    # Humidity used to live here, averaged with seeing. That made its weight depend on
+    # whether seeing happened to be available: with 7Timer covering the date the two were
+    # averaged, but past 7Timer's 72-hour ASTRO horizon humidity became the *sole* base
+    # factor and multiplied the whole rating on its own. The same clear, calm, Bortle-1
+    # night rated 5.6 at D+2 and 3.1 at D+3 purely on which providers answered. Dew risk
+    # is now its own bounded factor below, so it carries the same weight either way.
 
-    # Calculate base quality (average of seeing and humidity)
-    # If neither is provided, assume perfect base conditions (1.0) before applying limiters.
+    # Calculate base quality (currently seeing alone).
+    # If not provided, assume perfect base conditions (1.0) before applying limiters.
     base_score = sum(base_factors) / len(base_factors) if base_factors else 1.0
 
     # Apply limiters multiplicatively
     final_score = base_score
     for limiter in limiters:
         final_score *= limiter
+
+    # --- 3. DEW RISK (bounded advisory) ---
+    # Applied outside `limiters` on purpose: everything in that list is allowed to reach
+    # zero and end the night, and this one deliberately cannot. See _dew_risk_factor.
+    dew_factor = _dew_risk_factor(p)
+    if dew_factor is not None:
+        final_score *= dew_factor
 
     # Scale to 1-10 range and round safely
     return max(1, min(10, round(final_score * 10)))

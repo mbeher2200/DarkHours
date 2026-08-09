@@ -667,9 +667,12 @@ export default function App() {
                 The scoring underneath is tuned for photographers, not general weather: wind is scored on a
                 quadratic curve that reaches zero around 38 mph (17 m/s), counting gusts as well as sustained
                 speed, since a gust is what shakes a tripod mid-exposure even when the sustained reading looks
-                calm. Humidity above 50% is penalized on a sliding scale for dew and fog risk. Any active
-                precipitation, or visibility under 1,000 meters, is a hard stop regardless of what the rest of the
-                numbers say.
+                calm. Dew risk is scored from the dew-point spread rather than raw humidity, and it is treated as
+                a heads-up rather than a dealbreaker: it can shade an hour's rating by up to 20% and no more,
+                because dew is something you can plan around with a heater strap or a dew shield. Watch for the
+                dew point turning red in the hourly table, which is the same 5°C spread the score reacts to. Any
+                active precipitation, or visibility under 1,000 meters, is a hard stop regardless of what the rest
+                of the numbers say.
               </p>
             </div>
             <div className="es-faq-item">
