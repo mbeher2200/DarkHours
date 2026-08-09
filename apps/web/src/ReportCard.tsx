@@ -536,7 +536,7 @@ export default function ReportCard({
             k="Weather"
             v={`${r.weather_score.toFixed(1)}/10${r.wx_source ? `  ·  ${r.wx_source}` : ''}`}
             score={r.score_components.weather}
-            scoreTip={<>40% of the composite, and a veto below 4/10 — under that line the whole night is capped at this score. Hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, wind, and humidity. Low and mid cloud block outright; high cirrus counts for 0.8 of that, since it dims and bloats stars rather than hiding them.</>}
+            scoreTip={<>40% of the composite, and a veto below 4/10 — under that line the whole night is capped at this score. Hourly condition ratings averaged across the night, with dark-window hours weighted 3× over twilight. Clouds dominate; then seeing, transparency, and wind. Low and mid cloud block outright; high cirrus counts for 0.8 of that, since it dims and bloats stars rather than hiding them. Dew risk shades an hour by up to 20% and never more, since it is manageable in the field.</>}
           />
         )}
         {showWeather && r.wx_pending && <MetaRow k="Weather" v="Pending  (beyond the ~16-day forecast horizon)" />}

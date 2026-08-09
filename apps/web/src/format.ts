@@ -144,7 +144,11 @@ export function rateConditions(p: WeatherPoint): number {
     const low  = (p.cloud_cover_low_pct  ?? 0) / 100
     const mid  = (p.cloud_cover_mid_pct  ?? 0) / 100
     const high = (p.cloud_cover_high_pct ?? 0) / 100
-    const effective = Math.min(1, Math.max(low, mid) + 0.6 * high)
+    // Low and mid are treated as independent odds of an opaque sky, not as one layer
+    // subsuming the other; high cirrus adds at 0.8 weight. Kept in sync with
+    // rate_conditions in darkhours/weather.py.
+    const opaque = 1 - (1 - low) * (1 - mid)
+    const effective = Math.min(1, opaque + 0.8 * high)
     limiters.push(Math.max(0, 1 - Math.pow(effective, 1.5)))
   } else if (p.cloud_cover_pct != null) {
     limiters.push(Math.max(0, 1 - Math.pow(p.cloud_cover_pct / 100, 1.5)))
@@ -191,17 +195,28 @@ export function rateConditions(p: WeatherPoint): number {
     limiters.push(Math.max(0, Math.min(1, s)))
   }
 
-  // Quality base: average of seeing and humidity (additive)
+  // Quality base: seeing (additive)
   const base: number[] = []
   if (p.seeing_arcsec != null)
     base.push(Math.max(0, Math.min(1, (4.0 - p.seeing_arcsec) / 3.0)))
-  if (p.humidity_pct != null)
-    base.push(Math.max(0, 1 - Math.max(0, p.humidity_pct - 50) / 50))
 
-  if (!limiters.length && !base.length) return 10
+  // Dew risk — a bounded advisory, not a limiter. Floored at DEW_FLOOR so it can shade a
+  // rating but never condemn one: dew is manageable in the field with a heater strap, and
+  // the dew-point readout already flags it at the same 5°C spread used here. Keyed off
+  // dew-point spread, falling back to RH (onset 75%) when temp/dew point are missing.
+  // Kept in sync with _dew_risk_factor in darkhours/weather.py.
+  const DEW_FLOOR = 0.8
+  let dewFactor: number | null = null
+  if (p.temperature_c != null && p.dew_point_c != null)
+    dewFactor = DEW_FLOOR + (1 - DEW_FLOOR) * Math.max(0, Math.min(1, (p.temperature_c - p.dew_point_c) / 5.0))
+  else if (p.humidity_pct != null)
+    dewFactor = DEW_FLOOR + (1 - DEW_FLOOR) * Math.max(0, Math.min(1, 1 - (p.humidity_pct - 75) / 25))
+
+  if (!limiters.length && !base.length && dewFactor == null) return 10
 
   const baseScore = base.length ? base.reduce((s, v) => s + v, 0) / base.length : 1.0
-  const final = limiters.reduce((s, v) => s * v, baseScore)
+  let final = limiters.reduce((s, v) => s * v, baseScore)
+  if (dewFactor != null) final *= dewFactor
   return Math.max(1, Math.min(10, Math.round(final * 10)))
 }
 

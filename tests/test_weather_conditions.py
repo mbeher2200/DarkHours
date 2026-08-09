@@ -139,19 +139,83 @@ class TestRateConditions:
         """Severe sustained wind isn't masked by a merely-mild gust value."""
         assert rate_conditions(_wp(wind_speed_ms=20.0, wind_gust_ms=2.0)) == 1
 
-    # --- Humidity (Base Quality): max(0.0, 1.0 - max(0.0, RH-50)/50) ---
+    # --- Dew risk (bounded advisory): floored at 0.80, keyed off dew-point spread,
+    #     falling back to RH with a 75% onset. Never a gate. ---
 
-    def test_humidity_below_50_has_no_penalty(self):
-        """≤ 50% RH → no dew risk, full humidity base quality."""
-        s30 = rate_conditions(_wp(humidity_pct=30))
-        s50 = rate_conditions(_wp(humidity_pct=50))
-        assert s30 == s50
+    def test_humidity_below_onset_has_no_penalty(self):
+        """≤ 75% RH → no meaningful condensation risk, no penalty."""
+        s30 = rate_conditions(_wp(humidity_pct=30, cloud_cover_pct=0))
+        s75 = rate_conditions(_wp(humidity_pct=75, cloud_cover_pct=0))
+        assert s30 == s75 == 10
 
     def test_humidity_90_reduces_score(self):
-        """90% RH drops the base quality significantly (1.0 - 40/50 = 0.2)."""
-        low_rh = rate_conditions(_wp(humidity_pct=50, cloud_cover_pct=0))
+        low_rh = rate_conditions(_wp(humidity_pct=75, cloud_cover_pct=0))
         high_rh = rate_conditions(_wp(humidity_pct=90, cloud_cover_pct=0))
         assert low_rh > high_rh
+
+    def test_saturated_air_costs_at_most_twenty_percent(self):
+        """100% RH on an otherwise perfect hour must not drop below 8/10. Dew is
+        manageable in the field; genuine fog is caught by the precip/visibility gates."""
+        assert rate_conditions(_wp(humidity_pct=100, cloud_cover_pct=0)) == 8
+
+    def test_zero_dew_point_spread_costs_at_most_twenty_percent(self):
+        """Same ceiling via the dew-point-spread path (temp == dew point)."""
+        assert rate_conditions(
+            _wp(cloud_cover_pct=0, temperature_c=10.0, dew_point_c=10.0)
+        ) == 8
+
+    def test_dew_spread_above_threshold_has_no_penalty(self):
+        """≥ 5 °C spread → no penalty, matching the UI's dew-warning threshold."""
+        assert rate_conditions(
+            _wp(cloud_cover_pct=0, temperature_c=15.0, dew_point_c=10.0)
+        ) == 10
+
+    def test_dew_spread_tapers_monotonically(self):
+        scores = [
+            rate_conditions(_wp(cloud_cover_pct=0, temperature_c=15.0, dew_point_c=15.0 - s))
+            for s in (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+        ]
+        assert scores == sorted(scores)
+        assert scores[0] == 8 and scores[-1] == 10
+
+    def test_dew_point_spread_preferred_over_humidity(self):
+        """When both are present the spread wins — it's the direct physical measure."""
+        # RH says saturated, spread says bone dry. Spread should carry the hour.
+        assert rate_conditions(
+            _wp(cloud_cover_pct=0, humidity_pct=100, temperature_c=15.0, dew_point_c=5.0)
+        ) == 10
+
+    def test_dew_and_rh_paths_agree(self):
+        """The two paths are calibrated against each other, so a point carrying dew point
+        and the RH it implies must not rate differently depending on which path runs."""
+        # 95% RH at 15 °C ⇒ dew point ≈ 14.2 °C (Magnus).
+        via_spread = rate_conditions(
+            _wp(cloud_cover_pct=0, temperature_c=15.0, dew_point_c=14.2)
+        )
+        via_rh = rate_conditions(_wp(cloud_cover_pct=0, humidity_pct=95))
+        assert via_spread == via_rh
+
+    def test_dew_risk_weight_does_not_depend_on_seeing_availability(self):
+        """Regression: dew used to be averaged with seeing, so its weight doubled when
+        seeing was missing (past 7Timer's 72h horizon). The gap between a humid and a dry
+        hour must now be the same whether or not seeing came through."""
+        def gap(**extra):
+            dry   = rate_conditions(_wp(cloud_cover_pct=0, humidity_pct=50, **extra))
+            humid = rate_conditions(_wp(cloud_cover_pct=0, humidity_pct=95, **extra))
+            return dry - humid
+
+        assert gap() == gap(seeing_arcsec=1.0)
+
+    def test_clear_calm_humid_night_is_not_condemned(self):
+        """The Olympic Peninsula case: zero cloud, calm, pristine air, 20 km visibility,
+        but marine-layer humidity. Must not read as an unusable night."""
+        p = _wp(
+            cloud_cover_low_pct=0, cloud_cover_mid_pct=0, cloud_cover_high_pct=0,
+            wind_speed_ms=1.5, wind_gust_ms=1.3, visibility_m=24140.0,
+            aerosol_optical_depth=0.09, pm2_5=5.0,
+            humidity_pct=91, temperature_c=15.3, dew_point_c=13.9,
+        )
+        assert rate_conditions(p) >= 8
 
     # --- Transparency (Limiter) ---
 

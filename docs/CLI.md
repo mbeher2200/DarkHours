@@ -230,7 +230,7 @@ The Night Quality Score (1 to 10) is a composite of four factors:
 
 | Factor | Weight | Scoring |
 |--------|--------|---------|
-| **Weather** | 40% | Cloud cover, seeing, transparency, humidity, and precipitation |
+| **Weather** | 40% | Cloud cover, seeing, transparency, dew risk, and precipitation |
 | **Lunar Interference** | 25% | K&S sky-brightening credit at 90° separation, 30° altitude. 10 = new moon, ≈0 = gibbous or full |
 | **Dark Sky Hours** | 25% | Based on your location's typical lunar cycle, scored against its best conditions |
 | **Light Pollution** | 10% | 10 = Bortle 1 (no pollution), dropping toward zero at Bortle 9 (inner city) |
@@ -394,7 +394,11 @@ rating = 10 × base_quality × (limiter₁ × limiter₂ × … )
 | Aerosols | The worse of aerosol optical depth and PM2.5, so a shallow trapped smoke layer can't hide behind a moderate satellite column reading |
 | Visibility | 1.0 above 20 km, tapering linearly to 0.7 at 10 km, then log-scaled below that |
 
-**Quality base**, the averaged ceiling: seeing (1.0 arcsec or better is excellent, 4.0 is poor) and humidity (no penalty below 50%, zero at 100%). With neither available the base is 1.0 and the limiters act alone.
+**Quality base**, the ceiling the limiters multiply against: seeing (1.0 arcsec or better is excellent, 4.0 is poor). Unavailable past 7Timer's 72-hour horizon, in which case the base is 1.0 and the limiters act alone.
+
+**Dew risk**, a bounded advisory applied last. Keyed off dew-point spread (air temperature minus dew point), which is the direct measure of how close the air is to condensing; relative humidity is a fallback when the spread can't be computed, with its onset at 75%. No penalty at a spread of 5°C or more, tapering to a floor of 0.80 at saturation, so it can shade a rating by at most 20% and can never gate one. That floor is deliberate: dew is the one adverse condition here a shooter can manage in the field with a heater strap or a dew shield, and the hourly table already turns the dew-point readout red at the same 5°C threshold. Being soft is safe because the unshootable end of the moisture range is caught upstream by the fog and visibility hard gates.
+
+Dew risk sits outside the quality base rather than inside it. Averaging it with seeing made its weight depend on whether seeing happened to be available: past 7Timer's horizon it became the sole base factor and multiplied the rating on its own, so the same clear, calm, Bortle 1 night could rate 5.6 at D+2 and 3.1 at D+3 purely on which providers answered.
 
 Cloud cover falls back to plain total cover on the same 1.5 power curve when a provider gives no low/mid/high split. The rating floors at 1, never 0, so a single unusable hour doesn't zero a whole night's average on its own. That floor is why the night-level weather veto exists: see [Night Quality Score](#night-quality-score).
 
