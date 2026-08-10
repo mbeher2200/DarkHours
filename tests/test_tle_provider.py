@@ -229,6 +229,49 @@ class TestGetTle:
         assert result.error is not None
         assert result.stale is False
 
+    def test_403_revalidates_and_extends_ttl(self):
+        """403 means 'your copy is current' → re-set it with a fresh TTL, serve fresh.
+
+        The entry must never be allowed to expire while Celestrak keeps confirming
+        it, which is what previously stranded the cache with nothing to fall back on.
+        """
+        mc = self._mock_cache(get_val=None, stale_val=_ISS_RAW)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod, '_fetch_tle_raw',
+                               side_effect=tle_mod._NotModified("unchanged")):
+            result = get_tle(25544)
+        assert result.lines is not None
+        assert result.stale is False, "revalidated data is current, not stale"
+        assert result.error is None
+        mc.set.assert_called_once()
+        assert mc.set.call_args.kwargs["ttl_seconds"] == tle_mod.TLE_TTL
+
+    def test_403_with_empty_cache_counts_as_failure(self):
+        """403 with nothing cached is unrecoverable by retrying — must not spin.
+
+        Re-asking returns the same 403, so it has to trip the breaker rather than
+        being reported as success on every request.
+        """
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        fail = mock.MagicMock()
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._cb, 'on_failure', fail), \
+             mock.patch.object(tle_mod, '_fetch_tle_raw',
+                               side_effect=tle_mod._NotModified("unchanged")):
+            result = get_tle(25544)
+        assert result.lines is None
+        assert result.error is not None
+        fail.assert_called_once_with("celestrak")
+        mc.set.assert_not_called()
+
+    def test_ttl_is_wider_than_the_warmer_interval(self):
+        """TLE_TTL must stay several refresh cycles wide.
+
+        The warmer revalidates every 6h; if TLE_TTL were also 6h a single missed
+        run would delete the only copy. Guards against someone tightening it back.
+        """
+        assert tle_mod.TLE_TTL >= 4 * 6 * 3600
+
 
 # ---------------------------------------------------------------------------
 # circuit breaker integration
@@ -273,6 +316,49 @@ class TestCircuitBreaker:
             tles, stale, error = tle_mod.get_starlink_train_tles()
         urlopen.assert_not_called()
         assert tles == [] and error is None   # silent-skip contract preserved
+
+    def test_starlink_group_403_revalidates_and_extends_ttl(self):
+        """403 on the group fetch → re-set the cached copy with a fresh TTL.
+
+        This is the production failure: the group entry expired, DynamoDB deleted
+        it, Celestrak answered 403 ("unchanged since your last download"), there
+        was nothing to fall back on, and because 403 was recorded as success the
+        breaker never opened — so every request re-asked, ~3/min for hours.
+        """
+        import urllib.error
+
+        # Any non-empty TLE block works here — the assertions are about the
+        # revalidation mechanics, not about which satellites survive filtering.
+        mc = self._mock_cache(get_val=None, stale_val=_ISS_RAW)
+        err = urllib.error.HTTPError(url="x", code=403, msg="Forbidden",
+                                     hdrs=None, fp=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen', side_effect=err):
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        assert error is None
+        assert stale is False, "revalidated data is current, not stale"
+        mc.set.assert_called_once()
+        assert mc.set.call_args.kwargs["ttl_seconds"] == tle_mod.TLE_TTL
+
+    def test_starlink_group_403_with_empty_cache_opens_breaker(self):
+        """403 with nothing cached must trip the breaker, not report success.
+
+        Retrying cannot help — Celestrak returns the same 403 until its data
+        changes — so this is the guard against re-entering the spin loop.
+        """
+        import urllib.error
+        from darkhours import circuit_breaker as cb
+
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        err = urllib.error.HTTPError(url="x", code=403, msg="Forbidden",
+                                     hdrs=None, fp=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen', side_effect=err):
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        assert tles == []
+        assert error is not None and "no cached copy" in error
+        assert cb.is_open("celestrak"), "breaker must open so we stop re-asking"
+        mc.set.assert_not_called()
 
     def test_starlink_group_fetch_failure_no_cache_surfaces_error(self):
         """Breaker closed, fetch fails, no stale fallback → error must be

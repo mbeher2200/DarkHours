@@ -171,3 +171,30 @@ table reads, client Config pins, cross-module integration (shared nominatim key,
 serialization). Breaker-open short-circuit tests live in each provider's own test file.
 `tests/conftest.py` resets breaker state around every test (state is module-global;
 celestrak trips on a single failure). All hermetic — no network, no AWS.
+
+## Celestrak 403 is a revalidation, not a failure
+
+Celestrak enforces one download per data update and answers **403** — *"GP data has
+not updated since your last successful download"* — where another service would send
+304. It means the cached copy is still current.
+
+`tle_provider` now treats it that way: on 403 it re-writes the cached entry with a
+fresh `TLE_TTL`, so the entry cannot expire while Celestrak keeps confirming it, and
+serves it as current rather than stale.
+
+The failure this replaced is worth recording, because the fix is not obvious from the
+code alone. `TLE_TTL` and the warmer interval were both 6h, so a single missed refresh
+let DynamoDB delete the row. `get_stale()` — the designed fallback — then had nothing
+to read, and because the 403 branch called `_cb.on_success()` unconditionally, the
+breaker never opened. Every request with `satellites=true` re-asked Celestrak and got
+the same 403: roughly 3 requests/minute for hours, with no user-visible error, until
+someone read the logs. It could not self-heal, because Celestrak will not serve the
+data again until *their* copy changes.
+
+Two invariants keep it fixed, both covered by tests:
+
+- **`TLE_TTL` (24h) must stay several warmer cycles (6h) wide.** The TTL is when
+  DynamoDB *deletes* the row, not when the data goes stale. Equal values mean one
+  missed run destroys the only copy.
+- **403 with an empty cache must count as a failure.** Retrying cannot help, so it has
+  to trip the breaker. Only 403 *with* something to revalidate is a success.
