@@ -108,15 +108,46 @@ def geocode_impl(request, tmp_path, monkeypatch):
         yield DynamoGeocodeStore(table_name="test-cache")
 
 
-def test_geocode_empty_load_is_dict(geocode_impl):
-    assert geocode_impl.load() == {}
+def test_geocode_empty_all_is_dict(geocode_impl):
+    assert geocode_impl.all() == {}
 
 
-def test_geocode_save_load_roundtrip(geocode_impl):
-    data = {"home": {"lat": 1.5, "lon": -2.5, "display_name": "Home", "tz_name": "UTC"},
-            "dark site": {"lat": 36.42, "lon": -116.91, "display_name": "DV", "tz_name": "America/Los_Angeles"}}
-    geocode_impl.save(data)
-    assert geocode_impl.load() == data
+def test_geocode_missing_key_is_none(geocode_impl):
+    assert geocode_impl.get("nowhere") is None
+
+
+def test_geocode_put_get_roundtrip(geocode_impl):
+    entry = {"lat": 1.5, "lon": -2.5, "display_name": "Home", "tz_name": "UTC"}
+    geocode_impl.put("home", entry)
+    assert geocode_impl.get("home") == entry
+
+
+def test_geocode_put_is_per_key_not_whole_dict(geocode_impl):
+    """Writing one location must not disturb another.
+
+    This is the regression that matters: the DynamoDB store used to read the
+    whole dict, mutate it and write it back, so concurrent writers silently
+    dropped each other's entries — and the single item eventually hit the 400 KB
+    item limit and stopped accepting writes at all.
+    """
+    a = {"lat": 1.5, "lon": -2.5, "display_name": "Home", "tz_name": "UTC"}
+    b = {"lat": 36.42, "lon": -116.91, "display_name": "DV",
+         "tz_name": "America/Los_Angeles"}
+    geocode_impl.put("home", a)
+    geocode_impl.put("dark site", b)
+
+    assert geocode_impl.get("home") == a
+    assert geocode_impl.get("dark site") == b
+    assert geocode_impl.all() == {"home": a, "dark site": b}
+
+
+def test_geocode_put_overwrites_same_key(geocode_impl):
+    first = {"lat": 1.0, "lon": 2.0, "display_name": "X", "tz_name": "UTC"}
+    second = {"lat": 3.0, "lon": 4.0, "display_name": "Y", "tz_name": "UTC"}
+    geocode_impl.put("spot", first)
+    geocode_impl.put("spot", second)
+    assert geocode_impl.get("spot") == second
+    assert geocode_impl.all() == {"spot": second}
 
 
 # ── S3RasterSource grid resolution (no AWS needed) ───────────────────────────
