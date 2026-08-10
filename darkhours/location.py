@@ -33,30 +33,60 @@ USER_AGENT = "darkhours/1.0"
 
 
 class LocalGeocodeStore:
-    """Saved/cached named locations persisted as one JSON file on local disk."""
+    """Saved/cached named locations persisted as one JSON file on local disk.
+
+    The file keeps the whole-dict format it has always had — one process, one
+    file, no size ceiling worth worrying about — but the store now exposes the
+    same per-key contract as the DynamoDB one so callers never hold the whole
+    dict in order to add a single entry.
+    """
 
     def __init__(self, path: Path = CACHE_FILE):
         self.path = path
 
-    def load(self) -> dict:
+    def _read(self) -> dict:
         if self.path.exists():
             return json.loads(self.path.read_text())
         return {}
 
-    def save(self, data: dict) -> None:
+    def _write(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2))
 
+    def get(self, key: str) -> dict | None:
+        return self._read().get(key)
+
+    def put(self, key: str, entry: dict) -> None:
+        data = self._read()
+        data[key] = entry
+        self._write(data)
+
+    def all(self) -> dict:
+        return self._read()
+
 
 class DynamoGeocodeStore:
-    """Saved locations persisted as a single JSON blob in the shared DynamoDB table.
+    """Saved locations in the shared DynamoDB table, one item per location.
 
-    Stored under the reserved system key ``__geocode__`` (no TTL → permanent),
-    so a cache flush never touches it. Mirrors the whole-dict load/save contract
-    of LocalGeocodeStore.
+    Each entry is its own item under ``geocode|<key>``, written with no TTL so a
+    cache flush never touches it.
+
+    This deliberately does *not* mirror LocalGeocodeStore's file layout. It used
+    to: every location lived in a single ``__geocode__`` blob that was read and
+    rewritten in full on every save. That is the natural shape for a JSON file
+    and a pathological one for DynamoDB — the item reached the hard 400 KB item
+    limit at ~2,600 locations, after which every write failed and nothing new was
+    ever cached (so every lookup re-hit the geocoding provider, at real cost).
+    Before that it was merely expensive: ~50 RCU per read and ~400 WCU per write,
+    for one location. It was also lossy — read-modify-write on a shared blob from
+    concurrent Lambda containers silently dropped whichever write landed first.
+
+    Per-key items cost ~1 RCU / ~1 WCU, have no collective size ceiling, and
+    cannot clobber each other. Keep it that way: do not reintroduce an API that
+    writes every location at once.
     """
 
-    _KEY = "__geocode__"
+    _PREFIX = "geocode|"
 
     def __init__(self, table_name: str | None = None):
         self._table_name = table_name
@@ -69,31 +99,60 @@ class DynamoGeocodeStore:
             self._table = _dynamo_table(self._table_name)
         return self._table
 
-    def load(self) -> dict:
+    def get(self, key: str) -> dict | None:
         try:
-            item = self.table.get_item(Key={"cache_key": self._KEY}).get("Item")
-            return json.loads(item["value"]) if item else {}
+            item = self.table.get_item(Key={"cache_key": self._PREFIX + key}).get("Item")
+            return json.loads(item["value"]) if item else None
         except Exception as e:
-            log.debug("Geocode store load error: %s", e)
-            return {}
+            log.debug("Geocode store get error for %r: %s", key, e)
+            return None
 
-    def save(self, data: dict) -> None:
+    def put(self, key: str, entry: dict) -> None:
         try:
-            self.table.put_item(Item={"cache_key": self._KEY, "value": json.dumps(data)})
+            self.table.put_item(
+                Item={"cache_key": self._PREFIX + key, "value": json.dumps(entry)}
+            )
         except Exception as e:
             # A geocode-cache write failure must not fail the request — the lookup
             # still succeeds, it just won't be cached for next time.
             log.warning("Geocode store save failed (continuing uncached): %s", e)
 
+    def all(self) -> dict:
+        """Every saved location. Scans the table — CLI convenience, not a request path.
+
+        The table is hash-key-only, so there is no prefix Query to use here. This
+        is why nothing on the request path calls it.
+        """
+        out: dict = {}
+        try:
+            from boto3.dynamodb.conditions import Attr
+            kwargs = {"FilterExpression": Attr("cache_key").begins_with(self._PREFIX)}
+            while True:
+                resp = self.table.scan(**kwargs)
+                for item in resp.get("Items", []):
+                    out[item["cache_key"][len(self._PREFIX):]] = json.loads(item["value"])
+                if "LastEvaluatedKey" not in resp:
+                    return out
+                kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        except Exception as e:
+            log.debug("Geocode store scan error: %s", e)
+            return out
+
 
 # Module-level helpers delegate to the active backend's geocode store so the
-# Nominatim resolution logic below is unchanged when storage moves to the cloud.
-def _load() -> dict:
-    return ports.get_backend().geocode_store.load()
+# resolution logic below is unchanged when storage moves to the cloud. These are
+# per-key on purpose: reading or writing every location to touch one of them is
+# what wedged the DynamoDB store at its item-size limit (see DynamoGeocodeStore).
+def _get(key: str) -> dict | None:
+    return ports.get_backend().geocode_store.get(key)
 
 
-def _save(cache: dict):
-    ports.get_backend().geocode_store.save(cache)
+def _put(key: str, entry: dict) -> None:
+    ports.get_backend().geocode_store.put(key, entry)
+
+
+def _all() -> dict:
+    return ports.get_backend().geocode_store.all()
 
 
 _US_ZIP_RE = re.compile(r"^\d{5}(-\d{4})?$")
@@ -280,16 +339,14 @@ def resolve(name: str) -> tuple:
         e = _mem_geocode[key]
         return e["lat"], e["lon"], e["display_name"], e["tz_name"]
 
-    cache = _load()
+    entry = _get(key)
 
-    if key in cache:
-        entry = cache[key]
+    if entry is not None:
         # Migrate older entries that predate tz_name caching
         if "tz_name" not in entry:
             log.debug("Migrating '%s': adding tz_name", key)
             entry["tz_name"] = _tz_name_for(entry["lat"], entry["lon"])
-            cache[key] = entry
-            _save(cache)
+            _put(key, entry)
         log.debug("Cache hit for '%s': lat=%s, lon=%s, tz=%s",
                   key, entry["lat"], entry["lon"], entry["tz_name"])
         _mem_geocode[key] = entry
@@ -304,8 +361,7 @@ def resolve(name: str) -> tuple:
     if entry is None:
         raise ValueError(f"Location not found: {name!r}")
 
-    cache[key] = entry
-    _save(cache)
+    _put(key, entry)
     _mem_geocode[key] = entry
     log.debug("Geocoded '%s': lat=%s, lon=%s, tz=%s",
               key, entry["lat"], entry["lon"], entry["tz_name"])
@@ -315,14 +371,12 @@ def resolve(name: str) -> tuple:
 
 def save(name: str, lat: float, lon: float, display_name: str = None):
     """Explicitly save a named location (e.g. 'home', 'dark site')."""
-    cache = _load()
-    cache[name.strip().lower()] = {
+    _put(name.strip().lower(), {
         "lat": lat,
         "lon": lon,
         "display_name": display_name or name,
         "tz_name": _tz_name_for(lat, lon),
-    }
-    _save(cache)
+    })
     log.info("Saved location '%s' → lat=%.4f, lon=%.4f", name, lat, lon)
 
 
@@ -350,5 +404,9 @@ def reverse_geocode(lat: float, lon: float) -> str | None:
 
 
 def list_all() -> dict:
-    """Return all saved/cached locations keyed by name."""
-    return _load()
+    """Return all saved/cached locations keyed by name.
+
+    CLI-only (``darkhours.py locations``). On the aws backend this scans the
+    cache table, so keep it off any request path.
+    """
+    return _all()

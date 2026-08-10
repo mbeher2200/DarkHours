@@ -34,10 +34,17 @@ class Cache(Protocol):
 
 @runtime_checkable
 class GeocodeStore(Protocol):
-    """Persistence for saved/cached named locations (the whole dict at once)."""
+    """Persistence for saved/cached named locations, one location at a time.
 
-    def load(self) -> dict: ...
-    def save(self, data: dict) -> None: ...
+    Per-key on purpose. A whole-dict contract works on a JSON file and fails on
+    DynamoDB, where it put every location in one item until that item hit the
+    400 KB ceiling — see ``DynamoGeocodeStore``. ``all()`` exists for the CLI
+    listing only; nothing on a request path should call it.
+    """
+
+    def get(self, key: str) -> dict | None: ...
+    def put(self, key: str, entry: dict) -> None: ...
+    def all(self) -> dict: ...
 
 
 @runtime_checkable

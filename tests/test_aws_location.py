@@ -136,8 +136,8 @@ class TestResolveDispatch:
 
         with patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
              patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
-             patch("darkhours.location._load", return_value={}), \
-             patch("darkhours.location._save"):
+             patch("darkhours.location._get", return_value=None), \
+             patch("darkhours.location._put"):
             from darkhours.location import resolve
             lat, lon, disp, tz = resolve("Denver, CO")
 
@@ -161,8 +161,8 @@ class TestResolveDispatch:
 
         with patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
              patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
-             patch("darkhours.location._load", return_value={}), \
-             patch("darkhours.location._save"):
+             patch("darkhours.location._get", return_value=None), \
+             patch("darkhours.location._put"):
             from darkhours.location import resolve
             resolve("Denver, CO")
 
@@ -187,8 +187,8 @@ class TestResolveDispatch:
 
         with patch("darkhours.location._geocode_via_nominatim", mock_nom_geo), \
              patch("darkhours.location._geocode_via_aws", mock_aws_geo), \
-             patch("darkhours.location._load", return_value=cached), \
-             patch("darkhours.location._save"):
+             patch("darkhours.location._get", return_value=cached["denver, co"]), \
+             patch("darkhours.location._put"):
             from darkhours.location import resolve
             lat, lon, disp, tz = resolve("Denver, CO")
 

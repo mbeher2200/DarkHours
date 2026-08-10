@@ -219,3 +219,22 @@ To see what the limiter is actually catching, query the WAF log group
 `httpRequest.uri`. Check whether blocked clients are also making real API calls before
 treating them as abusive: a client that fetches `/suggest`, `/night` and then polls
 `/jobs/{id}` is a user, not a scraper.
+
+### Geocode store: one item per location
+
+The aws-backend geocode store keeps one DynamoDB item per location under
+`geocode|<key>`. It previously kept *all* of them in a single `__geocode__` item,
+mirroring `LocalGeocodeStore`'s JSON-file contract. On DynamoDB that meant ~50 RCU
+per read and ~400 WCU per write for a single location, silent write loss whenever two
+containers did read-modify-write concurrently, and eventually a hard stop: the item
+reached the 400 KB item limit at ~2,600 locations, every `PutItem` began failing with
+`ValidationException`, and nothing new was cached — so every lookup re-hit Amazon
+Location Service at real cost. That failure is quiet by design (the store logs a
+warning and continues uncached), so watch `DynamoDB UserErrors` on the cache table,
+not the request error rate, to catch a recurrence.
+
+Migration for the existing blob: `scripts/migrate_geocode_store.py` (dry run by
+default, `--apply` to write). Run it *before* deploying a change to the store layout —
+old code reads only the blob and new code reads only per-key items, so migrating first
+leaves no window where a lookup misses. The blob is left in place for rollback and can
+be deleted once the per-key store has run cleanly.
