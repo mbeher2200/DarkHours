@@ -34,7 +34,15 @@ ISS_NORAD_ID      = 25544
 HUBBLE_NORAD_ID   = 20580
 TIANGONG_NORAD_ID = 48274
 
-TLE_TTL     = 6 * 3600   # exactly 6 h — Celestrak rate-limit compliance
+# Retention, not freshness. The warmer revalidates every 6 h (see warmer_stack.py);
+# this is the point at which DynamoDB may *delete* the row, and it is deliberately
+# four refresh cycles wide so three consecutive warm failures still leave a usable
+# copy. Keeping the two equal is what stranded us before: the row was deleted the
+# moment it went stale, get_stale() then had nothing to serve, and Celestrak's
+# "unchanged since your last download" 403 became unrecoverable — every request
+# re-asked and got the same 403. Orbital elements degrade gracefully; a day-old TLE
+# still predicts passes usefully, and is infinitely better than none.
+TLE_TTL     = 24 * 3600  # 24 h retention; revalidated every 6 h
 _USER_AGENT = "DarkHours/1.0 (open-source astronomical observation planner)"
 
 # Per-resource locks (mirrors weather.py's/aqicn.py's lock_for). Satellites are a
@@ -84,10 +92,22 @@ class TLEResult:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+class _NotModified(Exception):
+    """Celestrak answered 403: our cached copy is still the current one.
+
+    Their one-download-per-update policy returns 403 — *"GP data has not updated
+    since your last successful download"* — rather than 304. It is a successful
+    revalidation, not a failure, and the correct response is to extend the cached
+    entry's lifetime rather than to retry.
+    """
+
+
 def _fetch_tle_raw(norad_id: int) -> str:
     """
     Fetch the raw 3-line TLE text from Celestrak for *norad_id*.
-    Raises RuntimeError on any network or format failure.
+
+    Raises _NotModified when Celestrak reports our copy is still current, and
+    RuntimeError on any other network or format failure.
     """
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad_id}&FORMAT=TLE"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
@@ -108,6 +128,11 @@ def _fetch_tle_raw(norad_id: int) -> str:
         _cb.on_success("celestrak")
         return text
     except urllib.error.HTTPError as e:
+        if e.code == 403:
+            # Not a failure: our copy is current. The caller revalidates.
+            _ph.record("celestrak", "ok")
+            _cb.on_success("celestrak")
+            raise _NotModified(f"NORAD {norad_id} unchanged since last fetch") from e
         _ph.record("celestrak", "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
         _cb.on_failure("celestrak")
         raise RuntimeError(f"Celestrak HTTP {e.code} for NORAD {norad_id}") from e
@@ -169,6 +194,21 @@ def get_tle(norad_id: int) -> TLEResult:
             if parsed is None:
                 raise RuntimeError(f"Malformed TLE for NORAD {norad_id}: {raw!r}")
             return TLEResult(lines=parsed, stale=False, error=None)
+        except _NotModified:
+            # Revalidated: Celestrak confirms our copy is current, so push the
+            # retention window out from now and serve it as fresh.
+            revalidated = _cache.get_stale(key)
+            parsed = _parse_tle(revalidated) if revalidated is not None else None
+            if parsed:
+                _cache.set(key, revalidated, ttl_seconds=TLE_TTL)
+                log.debug("NORAD %d revalidated (403) — TTL extended", norad_id)
+                return TLEResult(lines=parsed, stale=False, error=None)
+            # 403 but nothing to revalidate. Re-asking returns the same 403, so
+            # this must count as a failure or we spin on every request.
+            err_msg = f"Celestrak 403 for NORAD {norad_id} with no cached copy"
+            log.warning("%s", err_msg)
+            _ph.record("celestrak", "error", "403, empty cache")
+            _cb.on_failure("celestrak")
         except Exception as e:
             err_msg = str(e)
             log.warning("TLE fetch failed for NORAD %d: %s", norad_id, err_msg)
@@ -298,13 +338,25 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
                         _cb.on_success("celestrak")
                     except urllib.error.HTTPError as e:
                         if e.code == 403:
-                            # Celestrak's one-download-per-update policy: data hasn't
-                            # changed since our last successful fetch. Stale cache is
-                            # still current — the provider is reachable and healthy,
-                            # not failing.
-                            log.info("Celestrak Starlink group 403 — data unchanged since last fetch, using cache")
-                            _ph.record("celestrak", "ok")
-                            _cb.on_success("celestrak")
+                            # One-download-per-update: 403 means our copy is still
+                            # current. That is a successful revalidation, so extend
+                            # the retention window from now — the entry must never
+                            # expire while Celestrak keeps confirming it.
+                            raw = _cache.get_stale(key)
+                            if raw is not None:
+                                _cache.set(key, raw, ttl_seconds=TLE_TTL)
+                                log.info("Celestrak Starlink group 403 — revalidated, "
+                                         "TTL extended to %d h", TLE_TTL // 3600)
+                                _ph.record("celestrak", "ok")
+                                _cb.on_success("celestrak")
+                            else:
+                                # 403 with nothing cached: re-asking returns the same
+                                # 403, so treat it as a failure and let the breaker
+                                # open rather than retrying on every request.
+                                err_msg = "Celestrak 403 for Starlink group with no cached copy"
+                                log.warning("%s", err_msg)
+                                _ph.record("celestrak", "error", "403, empty cache")
+                                _cb.on_failure("celestrak")
                         else:
                             err_msg = f"Celestrak HTTP {e.code} for Starlink group"
                             log.warning("%s", err_msg)

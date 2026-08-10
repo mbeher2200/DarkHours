@@ -71,9 +71,15 @@ class WarmerStack(Stack):
         table = dynamodb.Table.from_table_name(self, "CacheTable", cache_table)
         table.grant_read_write_data(fn)       # get/get_stale/set on tle|* keys
 
+        # Revalidate every 6h against a 24h TLE_TTL. The gap is deliberate: the TTL
+        # is when DynamoDB deletes the row, so four refresh cycles of margin means
+        # three consecutive warm failures still leave a usable copy. Keeping the two
+        # equal (both 6h) is what previously let a single missed refresh delete the
+        # only copy — after which Celestrak's "unchanged since your last download"
+        # 403 had nothing to revalidate and the app re-asked on every request.
         events.Rule(
             self, "Every6h",
-            description="Refresh satellite TLEs every 6h (matches tle_provider TLE_TTL).",
+            description="Revalidate satellite TLEs every 6h (TLE_TTL is 24h — 4x margin).",
             schedule=events.Schedule.rate(Duration.hours(6)),
             targets=[targets.LambdaFunction(fn)],
         )
