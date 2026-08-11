@@ -6,14 +6,14 @@ Separates fetch/cache concerns from orbit computation so the CLI and a
 future webapp can each manage TLE lifecycle independently.  The webapp
 would skip get_tle() entirely and supply its own TLE (fetched by a
 background scheduler and stored in Redis/DB); the CLI calls get_tle()
-which handles fetch, 6-hour cache, and stale-data fallback.
+which handles fetch, caching, and stale-data fallback.
 
 Public API:
-    get_tle(norad_id)              → TLEResult
-    get_starlink_train_tles()      → (list[tuple], stale, error)
-    ISS_NORAD_ID                   → 25544
-    TLE_TTL                        → 21600   (seconds — 6 hours)
-    TRACKED_SATELLITES             → [(norad_id, display_name), ...]
+    get_tle(norad_id, timeout=…)         → TLEResult
+    get_starlink_train_tles(timeout=…)   → (list[tuple], stale, error)
+    ISS_NORAD_ID                         → 25544
+    TLE_TTL                              → 86400   (seconds — 24 hours)
+    TRACKED_SATELLITES                   → [(norad_id, display_name), ...]
 """
 
 import logging
@@ -44,6 +44,19 @@ TIANGONG_NORAD_ID = 48274
 # still predicts passes usefully, and is infinitely better than none.
 TLE_TTL     = 24 * 3600  # 24 h retention; revalidated every 6 h
 _USER_AGENT = "DarkHours/1.0 (open-source astronomical observation planner)"
+
+# urllib's timeout bounds a single socket operation, not the whole transfer, so
+# these cap how long one stalled read may block — not how long a legitimate
+# download may take. The Starlink group file is a couple of MB and streams fine
+# under either value; Celestrak normally answers in well under a second.
+#
+# The split is deliberate. On the request path a hung fetch is time a user spends
+# waiting on an *optional* feature (satellite passes) while the rest of their
+# forecast sits ready, so it fails fast and lets the breaker take over. The warmer
+# has nobody waiting, and its success is precisely what stops the request path
+# from ever needing to fetch, so it gets room to finish on a slow day.
+_FETCH_TIMEOUT      = 5    # request path — fail fast, degrade to no satellites
+_WARM_FETCH_TIMEOUT = 30   # background warmer — patience is free here
 
 # Per-resource locks (mirrors weather.py's/aqicn.py's lock_for). Satellites are a
 # single-night feature (fetch_satellites is never True on the trip/calendar fan-out
@@ -102,7 +115,7 @@ class _NotModified(Exception):
     """
 
 
-def _fetch_tle_raw(norad_id: int) -> str:
+def _fetch_tle_raw(norad_id: int, timeout: float = _FETCH_TIMEOUT) -> str:
     """
     Fetch the raw 3-line TLE text from Celestrak for *norad_id*.
 
@@ -114,7 +127,7 @@ def _fetch_tle_raw(norad_id: int) -> str:
     if not _cb.allow("celestrak"):
         raise _cb.unavailable("celestrak")
     try:
-        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=15) as resp:
+        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=timeout) as resp:
             text = resp.read().decode("utf-8").strip()
         lines = [l for l in text.splitlines() if l.strip()]
         if len(lines) < 3:
@@ -154,7 +167,7 @@ def _parse_tle(raw: str) -> tuple[str, str, str] | None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_tle(norad_id: int) -> TLEResult:
+def get_tle(norad_id: int, timeout: float = _FETCH_TIMEOUT) -> TLEResult:
     """
     Return a TLEResult for *norad_id*.
 
@@ -188,7 +201,7 @@ def get_tle(norad_id: int) -> TLEResult:
                 log.debug("TLE cache hit for NORAD %d (after single-flight wait)", norad_id)
                 return TLEResult(lines=parsed, stale=False, error=None)
         try:
-            raw    = _fetch_tle_raw(norad_id)
+            raw    = _fetch_tle_raw(norad_id, timeout)
             _cache.set(key, raw, ttl_seconds=TLE_TTL)
             parsed = _parse_tle(raw)
             if parsed is None:
@@ -300,7 +313,9 @@ def _filter_train_tles(raw: str) -> list[tuple[str, str, str]]:
     return result
 
 
-def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | None]:
+def get_starlink_train_tles(
+    timeout: float = _FETCH_TIMEOUT,
+) -> tuple[list[tuple[str, str, str]], bool, str | None]:
     """
     Return (tles, stale, error) for Starlink satellites currently in raising phase.
 
@@ -330,7 +345,7 @@ def get_starlink_train_tles() -> tuple[list[tuple[str, str, str]], bool, str | N
                 else:
                     req = urllib.request.Request(_STARLINK_GROUP_URL, headers={"User-Agent": _USER_AGENT})
                     try:
-                        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=30) as resp:
+                        with _rl.acquire("celestrak"), _http.urlopen(req, timeout=timeout) as resp:
                             raw = resp.read().decode("utf-8").strip()
                         _cache.set(key, raw, ttl_seconds=TLE_TTL)
                         log.debug("Fetched Starlink group TLE (%d bytes)", len(raw))
