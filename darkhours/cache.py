@@ -138,6 +138,7 @@ def _dynamo_table(table_name: str | None = None):
     standard AWS environment (task role in the cloud, AWS_PROFILE locally).
     """
     import boto3  # lazy: only needed for the aws backend
+    from botocore.config import Config
     name = table_name or os.environ.get("PYNIGHTSKY_CACHE_TABLE")
     if not name:
         raise RuntimeError(
@@ -147,7 +148,15 @@ def _dynamo_table(table_name: str | None = None):
     # fall back on, so boto3 must get the region from the environment. Falls back to
     # boto3's own resolution (profile/config) when neither env var is set (host/CLI).
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    return boto3.resource("dynamodb", region_name=region).Table(name)
+    # DynamoCache and DynamoGeocodeStore each build their own resource here, so the
+    # boto3 default of 10 connections is a separate pool per caller under concurrent
+    # access within one container — the same "Connection pool is full, discarding
+    # connection" churn the S3 client hit (see darksky.py's _s3()), just for
+    # DynamoDB. Bumped as a straightforward fix; PYNIGHTSKY_DYNAMO_POOL overrides it.
+    pool = int(os.environ.get("PYNIGHTSKY_DYNAMO_POOL", "25"))
+    return boto3.resource(
+        "dynamodb", region_name=region, config=Config(max_pool_connections=pool)
+    ).Table(name)
 
 
 class DynamoCache:

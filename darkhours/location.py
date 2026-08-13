@@ -108,14 +108,19 @@ class DynamoGeocodeStore:
             return None
 
     def put(self, key: str, entry: dict) -> None:
+        value = json.dumps(entry)
         try:
-            self.table.put_item(
-                Item={"cache_key": self._PREFIX + key, "value": json.dumps(entry)}
-            )
+            self.table.put_item(Item={"cache_key": self._PREFIX + key, "value": value})
         except Exception as e:
             # A geocode-cache write failure must not fail the request — the lookup
-            # still succeeds, it just won't be cached for next time.
-            log.warning("Geocode store save failed (continuing uncached): %s", e)
+            # still succeeds, it just won't be cached for next time. Log the key and
+            # value size so a size-limit failure is diagnosable after the fact
+            # instead of just "something failed" (see DynamoGeocodeStore's docstring
+            # for the historical version of this failure mode).
+            log.warning(
+                "Geocode store save failed (continuing uncached) for key=%r (%d bytes): %s",
+                key, len(value), e,
+            )
 
     def all(self) -> dict:
         """Every saved location. Scans the table — CLI convenience, not a request path.
