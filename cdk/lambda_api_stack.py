@@ -165,6 +165,14 @@ class LambdaApiStack(Stack):
             timeout=Duration.seconds(120),
             tracing=lambda_.Tracing.ACTIVE,
             log_group=api_log_group,
+            # Reserved concurrency caps the blast radius of a retry storm, bad crawler, or
+            # runaway bug: without it this function draws uncapped from the account's shared
+            # 1000-slot pool (see PYNIGHTSKY_PROFILE cost math in the deploy history — 1000
+            # concurrent invocations at this memory size sustained for an hour is ~$140k).
+            # 25 gives ~1.8x headroom over the worst peak actually observed (14, during a
+            # ~60x traffic anomaly on 2026-08-08/09) with zero throttles historically.
+            # Raise it if legitimate traffic starts approaching this ceiling.
+            reserved_concurrent_executions=25,
             environment={
                 "PYNIGHTSKY_BACKEND": "aws",
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
@@ -297,6 +305,10 @@ class LambdaApiStack(Stack):
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
             tracing=lambda_.Tracing.ACTIVE,
             log_group=worker_log_group,
+            # See the Api function's reserved_concurrent_executions comment above for the
+            # cost-blast-radius rationale. 12 gives ~1.5x headroom over the worst peak
+            # actually observed (8, during the 2026-08-08/09 traffic anomaly).
+            reserved_concurrent_executions=12,
             environment={
                 "PYNIGHTSKY_BACKEND": "aws",
                 "PYNIGHTSKY_CACHE_TABLE": cache_table,
@@ -310,18 +322,15 @@ class LambdaApiStack(Stack):
         worker.add_to_role_policy(geo_policy)
         worker.add_environment("PYNIGHTSKY_PLACE_INDEX", place_index.index_name)
         worker.add_to_role_policy(route_policy)
-        # max_concurrency caps how many worker invocations SQS drives in parallel. Without
-        # it, a backlog of jobs can hold every slot in the account-wide Lambda concurrency
-        # pool for up to the worker's 900s timeout, throttling the API into user-facing
-        # 5xx — the API and the worker draw from the same pool. So this is sized against
-        # that pool: it leaves the API ample room at the account quota of 1000, while
-        # still letting jobs fan out instead of queuing.
-        #
-        # DO NOT raise this above ~half the account's concurrent-executions quota, and
-        # lower it if that quota is ever reduced — the two move together.
-        # See docs/OBSERVABILITY.md § Capacity limits.
+        # max_concurrency caps how many worker invocations SQS drives in parallel. Now that
+        # both the Api and Worker functions have their own reserved_concurrent_executions
+        # (see those constructs above), they no longer compete for the account's shared
+        # unreserved pool — a job backlog can no longer starve the API of concurrency.
+        # This is kept at 10 (below the worker's reserved cap of 12) so a job backlog fans
+        # out but never fully exhausts the worker's own reserved pool, leaving slots free
+        # for the warmup ping. See docs/OBSERVABILITY.md § Capacity limits.
         worker.add_event_source(
-            lambda_events.SqsEventSource(jobs_queue, batch_size=1, max_concurrency=50)
+            lambda_events.SqsEventSource(jobs_queue, batch_size=1, max_concurrency=10)
         )
 
         # --- Provider health monitor read (circuit breaker's monitor-driven recovery) ---

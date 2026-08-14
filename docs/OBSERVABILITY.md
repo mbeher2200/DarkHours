@@ -157,9 +157,28 @@ aws budgets create-notification \
 Three ceilings govern how much traffic this stack absorbs. Two of them live outside CDK,
 so they are invisible in the templates and easy to rediscover the hard way.
 
-**Lambda concurrent executions (account-wide).** This account ran at **10** — AWS's default
-is 1000 — until an increase back to 1000 was requested on 2026-08-08. The API and the worker draw from that same pool,
-so it is a shared ceiling, not a per-function one. Check and raise it with:
+**Lambda concurrent executions (per-function, reserved).** The Api and Worker functions
+each carry `reserved_concurrent_executions` in `cdk/lambda_api_stack.py` — Api 25, Worker
+12 (as of 2026-08-14) — so they draw from dedicated pools instead of the account's shared
+unreserved one. This exists to cap cost blast radius: with no cap, a retry storm or bad
+crawler can scale a function up to the full account-wide quota (see below), and at this
+stack's 3008 MB memory size that's roughly $140k/hr if 1000 concurrent invocations were
+sustained for an hour. The numbers were sized off real CloudWatch `ConcurrentExecutions`
+peaks — 14 (Api) / 8 (Worker), both with zero `Throttles`, during a ~60x traffic anomaly on
+2026-08-08/09, the worst 90-day event on record — giving ~1.5-1.8x headroom over the worst
+seen so far. Because each function has its own reserved pool, a job backlog on the Worker
+can no longer starve the Api of concurrency (the failure mode the old shared-pool setup was
+exposed to). Raise these if legitimate traffic starts approaching the ceiling; watch
+per-function `Throttles` as the lagging indicator — by the time it's non-zero, users have
+already seen 5xx.
+
+**Lambda concurrent executions (account-wide quota).** This account's quota is 1000 (raised
+from the AWS default of 10 on 2026-08-08, during the same incident that motivated the
+per-function caps above). It now matters far less than before: nothing in this account can
+exceed ~37 concurrent executions (25 + 12) regardless of the quota, since the reserved caps
+are a hard ceiling. It's still worth knowing this exists — the tiny warmer/health/CDK
+custom-resource functions and any newly added functions draw from this shared unreserved
+pool. Check and raise it with:
 
 ```
 aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384
@@ -167,16 +186,11 @@ aws service-quotas request-service-quota-increase \
   --service-code lambda --quota-code L-B99A9384 --desired-value 1000
 ```
 
-Watch `AWS/Lambda ConcurrentExecutions` with no dimensions (account-wide, `Maximum`) against
-whatever that value currently is. Per-function `Throttles` is the lagging indicator: by the
-time it is non-zero, users have already seen 5xx.
-
 **Worker SQS concurrency.** `max_concurrency` on the worker's `SqsEventSource`
-(`cdk/lambda_api_stack.py`) is what stops a job backlog from consuming the whole pool and
-starving the API. It is sized against the account quota above, so the two must move
-together: raising the quota without raising this just leaves jobs queuing, and raising this
-without the quota re-opens the starvation path it exists to close. Keep it at roughly half
-the quota or below.
+(`cdk/lambda_api_stack.py`) stops a job backlog from consuming the Worker's *own* reserved
+pool outright, leaving a couple of slots free for the warmup ping. It's now sized against
+the Worker's `reserved_concurrent_executions` (10, kept below the reserved cap of 12) rather
+than the account quota — the two move together if either changes.
 
 **Cache table capacity.** The cache table is created outside CDK and imported by name
 (`dynamodb.Table.from_table_name`), so its billing mode is *not* under CloudFormation and a
