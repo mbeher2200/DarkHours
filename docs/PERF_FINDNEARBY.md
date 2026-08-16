@@ -24,11 +24,12 @@ here, all shipped and still in effect:
   Typically ~200–400 ms per dataset in-region for the full 150-mile window.
 - **Right-sized raster windows (conditional dome fetch).** `find_nearby` fetches a
   `radius_miles + 2`-sized window instead of the unconditional 150-mile one; a
-  **VIIRS-only** 150-mile fetch is issued only when the origin resolves Bortle ≤ 7,
+  **VIIRS-only** 150-mile fetch is issued only when the origin resolves Bortle ≤ 6,
   submitted right after the origin lookup so it overlaps the extraction/clustering
   CPU phases (joined just before dome detection — new profile phase
-  `dome window read (join)`, ~30–50 ms in-region). Bright origins (B8–9, the
-  common urban case) skip the outer ~5/6 of the old fetch entirely, and the big
+  `dome window read (join)`, ~30–50 ms in-region). Bright origins (B7–9, see the
+  2026-08-16 entry for why 7 was folded into the skip) skip the outer ~5/6 of the
+  old fetch entirely, and the big
   Falchi window is gone on the two-step path (dome detection is VIIRS-only). The
   known-dark repeat-origin peek path still pulls Falchi at the full 150 miles
   alongside VIIRS (simpler than tracking per-dataset bounds; extraction only
@@ -43,12 +44,19 @@ here, all shipped and still in effect:
   full" churn. 32 removes the churn and tightens raster-read tails.
 - **Vectorized dome detection.** The per-blob centroid loop was replaced with
   batched `bincount`/`center_of_mass(index=)` ops (~12–30× faster, ~80–200 ms), and
-  the whole dome pipeline is skipped when the origin is Bortle ≥ 8 (no dome could
-  ever qualify).
+  the whole dome pipeline is skipped when the origin is Bortle ≥ 7 — free for B8–9
+  (no dome could ever mathematically qualify), a deliberate trade-off for B7 (see
+  2026-08-16 entry).
 - **Reverse-geocode discipline.** 8-mile pre-dedup of candidate probes
-  (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, and — on the aws backend
-  only — parallel AWS Location calls (~87 ms each in-region) with a pooled client.
-  The local backend stays serial per Nominatim's 1 req/s policy.
+  (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, a 16-point-compass
+  directional pre-dedup of dome candidates before naming (`_dedup_domes_by_direction`,
+  2026-08-16 entry), and — on the aws backend only — parallel AWS Location calls
+  (~87 ms each in-region) with a pooled client. The local backend stays serial per
+  Nominatim's 1 req/s policy.
+- **Absolute-grid-anchored pixel labels.** Dome and dark-candidate pixel lat/lon
+  labels are built from the raster's fixed absolute grid origin (`_window_pixel_grid`)
+  instead of each window's own bounds, so the reverse-geocode cache key for a given
+  real-world light source is stable across different search origins (2026-08-16 entry).
 - **Drive times via `CalculateRoutes`, per-leg, in parallel.** One point-to-point
   call per cache-missing leg (bounded thread pool), replacing the batched
   `CalculateRouteMatrix` call whose undocumented 60 km `Avoid` cap silently killed
@@ -311,8 +319,76 @@ all runs; Phoenix results 9/10 identical with one band-edge swap (a B2 at
 50.8 mi for a B3 at 25.6 mi; `extract_raw` 107 → 113) and 3rd-decimal SQM drift.
 Dark-origin (≤ 7) dome inputs are bit-identical by construction. Exact parity
 would need a pixel-center meshgrid derived from grid geometry — future work.
+**Fixed 2026-08-16, see below** — this sub-pixel drift turned out to be the same
+root cause as the cross-search reverse-geocode cache-key instability.
 Hermetic coverage: `tests/test_small_window.py` (fetch-path selection, VIIRS-only
 dome fetch, kill switch, degradation, flag-off-vs-on output equivalence).
+
+### 2026-08-16 — Location Service cost reduction: grid anchoring, directional dome dedup, B7 skip
+
+A traffic surge (Aug 8–9, see `docs/OBSERVABILITY.md`'s ~60x anomaly entry) turned
+Amazon Location Service from $0/mo to the account's largest line item within days
+($23.03 of $37.81 total spend, Aug 1–16), 92% of it ReverseGeocode (52,213 calls).
+A cost investigation (Cost Explorer + CloudWatch Logs Insights, cross-referenced
+against real production origins run through the actual `find_nearby` pipeline)
+traced this to three fixable issues, all shipped here:
+
+1. **Reverse-geocode cache-key instability (root cause, not dome-specific).** The
+   "output-parity caveat" immediately above — window-relative `np.linspace` instead
+   of pixel-center coordinates derived from the raster's absolute grid — doesn't
+   just shift displayed coordinates by up to ~0.3 mi at the window edge; it means
+   two different search origins whose windows both cover the *same real-world
+   light source* label it with two different (lat, lon) values, so the
+   `nominatim_rev|{lat:.3f}|{lon:.3f}` cache key never matches and the same place
+   gets a fresh live call from every origin that detects it. Measured directly: 4 real
+   origins around Atlanta (Athens, Macon, Chattanooga, Birmingham GA/TN/AL), each
+   independently detecting "Atlanta's dome," resolved to 4 different cache keys up
+   to 1.4 mi apart — 0 of 4 converged. Fixed with `_window_pixel_grid`
+   (`darksky.py`), anchored to the same absolute grid origin `gridraster.read_window`
+   already uses internally (`GridArray.west/north/x_res/y_res`, exposed via a new
+   `grid_meta()` accessor); `find_nearby`'s shared precompute and the two-step
+   dome-window fetch now both build grids through it instead of ad hoc
+   per-window `linspace`. 3 of the same 4 Atlanta-area origins converged to
+   bit-identical coordinates after the fix (the 4th sits at the edge of the
+   150-mile radius — a smaller, separate residual from genuine boundary
+   clipping). On a 45-origin random sample, ~16.5% of dome-naming calls were
+   redundant re-detections of an already-cached place purely due to this bug — a
+   floor, not a ceiling, since real traffic clusters around popular
+   destinations far more than a random sample can show. Tests:
+   `TestWindowPixelGrid` in `tests/test_light_dome_array.py`.
+2. **Dome candidates were named before deduping, not after.** `find_nearby`
+   already computes a 16-point compass bearing per dome candidate for the
+   `direction` field it displays (`_bearing_label`); it just wasn't using that
+   bearing until *after* paying to name all `_MAX_DOMES*2` (20) capped
+   candidates. `_dedup_domes_by_direction` now buckets by that same bearing and
+   keeps only the nearest candidate per bucket *before* the `_settlement()`
+   fan-out, with the existing name-based dedup left in place afterward as a
+   free safety net. Measured on 13 real search origins (real S3 raster data,
+   real production code): 60.8% fewer dome-naming calls (260 → 102), no change
+   to the shown-dome set in any tested case.
+3. **Dome detection skip threshold moved from Bortle ≥ 8 to ≥ 7.** The ≥ 8 skip
+   was already free (a dome must be ≥ origin+2 Bortle and 9 is the ceiling, so
+   an 8–9 origin can never have a qualifying dome — pure waste eliminated, zero
+   information loss). Bortle 7 is a genuine trade-off — validated on 10 real B6/7
+   origins, both classes still hit the full 20-candidate naming cap today, so
+   real dome data does exist at B7 and this suppresses it. Shipped anyway: at
+   Bortle 7 the horizon is already washed out by skyglow, so a named dome
+   warning doesn't meaningfully change an already-degraded observing plan.
+   Affects ~20.5% of real searches; ~18% additional cut to ReverseGeocode call
+   volume on its own, ~38% combined with fix #2 above (dome-side only; #1's
+   cache-hit-rate benefit is separate and additive). `_dome_search =
+   origin_bortle <= 6` (was `<= 7`).
+
+Not shipped this round (tracked as open items, not silently dropped): stopping
+`_parallel_prefetch_settlements` from eagerly naming the full 60-candidate
+dark-sky-result pool instead of only what the main loop consumes (measured 50.9%
+waste on 25 real origins, 100% of it on international searches); re-enabling
+Overpass on the aws backend (a fresh live check found it currently less reliable
+than the June 2026 baseline — 2/5 requests failed, latency up to 25.2s — needs a
+properly rate-limiter-paced retest before shipping); a shared `/suggest` cache;
+and the global offline settlement-name index that would close the US/international
+naming gap for good (0 of 13 US origins in a 25-origin sample needed any live
+Tier-3 call vs. 12 of 12 international origins, averaging 19.5 each).
 
 ## Appendix B — raw data
 

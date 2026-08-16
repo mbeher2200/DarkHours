@@ -219,6 +219,23 @@ class TestWindowSelection:
         assert len(world) == 3
         assert any(d == "viirs" and _bounds_match(b, _big_bounds()) for d, b in world)
 
+    def test_bortle7_skips_dome_search(self, world, monkeypatch):
+        # Dome-skip threshold moved from >=8 to >=7: a Bortle 7 origin no longer
+        # gets the big VIIRS-only dome fetch, even though it would still detect
+        # the synthetic city blob if dome search ran (see test_dark_peek_single_big_fetch).
+        monkeypatch.setattr(ds, "lookup", lambda lat, lon: {"bortle_class": 7, "sqm": 18.5})
+        result = ds.find_nearby(OLAT, OLON, RADIUS)
+        assert len(world) == 2
+        assert all(_bounds_match(b, _small_bounds()) for _, b in world)
+        assert result["light_domes"] == []
+
+    def test_bortle6_still_runs_dome_search(self, world, monkeypatch):
+        monkeypatch.setattr(ds, "lookup", lambda lat, lon: {"bortle_class": 6, "sqm": 19.5})
+        result = ds.find_nearby(OLAT, OLON, RADIUS)
+        assert len(world) == 3
+        assert any(d == "viirs" and _bounds_match(b, _big_bounds()) for d, b in world)
+        assert len(result["light_domes"]) == 1
+
     def test_flag_disable_legacy(self, world, monkeypatch):
         monkeypatch.setattr(ds, "_SMALL_WINDOW", False)
         monkeypatch.setattr(ds, "lookup", lambda lat, lon: BRIGHT_ORIGIN)

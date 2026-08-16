@@ -338,6 +338,53 @@ class TestWindowPixelGrid:
 
 
 # ---------------------------------------------------------------------------
+# _dedup_domes_by_direction
+# ---------------------------------------------------------------------------
+
+class TestDedupDomesByDirection:
+    """Directional pre-dedup runs before the live _settlement() naming fan-out,
+    so it must reduce candidates without ever needing a name to decide."""
+
+    def _dome(self, direction, distance_miles, bortle_class=9):
+        return {
+            "lat": 0.0, "lon": 0.0, "bortle_class": bortle_class, "sqm": None,
+            "distance_miles": distance_miles, "direction": direction,
+            "name": None, "is_poi": False, "poi_type": None,
+        }
+
+    def test_keeps_nearest_per_direction(self):
+        domes = [
+            self._dome("N", 40.0),
+            self._dome("N", 12.0),   # nearer, same bucket — kept
+            self._dome("N", 25.0),
+            self._dome("SE", 8.0),
+        ]
+        out = ds._dedup_domes_by_direction(domes)
+        assert len(out) == 2
+        by_dir = {d["direction"]: d["distance_miles"] for d in out}
+        assert by_dir == {"N": 12.0, "SE": 8.0}
+
+    def test_distinct_directions_all_survive(self):
+        domes = [self._dome(d, 10.0) for d in ("N", "NE", "E", "SE", "S", "SW", "W", "NW")]
+        out = ds._dedup_domes_by_direction(domes)
+        assert len(out) == 8
+
+    def test_empty_input(self):
+        assert ds._dedup_domes_by_direction([]) == []
+
+    def test_result_sorted_by_bortle_desc_then_distance(self):
+        domes = [
+            self._dome("N", 10.0, bortle_class=8),
+            self._dome("S", 5.0, bortle_class=9),
+            self._dome("E", 20.0, bortle_class=9),
+        ]
+        out = ds._dedup_domes_by_direction(domes)
+        assert [(d["bortle_class"], d["distance_miles"]) for d in out] == [
+            (9, 5.0), (9, 20.0), (8, 10.0),
+        ]
+
+
+# ---------------------------------------------------------------------------
 # _connected_components_8  (pure-numpy replacement for scipy.ndimage.label)
 # ---------------------------------------------------------------------------
 
