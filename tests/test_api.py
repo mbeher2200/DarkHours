@@ -272,3 +272,63 @@ def test_night_ignores_client_supplied_name_param(monkeypatch):
     })
     assert r.status_code == 200
     assert r.json()["display_name"] == "Trusted Name"
+
+
+# ---------------------------------------------------------------------------
+# /suggest — two-tier cache (in-process LRU, then a shared cache)
+# ---------------------------------------------------------------------------
+# The shared-cache tier exists so a popular prefix is only fetched live once per
+# TTL window, not once per cold Lambda container. These tests fake the shared
+# cache with a plain dict (monkeypatching main_mod._cache.get/set, same
+# pattern as jobs._cache elsewhere in this file) and clear the in-process LRU
+# between calls to simulate "a different/cold container" without it.
+
+def _fake_shared_cache(monkeypatch):
+    store: dict = {}
+    monkeypatch.setattr(main_mod._cache, "get", lambda k: store.get(k))
+    monkeypatch.setattr(main_mod._cache, "set",
+                        lambda k, v, ttl_seconds=None: store.__setitem__(k, v))
+    return store
+
+
+def test_suggest_shared_cache_hit_skips_live_call(monkeypatch):
+    main_mod._suggest_cached.cache_clear()
+    _fake_shared_cache(monkeypatch)
+    calls = []
+    monkeypatch.setattr(main_mod._loc, "suggest",
+                        lambda q: calls.append(q) or ["Sedona, AZ"])
+
+    r1 = client.get("/suggest", params={"q": "Sed"})
+    assert r1.json() == {"suggestions": ["Sedona, AZ"]}
+    assert calls == ["Sed"]
+
+    main_mod._suggest_cached.cache_clear()   # simulate a different/cold container
+
+    r2 = client.get("/suggest", params={"q": "Sed"})
+    assert r2.json() == {"suggestions": ["Sedona, AZ"]}
+    assert calls == ["Sed"], "shared-cache hit must not re-call the live provider"
+
+
+def test_suggest_shared_cache_miss_populates_cache(monkeypatch):
+    main_mod._suggest_cached.cache_clear()
+    store = _fake_shared_cache(monkeypatch)
+    monkeypatch.setattr(main_mod._loc, "suggest", lambda q: ["Zion National Park"])
+
+    r = client.get("/suggest", params={"q": "Zio"})
+    assert r.json() == {"suggestions": ["Zion National Park"]}
+    assert store["suggest|Zio"] == ["Zion National Park"]
+
+
+def test_suggest_empty_result_is_still_cached(monkeypatch):
+    main_mod._suggest_cached.cache_clear()
+    _fake_shared_cache(monkeypatch)
+    calls = []
+    monkeypatch.setattr(main_mod._loc, "suggest", lambda q: calls.append(q) or [])
+
+    r1 = client.get("/suggest", params={"q": "xyz"})
+    assert r1.json() == {"suggestions": []}
+    main_mod._suggest_cached.cache_clear()
+
+    r2 = client.get("/suggest", params={"q": "xyz"})
+    assert r2.json() == {"suggestions": []}
+    assert calls == ["xyz"], "an empty-list result must still be a cache hit, not re-fetched"
