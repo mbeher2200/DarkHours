@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import type { NightReport, NearbyResult, CalendarResult } from './types'
-import { formatTime, formatHm, tzAbbr, tzTitle, fmtDist, fmtRadiusDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
+import { formatTime, formatHm, tzAbbr, tzTitle, fmtRadiusDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
 import { MoonPhaseSvg, InfoTip } from './shared'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
