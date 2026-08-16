@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import type { NightReport, NearbyResult, CalendarResult } from './types'
-import { formatTime, formatHm, tzAbbr, tzTitle, fmtDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
+import { formatTime, formatHm, tzAbbr, tzTitle, fmtDist, fmtRadiusDist, lpString, scoreBand, scoreLabel, tonightIso, availabilityFor, nightVerdict } from './format'
 import { MoonPhaseSvg, InfoTip } from './shared'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
@@ -97,7 +97,7 @@ export default function ReportCard({
     return radius != null ? { phase: 'loading', radius } : { phase: 'idle' }
   })
 
-  const [draftRadius, setDraftRadius] = useState<60 | 120>(60)
+  const [draftRadius, setDraftRadius] = useState<number>(20)
 
   async function handleFindNearby(radius: number) {
     setNearbyState({ phase: 'loading', radius })
@@ -564,19 +564,21 @@ export default function ReportCard({
               {nearbyState.phase === 'idle' && (
                 <div className="nearby-radius-control">
                   <span className="nearby-radius-label">Radius</span>
-                  <div className="units-toggle" role="group" aria-label="Search radius">
-                    <button type="button" className={draftRadius === 60 ? 'active' : ''} onClick={() => setDraftRadius(60)}>
-                      {fmtDist(60 * 1.60934, imperial)}
-                    </button>
-                    <button type="button" className={draftRadius === 120 ? 'active' : ''} onClick={() => setDraftRadius(120)}>
-                      {fmtDist(120 * 1.60934, imperial)}
-                    </button>
+                  <div className="nearby-radius-slider">
+                    <input
+                      type="range"
+                      min={20} max={100} step={10}
+                      value={draftRadius}
+                      onChange={e => setDraftRadius(Number(e.target.value))}
+                      aria-label="Search radius"
+                    />
+                    <span className="nearby-radius-value">{fmtRadiusDist(draftRadius, imperial)}</span>
                   </div>
                   <button className="submit nearby-search-btn" onClick={() => handleFindNearby(draftRadius)}>Search Nearby</button>
                 </div>
               )}
               {nearbyState.phase === 'loading' && (
-                <p className="sat-notice">Scanning within {fmtDist(nearbyState.radius * 1.60934, imperial)}…</p>
+                <p className="sat-notice">Scanning within {fmtRadiusDist(nearbyState.radius, imperial)}…</p>
               )}
               {nearbyState.phase === 'error' && (
                 <p className="sat-notice">{nearbyState.message}</p>
