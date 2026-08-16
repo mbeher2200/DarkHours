@@ -248,6 +248,14 @@ export function fmtDist(km: number, imp: boolean): string {
   return `${Math.round(km).toLocaleString()} km`
 }
 
+// Radius-selector distance: same mi→km conversion as fmtDist, but km rounds to
+// the nearest 10 for a clean approximate label, since the mile value is always
+// a fixed slider step (20/30/.../100), not a precise measurement.
+export function fmtRadiusDist(mi: number, imp: boolean): string {
+  if (imp) return `${mi} mi`
+  return `${Math.round(mi * 1.60934 / 10) * 10} km`
+}
+
 // ── Moon wash (Krisciunas & Schaefer 1991) — mirrors moonlight.py ────────────
 
 // Sky surface brightness increase from scattered moonlight (Δ mag/arcsec²)

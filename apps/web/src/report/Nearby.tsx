@@ -1,5 +1,5 @@
 import type { NearbyPlace, NearbyResult } from '../types'
-import { fmtDist } from '../format'
+import { fmtDist, fmtRadiusDist } from '../format'
 import { Navigation } from 'lucide-react'
 
 // ── Nearby dark-sky results ──────────────────────────────────────────────────
@@ -100,13 +100,13 @@ export function NearbyResults(
     <>
       <div className="meta-row">
         <span className="meta-k">Origin:</span>
-        <span className="meta-v"><span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtMi(radius_miles)} radius</span>
+        <span className="meta-v"><span className={nearbyBortleClass(origin_bortle)}>Bortle {origin_bortle}</span>{sqmStr}  ·  {fmtRadiusDist(radius_miles, imperial)} radius</span>
       </div>
 
       {/* 1. Note when already at Bortle 1 — results still shown below */}
       {origin_bortle <= 1 && results.length > 0 && (
         <p className="sat-notice">
-          Already at Bortle {origin_bortle}{sqmStr} — showing other Bortle 1 sites within {fmtMi(radius_miles)}.
+          Already at Bortle {origin_bortle}{sqmStr} — showing other Bortle 1 sites within {fmtRadiusDist(radius_miles, imperial)}.
         </p>
       )}
 
@@ -114,8 +114,8 @@ export function NearbyResults(
       {results.length === 0 && (
         <p className="sat-notice">
           {origin_bortle <= 1
-            ? `No other Bortle 1 sites found within ${fmtMi(radius_miles)}.`
-            : `No significantly darker sky found within ${fmtMi(radius_miles)}.`
+            ? `No other Bortle 1 sites found within ${fmtRadiusDist(radius_miles, imperial)}.`
+            : `No significantly darker sky found within ${fmtRadiusDist(radius_miles, imperial)}.`
           }
           {best_available && origin_bortle > 1 && (
             <> Closest darker spot: <span className={nearbyBortleClass(best_available.bortle_class)}>Bortle {best_available.bortle_class}</span>, {distOf(best_available)} {best_available.direction}{formatDriveTime(best_available.drive_minutes) ? ` · ${formatDriveTime(best_available.drive_minutes)} drive` : ''}  ({placeNode(best_available)})</>

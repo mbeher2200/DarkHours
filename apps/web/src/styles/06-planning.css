@@ -30,7 +30,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  max-width: 160px;
+  max-width: 220px;
 }
 .nearby-radius-label {
   align-self: center;
@@ -38,12 +38,57 @@
   font-weight: 600;
   color: var(--text-dim);
 }
-.nearby-radius-control .units-toggle {
+.nearby-radius-slider {
   width: 100%;
-  margin-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.nearby-radius-control .units-toggle button {
+.nearby-radius-slider input[type=range] {
   flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+/* accent-color alone only tints the thumb/filled portion in some browsers —
+   the untraveled track keeps the OS-default light track color, which reads as
+   a white streak against red mode's dark background. Explicitly styling the
+   track/thumb (same technique as .sky-scrub's range input) keeps both in
+   theme colors that flip automatically with --card-border/--accent. */
+.nearby-radius-slider input[type=range]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--card-border);
+}
+.nearby-radius-slider input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--text-h);
+  cursor: pointer;
+}
+.nearby-radius-slider input[type=range]::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--card-border);
+}
+.nearby-radius-slider input[type=range]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--text-h);
+  cursor: pointer;
+}
+.nearby-radius-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
 }
 .nearby-search-btn {
   width: 100%;
@@ -167,7 +212,7 @@
 }
 .crp-trigger {
   /* Colors/border/hover/active/disabled/red-mode come from .submit (shared
-     with "Score the night"/"View Details"/60 MI/120 MI) — this class only
+     with "Score the night"/"View Details"/"Search Nearby") — this class only
      adds the icon + label + chevron flex layout .submit doesn't need. */
   display: inline-flex;
   align-items: center;
