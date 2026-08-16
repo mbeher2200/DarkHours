@@ -50,13 +50,18 @@ here, all shipped and still in effect:
 - **Reverse-geocode discipline.** 8-mile pre-dedup of candidate probes
   (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, a 16-point-compass
   directional pre-dedup of dome candidates before naming (`_dedup_domes_by_direction`,
-  2026-08-16 entry), and — on the aws backend only — parallel AWS Location calls
-  (~87 ms each in-region) with a pooled client. The local backend stays serial per
-  Nominatim's 1 req/s policy.
+  2026-08-16 entry), a priority-ordered prefix cap on the dark-candidate Tier-3
+  prefetch (`_PREFETCH_CANDIDATE_PREFIX`, 2026-08-16 entry), and — on the aws
+  backend only — parallel AWS Location calls (~87 ms each in-region) with a
+  pooled client. The local backend stays serial per Nominatim's 1 req/s policy.
 - **Absolute-grid-anchored pixel labels.** Dome and dark-candidate pixel lat/lon
   labels are built from the raster's fixed absolute grid origin (`_window_pixel_grid`)
   instead of each window's own bounds, so the reverse-geocode cache key for a given
   real-world light source is stable across different search origins (2026-08-16 entry).
+- **Shared `/suggest` cache and Location-Service usage monitoring.** A short-TTL
+  shared cache tier behind `/suggest`'s per-container LRU, and anomaly monitoring
+  scoped to Amazon Location Service so an unexpected jump in call volume is
+  caught in hours, not at the end of a reporting cycle (2026-08-16 entry).
 - **Drive times via `CalculateRoutes`, per-leg, in parallel.** One point-to-point
   call per cache-missing leg (bounded thread pool), replacing the batched
   `CalculateRouteMatrix` call whose undocumented 60 km `Avoid` cap silently killed
@@ -324,14 +329,15 @@ root cause as the cross-search reverse-geocode cache-key instability.
 Hermetic coverage: `tests/test_small_window.py` (fetch-path selection, VIIRS-only
 dome fetch, kill switch, degradation, flag-off-vs-on output equivalence).
 
-### 2026-08-16 — Location Service cost reduction: grid anchoring, directional dome dedup, B7 skip
+### 2026-08-16 — Location Service call-volume efficiency
 
-A traffic surge (Aug 8–9, see `docs/OBSERVABILITY.md`'s ~60x anomaly entry) turned
-Amazon Location Service from $0/mo to the account's largest line item within days
-($23.03 of $37.81 total spend, Aug 1–16), 92% of it ReverseGeocode (52,213 calls).
-A cost investigation (Cost Explorer + CloudWatch Logs Insights, cross-referenced
-against real production origins run through the actual `find_nearby` pipeline)
-traced this to three fixable issues, all shipped here:
+A traffic surge (Aug 8–9, see `docs/OBSERVABILITY.md`'s ~60x anomaly entry) pushed
+Amazon Location Service call volume far above its normal baseline, with
+ReverseGeocode alone accounting for 92% of it (52,213 calls in the surge window).
+A usage investigation (Cost Explorer and CloudWatch Logs Insights used purely as
+call-volume data sources, cross-referenced against real production origins run
+through the actual `find_nearby` pipeline) traced this to several fixable issues,
+all shipped here:
 
 1. **Reverse-geocode cache-key instability (root cause, not dome-specific).** The
    "output-parity caveat" immediately above — window-relative `np.linspace` instead
@@ -378,15 +384,37 @@ traced this to three fixable issues, all shipped here:
    volume on its own, ~38% combined with fix #2 above (dome-side only; #1's
    cache-hit-rate benefit is separate and additive). `_dome_search =
    origin_bortle <= 6` (was `<= 7`).
+4. **Dark-candidate Tier-3 prefetch capped to a priority-ordered prefix.**
+   `_parallel_prefetch_settlements` resolved every Tier-3 representative in the
+   entire up-to-60-candidate band-selected list before the main loop in
+   `_jit_geocode_candidates` even started walking toward `_MAX_RESULTS=10`.
+   Measured on 25 real origins: 50.9% of prefetched calls were never consumed
+   (234 prefetched, 115 actually needed), 100% of the waste on international
+   searches (0 of 13 US origins in that batch needed any Tier-3 call vs. 12 of
+   12 international, averaging 19.5 each). Capped to the first
+   `_PREFETCH_CANDIDATE_PREFIX=25` candidates; a candidate beyond the cap that
+   the loop still reaches falls back to the existing direct `_settlement()`
+   call on a prefetch-map miss, so this is a call-volume cut, not a behavior
+   change.
+5. **Shared, short-TTL cache for `/suggest`.** `_suggest_cached` was an
+   in-process `functools.lru_cache` only — no benefit across different warm
+   containers or after a cold start. Added a second tier on the existing
+   shared cache (`darkhours.cache`; DynamoDB on aws), a few hours' TTL, keyed
+   by the raw query string, checked only on an in-process miss.
+6. **Usage anomaly monitoring scoped to Amazon Location Service**
+   (`cdk/lambda_api_stack.py`: `LocationServiceUsageMonitor` /
+   `LocationServiceUsageAlert`). The existing account-wide AWS Budget
+   (`docs/OBSERVABILITY.md`) only evaluates at billing-cycle granularity — it
+   would not have flagged this surge until much later. A monitor scoped
+   specifically to `SERVICE = Amazon Location Service`, with an immediate SNS
+   notification to the existing `AlarmTopic` on a meaningful deviation from
+   typical usage. See `docs/OBSERVABILITY.md`'s alarm section.
 
-Not shipped this round (tracked as open items, not silently dropped): stopping
-`_parallel_prefetch_settlements` from eagerly naming the full 60-candidate
-dark-sky-result pool instead of only what the main loop consumes (measured 50.9%
-waste on 25 real origins, 100% of it on international searches); re-enabling
-Overpass on the aws backend (a fresh live check found it currently less reliable
-than the June 2026 baseline — 2/5 requests failed, latency up to 25.2s — needs a
-properly rate-limiter-paced retest before shipping); a shared `/suggest` cache;
-and the global offline settlement-name index that would close the US/international
+Not shipped this round (tracked as open items, not silently dropped):
+re-enabling Overpass on the aws backend (a fresh live check found it currently
+less reliable than the June 2026 baseline — 2/5 requests failed, latency up to
+25.2s — needs a properly rate-limiter-paced retest before shipping); and the
+global offline settlement-name index that would close the US/international
 naming gap for good (0 of 13 US origins in a 25-origin sample needed any live
 Tier-3 call vs. 12 of 12 international origins, averaging 19.5 each).
 

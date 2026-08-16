@@ -10,6 +10,7 @@ skip Lambda cold starts.
 Foundational resources (S3 raster bucket, DynamoDB cache table) are referenced, never
 managed here. Names come from the environment so the public repo carries no identifiers.
 """
+import json
 import os
 import pathlib
 import shutil
@@ -37,6 +38,7 @@ from aws_cdk import (
     aws_sns as sns,
     aws_sqs as sqs,
     aws_certificatemanager as acm,
+    aws_ce as ce,
     aws_location as location,
     aws_route53 as route53,
     aws_route53_targets as route53_targets,
@@ -1190,6 +1192,58 @@ function handler(event) {
             treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
         )
         cloudfront_5xx_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Usage anomaly monitoring scoped to Amazon Location Service specifically —
+        # the account-wide AWS Budget (docs/OBSERVABILITY.md) would only have flagged
+        # the 2026-08 jump in this service's call volume at month-end. A CUSTOM
+        # monitor filtered to this one service, with an IMMEDIATE/SNS subscription,
+        # notifies within hours of a meaningful deviation from typical usage instead —
+        # reuses alarm_topic so there's one notification inbox, not a second one to
+        # remember to subscribe to.
+        location_usage_monitor = ce.CfnAnomalyMonitor(
+            self, "LocationServiceUsageMonitor",
+            monitor_name="PyNightSky-LocationService",
+            monitor_type="CUSTOM",
+            monitor_specification=json.dumps({
+                "Dimensions": {
+                    "Key": "SERVICE",
+                    "Values": ["Amazon Location Service"],
+                    "MatchOptions": ["EQUALS"],
+                }
+            }),
+        )
+        # costalerts.amazonaws.com needs an explicit grant to publish to the topic —
+        # unlike CloudWatch Alarms, SNS delivery here is cross-service and not
+        # covered by the alarm actions IAM role. Same aws:SourceAccount-scoped
+        # pattern as WafLogsPolicy above.
+        alarm_topic.add_to_resource_policy(iam.PolicyStatement(
+            sid="AWSAnomalyDetectionSNSPublishingPermissions",
+            principals=[iam.ServicePrincipal("costalerts.amazonaws.com")],
+            actions=["sns:Publish"],
+            resources=[alarm_topic.topic_arn],
+            conditions={"StringEquals": {"aws:SourceAccount": self.account}},
+        ))
+        ce.CfnAnomalySubscription(
+            self, "LocationServiceUsageAlert",
+            subscription_name="PyNightSky-LocationService-Alert",
+            frequency="IMMEDIATE",   # SNS delivery; DAILY/WEEKLY only support email
+            monitor_arn_list=[location_usage_monitor.attr_monitor_arn],
+            subscribers=[ce.CfnAnomalySubscription.SubscriberProperty(
+                address=alarm_topic.topic_arn,
+                type="SNS",
+            )],
+            # A low absolute-impact threshold, chosen to catch an early deviation
+            # from this service's normal baseline without much noise.
+            # threshold_expression (not the deprecated `threshold` prop) per
+            # current CE::AnomalySubscription guidance.
+            threshold_expression=json.dumps({
+                "Dimensions": {
+                    "Key": "ANOMALY_TOTAL_IMPACT_ABSOLUTE",
+                    "Values": ["3"],
+                    "MatchOptions": ["GREATER_THAN_OR_EQUAL"],
+                }
+            }),
+        )
 
         def _cf_metric(name: str, stat: str = "Sum") -> cloudwatch.Metric:
             return cloudwatch.Metric(
