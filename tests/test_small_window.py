@@ -102,6 +102,9 @@ def world(monkeypatch):
 
     fake_src = MagicMock()
     fake_src.read_window.side_effect = read_window
+    # Matches _world_read_window's own pixel anchoring (origin 90N/180W, RES
+    # deg/pixel) so _window_pixel_grid labels line up with the synthetic world.
+    fake_src.grid_meta.return_value = (-180.0, 90.0, RES, RES)
     fake_backend = MagicMock(raster_source=fake_src)
     fake_backend._name = "local"
     monkeypatch.setattr(ds.ports, "get_backend", lambda: fake_backend)
@@ -177,11 +180,18 @@ class TestWindowSelection:
         assert {d for d, _ in small} == {"viirs", "falchi"}
         assert [d for d, _ in big] == ["viirs"]   # VIIRS-only dome fetch
 
-        # Detector got the big window and self-computes its grids.
+        # Detector got the big window. lat_grid/lon_grid are pre-built by
+        # find_nearby (anchored to the raster's absolute grid, not this
+        # window's own bounds — see _window_pixel_grid) rather than left to
+        # the detector's window-relative standalone fallback; land_mask/
+        # viirs_sqm_arr are still self-computed for the bigger bounds.
         assert _bounds_match(seen["bounds"], _big_bounds())
         big_rows = round((_big_bounds()[1] - _big_bounds()[0]) / RES)
         assert seen["shape"][0] == big_rows
-        for key in ("lat_grid", "lon_grid", "land_mask", "viirs_sqm_arr"):
+        assert seen["kwargs"]["lat_grid"] is not None
+        assert seen["kwargs"]["lon_grid"] is not None
+        assert seen["kwargs"]["lat_grid"].shape == seen["shape"]
+        for key in ("land_mask", "viirs_sqm_arr"):
             assert seen["kwargs"][key] is None
         assert len(result["light_domes"]) == 1
 

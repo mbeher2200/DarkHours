@@ -276,6 +276,68 @@ class TestFindLightDomesFromArray:
 
 
 # ---------------------------------------------------------------------------
+# _window_pixel_grid  (absolute-grid-anchored pixel labeling)
+# ---------------------------------------------------------------------------
+
+class TestWindowPixelGrid:
+    """The real-world bug this fixes: two search origins whose windows both
+    cover the same physical pixel used to label it with two different
+    (lat, lon) values (each window's own linspace), which fed the
+    reverse-geocode cache key and silently issued a fresh call for the same
+    place twice. _window_pixel_grid anchors every window to the raster's
+    fixed absolute
+    grid instead, so the same pixel always gets the same label."""
+
+    def _patch_grid_meta(self, monkeypatch, west, north, x_res, y_res):
+        fake_src = MagicMock()
+        fake_src.grid_meta.return_value = (west, north, x_res, y_res)
+        fake_backend = MagicMock(raster_source=fake_src)
+        monkeypatch.setattr(ds.ports, "get_backend", lambda: fake_backend)
+
+    def test_pixel_center_matches_read_window_anchoring(self, monkeypatch):
+        # West/north/x_res/y_res chosen so row0/col0 land on round numbers.
+        self._patch_grid_meta(monkeypatch, west=-180.0, north=90.0, x_res=0.1, y_res=0.1)
+        lat_grid, lon_grid = ds._window_pixel_grid(
+            "viirs", min_lat=34.0, max_lat=35.0, min_lon=-112.0, max_lon=-111.0,
+            rows=10, cols=10,
+        )
+        # row0 = round((90-35)/0.1) = 550; pixel-center lat of row 0 = 90 - 550.5*0.1
+        assert lat_grid[0, 0] == pytest.approx(90.0 - 550.5 * 0.1, abs=1e-9)
+        # col0 = round((-112-(-180))/0.1) = 680; pixel-center lon of col 0
+        assert lon_grid[0, 0] == pytest.approx(-180.0 + 680.5 * 0.1, abs=1e-9)
+
+    def test_same_pixel_converges_across_overlapping_windows(self, monkeypatch):
+        """Two different windows over the same absolute grid must label the
+        real-world pixel they share identically — the Atlanta-dome scenario:
+        several search origins independently detect the same city glow and
+        must resolve to one cache key, not one each."""
+        self._patch_grid_meta(monkeypatch, west=-125.0, north=50.0, x_res=0.01, y_res=0.01)
+
+        def nearest_label(lat_grid, lon_grid, target_lat, target_lon):
+            d2 = (lat_grid - target_lat) ** 2 + (lon_grid - target_lon) ** 2
+            idx = np.unravel_index(np.argmin(d2), d2.shape)
+            return float(lat_grid[idx]), float(lon_grid[idx])
+
+        target_lat, target_lon = 33.804, -116.017   # a shared light source
+
+        # Window A: origin looking north-east at the shared light source.
+        lat_a, lon_a = ds._window_pixel_grid(
+            "viirs", min_lat=33.0, max_lat=34.3, min_lon=-116.7, max_lon=-115.0,
+            rows=130, cols=170,
+        )
+        # Window B: a different origin ~20 miles away, different bounds,
+        # overlapping window A's — same physical area, same shared source.
+        lat_b, lon_b = ds._window_pixel_grid(
+            "viirs", min_lat=32.7, max_lat=34.0, min_lon=-116.4, max_lon=-114.6,
+            rows=130, cols=180,
+        )
+
+        label_a = nearest_label(lat_a, lon_a, target_lat, target_lon)
+        label_b = nearest_label(lat_b, lon_b, target_lat, target_lon)
+        assert label_a == label_b
+
+
+# ---------------------------------------------------------------------------
 # _connected_components_8  (pure-numpy replacement for scipy.ndimage.label)
 # ---------------------------------------------------------------------------
 

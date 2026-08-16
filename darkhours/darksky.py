@@ -225,6 +225,16 @@ class _GridRasterSource:
         g = self._grid(dataset)
         return g.read_window(min_lat, max_lat, min_lon, max_lon, out_shape=out_shape)
 
+    def grid_meta(self, dataset: str) -> "tuple[float, float, float, float]":
+        """(west, north, x_res, y_res) — *dataset*'s fixed absolute georeferencing.
+
+        Lets callers reconstruct pixel-center lat/lon labels anchored to the same
+        origin ``read_window`` uses internally (see ``_window_pixel_grid``), instead
+        of each window recomputing labels relative to its own bounds.
+        """
+        g = self._grid(dataset)
+        return g.west, g.north, g.x_res, g.y_res
+
 
 class LocalRasterSource(_GridRasterSource):
     """Local RasterSource: download the raw GeoTIFF then build the tiled grid on
@@ -1014,6 +1024,32 @@ def _connected_components_8(mask: "np.ndarray") -> "tuple[np.ndarray, int]":
     return out.reshape(rows, cols), int(uniq.size)
 
 
+def _window_pixel_grid(
+    dataset: str,
+    min_lat: float, max_lat: float, min_lon: float, max_lon: float,
+    rows: int, cols: int,
+) -> "tuple[np.ndarray, np.ndarray]":
+    """Pixel-center (lat_grid, lon_grid) for a raster window, anchored to
+    *dataset*'s fixed absolute grid origin rather than this window's own bounds.
+
+    ``row0``/``col0`` mirror ``gridraster.GridArray.read_window``'s computation
+    exactly, so a label built here for a given pixel matches the label any other
+    window would build for that same physical pixel — regardless of where each
+    window's bounds happen to fall. Building labels from each window's own
+    ``np.linspace(max_lat, min_lat, rows)`` (the previous approach) let two
+    windows covering the same real-world pixel disagree by up to ~1.5 miles,
+    which fed directly into the reverse-geocode cache key and silently doubled
+    (or worse) live lookups for the same real-world place.
+    """
+    import numpy as np
+    west, north, x_res, y_res = ports.get_backend().raster_source.grid_meta(dataset)
+    col0 = round((min_lon - west) / x_res)
+    row0 = round((north - max_lat) / y_res)
+    lat_vals = north - (row0 + np.arange(rows) + 0.5) * y_res
+    lon_vals = west + (col0 + np.arange(cols) + 0.5) * x_res
+    return np.meshgrid(lat_vals, lon_vals, indexing="ij")
+
+
 def _find_light_domes_from_array(
     viirs_array: "np.ndarray",
     min_lat: float,
@@ -1060,6 +1096,11 @@ def _find_light_domes_from_array(
     # ── Coordinate grids ──────────────────────────────────────────────────────
     # indexing="ij" ensures lat_grid[r, c] and lon_grid[r, c] correspond to the
     # same pixel (r, c) in viirs_array.  Default "xy" would transpose lat/lon.
+    # This window-relative fallback is for standalone/test callers only (this
+    # function stays pure numpy, no backend I/O) — find_nearby always supplies
+    # lat_grid/lon_grid pre-built by _window_pixel_grid, anchored to the raster's
+    # fixed absolute grid so the same real-world pixel labels identically no
+    # matter which window it was read through.
     if lat_grid is None:
         lat_vals = np.linspace(max_lat, min_lat, rows)   # row 0 = north = max_lat
         lon_vals = np.linspace(min_lon, max_lon, cols)   # col 0 = west  = min_lon
@@ -1190,6 +1231,8 @@ def _extract_dark_sky_candidates(
         return []
 
     # ── Coordinate grids ──────────────────────────────────────────────────────
+    # Standalone/test fallback only — see the matching comment in
+    # _find_light_domes_from_array; find_nearby always passes pre-built grids.
     if lat_grid is None:
         lat_vals = np.linspace(max_lat, min_lat, rows)
         lon_vals = np.linspace(min_lon, max_lon, cols)
@@ -2404,11 +2447,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         _lat_grid = _lon_grid = _land_mask = _viirs_sqm_arr = None
         if viirs_arr is not None and viirs_arr.size > 0:
             _rows, _cols = viirs_arr.shape
-            _lat_grid, _lon_grid = _np.meshgrid(
-                _np.linspace(_max_lat, _min_lat, _rows),
-                _np.linspace(_min_lon, _max_lon, _cols),
-                indexing="ij",
-            )
+            _lat_grid, _lon_grid = _window_pixel_grid(
+                "viirs", _min_lat, _max_lat, _min_lon, _max_lon, _rows, _cols)
             if _HAS_GLM:
                 _land_mask = _glm.is_land(_lat_grid, _lon_grid)
             _viirs_sqm_arr = _np.where(
@@ -2479,17 +2519,23 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     # origin_bortle and >= min(origin_bortle+2, 10)). The brightest possible blob is
     # Bortle 9, so for an origin already at Bortle 8-9 no dome can ever qualify —
     # skip detection AND naming entirely (output is unchanged: it was always empty).
-    # On the two-step path the 150-mile VIIRS window arrives via _dome_fut; the
-    # detector self-computes its grids/land-mask/SQM over the bigger bounds (its
-    # None fallbacks).  If that fetch failed, domes degrade to [] — the dark-sky
-    # results themselves are unaffected.
+    # On the two-step path the 150-mile VIIRS window arrives via _dome_fut, over
+    # different bounds than the shared precompute above — its grid is rebuilt
+    # here (not left to _find_light_domes_from_array's standalone fallback) so
+    # it stays anchored to the raster's fixed absolute grid rather than these
+    # bigger bounds' own span; see _window_pixel_grid. If that fetch failed,
+    # domes degrade to [] — the dark-sky results themselves are unaffected.
     dome_viirs_arr = viirs_arr
     _dome_grids = dict(lat_grid=_lat_grid, lon_grid=_lon_grid,
                        land_mask=_land_mask, viirs_sqm_arr=_viirs_sqm_arr)
     if _dome_fut is not None:
         with prof.phase("dome window read (join)"):
             dome_viirs_arr = _dome_fut.result()
-        _dome_grids = dict(lat_grid=None, lon_grid=None,
+        _dome_lat_grid = _dome_lon_grid = None
+        if dome_viirs_arr is not None and dome_viirs_arr.size > 0:
+            _dome_lat_grid, _dome_lon_grid = _window_pixel_grid(
+                "viirs", *_dome_bounds, *dome_viirs_arr.shape)
+        _dome_grids = dict(lat_grid=_dome_lat_grid, lon_grid=_dome_lon_grid,
                            land_mask=None, viirs_sqm_arr=None)
     dome_clusters = []
     _funnel["domes_raw"] = 0
