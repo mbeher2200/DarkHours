@@ -578,6 +578,17 @@ _MAX_SEARCH_RADIUS  = 150   # beyond this the Overpass query grows unreliable an
 # than the clustering stage already treats as distinct.
 _NAME_DEDUP_MILES = 8.0
 
+# _parallel_prefetch_settlements input cap: candidates arrive priority-ordered
+# (same order the main loop in _jit_geocode_candidates consumes), so only a
+# prefix needs prefetching, not the full up-to-_MAX_DARK_CANDIDATES=60 band-
+# selected pool. Measured on 25 real search origins: the main loop stopped at
+# _MAX_RESULTS=10 having consumed a median well under this prefix, while the
+# eager full-pool prefetch made 50.9% more Tier-3 calls than were ever
+# used. Any candidate beyond the cap that the loop does reach still gets named
+# — _jit_geocode_candidates falls back to a direct _settlement() call for a
+# cache miss on the prefetch map, so this is a volume cut, not a behavior change.
+_PREFETCH_CANDIDATE_PREFIX = 25
+
 # Main public Overpass instance. The overpass.private.coffee mirror was tried but
 # is unreachable (connections hang to timeout); other community mirrors
 # (kumi.systems, openstreetmap.ru, mail.ru) also failed to respond, while
@@ -2217,8 +2228,9 @@ def _jit_geocode_candidates(
 
     Concurrency: the public Nominatim instance (local backend) forbids parallel/bulk
     access, so it keeps the lazy serial path. On the aws backend (AWS Location, no
-    per-second policy) the Tier-3 calls are prefetched in parallel up front and the
-    loop reads names from memory — see _parallel_prefetch_settlements.
+    per-second policy) the Tier-3 calls for a priority-ordered prefix of candidates
+    are prefetched in parallel up front and the loop reads names from memory — see
+    _parallel_prefetch_settlements and _PREFETCH_CANDIDATE_PREFIX.
 
     Dedup: each unique name appears at most once. Tier-3 candidates also get a spatial
     pre-dedup (see _NAME_DEDUP_MILES) that skips a candidate adjacent to an
@@ -2230,8 +2242,13 @@ def _jit_geocode_candidates(
 
     # On backends with no per-second policy (AWS Location), fetch the Tier-3 names
     # concurrently so the loop below resolves them from memory instead of one serial
-    # network round-trip per candidate. Empty on the local/Nominatim backend.
-    prefetch = (_parallel_prefetch_settlements(candidates, padus_index, natural_areas)
+    # network round-trip per candidate. Only a priority-ordered prefix is prefetched
+    # (see _PREFETCH_CANDIDATE_PREFIX) — the loop below stops at max_results long
+    # before it would walk the full candidate list, so prefetching past that point
+    # was paying for representatives it was never going to reach. Empty on the
+    # local/Nominatim backend.
+    prefetch = (_parallel_prefetch_settlements(
+                    candidates[:_PREFETCH_CANDIDATE_PREFIX], padus_index, natural_areas)
                 if ports.get_backend()._name == "aws" else {})
 
     for c in candidates:
