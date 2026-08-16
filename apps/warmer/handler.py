@@ -39,12 +39,19 @@ def handler(event=None, context=None):
     results: dict[str, str] = {}
     ok = True
 
+    # The warmer deliberately uses a longer per-socket timeout than the request
+    # path: nobody is waiting on it, and every fetch it lands here is one the
+    # request path never has to make. Failing fast is the right trade for a user
+    # staring at a spinner, and the wrong one for the job whose whole purpose is
+    # to have the answer ready before they ask.
     for norad, label in _TRACKED:
-        r = _tle.get_tle(norad)          # fetch + cache under "tle|<norad>"
+        r = _tle.get_tle(norad, timeout=_tle._WARM_FETCH_TIMEOUT)
         results[label] = _status(r.stale, r.error)
         ok = ok and (r.error is None and not r.stale)
 
-    trains, stale, err = _tle.get_starlink_train_tles()   # caches "tle|group|starlink"
+    trains, stale, err = _tle.get_starlink_train_tles(
+        timeout=_tle._WARM_FETCH_TIMEOUT,
+    )   # caches "tle|group|starlink"
     results["starlink"] = (f"ok ({len(trains)} trains)"
                            if (err is None and not stale) else _status(stale, err))
     ok = ok and (err is None and not stale)

@@ -198,3 +198,18 @@ Two invariants keep it fixed, both covered by tests:
   missed run destroys the only copy.
 - **403 with an empty cache must count as a failure.** Retrying cannot help, so it has
   to trip the breaker. Only 403 *with* something to revalidate is a success.
+
+### Fetch timeouts are split by caller
+
+`_FETCH_TIMEOUT` (5s) applies on the request path; `_WARM_FETCH_TIMEOUT` (30s) is what
+the warmer passes. Both are per-socket-operation, not total-transfer, deadlines — the
+Starlink group file is a couple of MB and streams fine under either.
+
+The asymmetry is the point. Satellite passes are optional and the rest of the forecast
+is already computed by the time the TLE future is awaited, so a stalled fetch on the
+request path is pure user-visible latency: a single 30s default was producing ~30s p99
+spikes whenever Celestrak hung. The warmer has nobody waiting, and every fetch it lands
+is one the request path never makes, so it is the wrong place to give up early.
+
+If you find yourself raising the request-path value to "fix" missing satellite data, the
+problem is almost certainly that the warmer is failing — look there instead.

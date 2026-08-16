@@ -264,6 +264,33 @@ class TestGetTle:
         fail.assert_called_once_with("celestrak")
         mc.set.assert_not_called()
 
+    def test_request_path_timeout_is_short(self):
+        """A hung Celestrak fetch must not hold a user request for 30s.
+
+        Satellites are optional; the rest of the forecast is already computed by
+        the time this is awaited. The 30s default previously produced ~30s p99
+        spikes whenever a fetch stalled.
+        """
+        assert tle_mod._FETCH_TIMEOUT <= 10
+
+    def test_warmer_gets_a_longer_timeout_than_the_request_path(self):
+        """The background warmer should be the patient one.
+
+        Its success is what stops the request path from ever needing to fetch, so
+        it is the wrong place to fail fast.
+        """
+        assert tle_mod._WARM_FETCH_TIMEOUT > tle_mod._FETCH_TIMEOUT
+
+    def test_fetch_uses_the_supplied_timeout(self):
+        """The timeout argument must actually reach urlopen, not just exist."""
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen') as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = \
+                _ISS_RAW.encode()
+            get_tle(25544, timeout=7)
+        assert urlopen.call_args.kwargs["timeout"] == 7
+
     def test_ttl_is_wider_than_the_warmer_interval(self):
         """TLE_TTL must stay several refresh cycles wide.
 
