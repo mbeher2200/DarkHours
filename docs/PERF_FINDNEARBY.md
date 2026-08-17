@@ -58,10 +58,8 @@ here, all shipped and still in effect:
   labels are built from the raster's fixed absolute grid origin (`_window_pixel_grid`)
   instead of each window's own bounds, so the reverse-geocode cache key for a given
   real-world light source is stable across different search origins (2026-08-16 entry).
-- **Shared `/suggest` cache and Location-Service usage monitoring.** A short-TTL
-  shared cache tier behind `/suggest`'s per-container LRU, and anomaly monitoring
-  scoped to Amazon Location Service so an unexpected jump in call volume is
-  caught in hours, not at the end of a reporting cycle (2026-08-16 entry).
+- **Shared `/suggest` cache.** A short-TTL shared cache tier behind `/suggest`'s
+  per-container LRU (2026-08-16 entry).
 - **Drive times via `CalculateRoutes`, per-leg, in parallel.** One point-to-point
   call per cache-missing leg (bounded thread pool), replacing the batched
   `CalculateRouteMatrix` call whose undocumented 60 km `Avoid` cap silently killed
@@ -401,22 +399,24 @@ all shipped here:
    containers or after a cold start. Added a second tier on the existing
    shared cache (`darkhours.cache`; DynamoDB on aws), a few hours' TTL, keyed
    by the raw query string, checked only on an in-process miss.
-6. **Usage anomaly monitoring scoped to Amazon Location Service**
-   (`cdk/lambda_api_stack.py`: `LocationServiceUsageMonitor` /
-   `LocationServiceUsageAlert`). The existing account-wide AWS Budget
-   (`docs/OBSERVABILITY.md`) only evaluates at billing-cycle granularity — it
-   would not have flagged this surge until much later. A monitor scoped
-   specifically to `SERVICE = Amazon Location Service`, with an immediate SNS
-   notification to the existing `AlarmTopic` on a meaningful deviation from
-   typical usage. See `docs/OBSERVABILITY.md`'s alarm section.
+Also attempted: a CDK-managed usage-anomaly monitor scoped specifically to
+Amazon Location Service. Deployed, failed, and was reverted the same day —
+`AWS::CE::AnomalyMonitor`'s `CUSTOM` type doesn't support scoping to
+`SERVICE` (only `LINKED_ACCOUNT`, or `TAG`/`COST_CATEGORY`); service-level
+scoping requires a `DIMENSIONAL` monitor, which tracks every service, not
+one. See `docs/OBSERVABILITY.md`'s Budget section for the full account of
+what was tried and why it isn't a live gap (AWS's own default per-account
+anomaly detection already covers this service, just not narrowly or on our
+schedule).
 
 Not shipped this round (tracked as open items, not silently dropped):
 re-enabling Overpass on the aws backend (a fresh live check found it currently
 less reliable than the June 2026 baseline — 2/5 requests failed, latency up to
-25.2s — needs a properly rate-limiter-paced retest before shipping); and the
+25.2s — needs a properly rate-limiter-paced retest before shipping); the
 global offline settlement-name index that would close the US/international
 naming gap for good (0 of 13 US origins in a 25-origin sample needed any live
-Tier-3 call vs. 12 of 12 international origins, averaging 19.5 each).
+Tier-3 call vs. 12 of 12 international origins, averaging 19.5 each); and a
+properly-scoped usage-anomaly subscription (see immediately above).
 
 ## Appendix B — raw data
 

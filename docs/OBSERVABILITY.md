@@ -50,7 +50,6 @@ should show `Confirmed`, not `PendingConfirmation`.
 | `WorkerErrorsAlarm` | ≥2 Worker Lambda errors in 5 min |
 | `DlqNotEmptyAlarm` | ≥1 message visible in the jobs dead-letter queue — a job failed 3 retries |
 | `CloudFront5xxErrorRateAlarm` | 5xx rate ≥20% over 2 consecutive 5-min periods |
-| `LocationServiceUsageAlert` (2026-08-16) | Usage anomaly monitoring, not a CloudWatch alarm — see below |
 
 `CloudFront5xxErrorRateAlarm`'s 20% threshold is intentionally loose — at this app's traffic
 volume a handful of failed requests can swing a percentage-based rate metric sharply. Tune it
@@ -154,17 +153,23 @@ aws budgets create-notification \
 ```
 
 This Budget is account-wide and only evaluates at billing-cycle granularity — it would not have
-surfaced the 2026-08 jump in Amazon Location Service call volume until much later. `CDK::CE::
-AnomalyMonitor`/`AnomalySubscription` (`LocationServiceUsageMonitor`/`LocationServiceUsageAlert` in
-`lambda_api_stack.py`, added 2026-08-16) is additive to this Budget, not a replacement: a `CUSTOM`
-monitor scoped to `SERVICE = Amazon Location Service` with an `IMMEDIATE` (SNS) subscription,
-notifying to the same `AlarmTopic` other `PyNightSkyLambda` alarms use, on a meaningful,
-ML-detected deviation from this service's typical usage. This evaluates roughly daily, not just
-at month-end, so it's the mechanism meant to catch the next per-service usage spike in hours. See
-`docs/PERF_FINDNEARBY.md`'s 2026-08-16 entry for the investigation that motivated it. Note the
-SNS topic needs a resource policy grant for `costalerts.amazonaws.com` to publish (added
-alongside the monitor) — CloudWatch Alarms don't need this, but this anomaly-detection service's
-SNS delivery is a separate cross-service permission.
+surfaced the 2026-08 jump in Amazon Location Service call volume until much later.
+
+**Attempted 2026-08-16, reverted the same day:** a CDK-managed `AWS::CE::AnomalyMonitor` (`CUSTOM`
+type) scoped to `SERVICE = Amazon Location Service`, with an `IMMEDIATE`/SNS subscription to the
+same `AlarmTopic` other `PyNightSkyLambda` alarms use. Deployed and failed:
+`AWS::CE::AnomalyMonitor` rejects a `SERVICE`-keyed `MonitorSpecification` on a `CUSTOM` monitor —
+`Dimension not valid; must be scoped to 'LINKED_ACCOUNT'`. Per the CloudFormation reference,
+`CUSTOM` monitors only support `LINKED_ACCOUNT` (or `TAG`/`COST_CATEGORY`); scoping to a single
+*service* specifically requires a `DIMENSIONAL` (AWS managed) monitor with `MonitorDimension =
+SERVICE` — which tracks every service independently, not just one, so it can't be narrowed to
+Location Service alone via a subscription-level filter either. Removed rather than reworked
+same-day since the account already has AWS's own default Cost Anomaly Detection running (a
+`DIMENSIONAL`/`SERVICE` monitor, auto-provisioned per-account, tracking Location Service among
+the other active services, with an existing email subscription) — not narrowly scoped or
+CDK-managed, but real, pre-existing coverage. A properly-scoped addition (subscribing to that
+existing monitor with a lower threshold and faster delivery, ARN sourced from the environment
+the same way the raster bucket/cache table are) is a fair follow-up, not an urgent gap.
 
 ## Capacity limits
 
