@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as _Request
 
+from darkhours import cache as _cache
 from darkhours import location as _loc
 from darkhours import trip as _trip
 from darkhours.predictor import assemble_night
@@ -286,11 +287,30 @@ def night(
     return d
 
 
+_SUGGEST_CACHE_TTL_SECONDS = 6 * 3600   # a few hours: prefixes churn slowly, not never
+
+
 @functools.lru_cache(maxsize=512)
 def _suggest_cached(q: str) -> list:
-    """In-process LRU cache for typeahead suggestions.  Avoids repeated Nominatim
-    round-trips for the same prefix within the same Lambda container lifetime."""
-    return _loc.suggest(q)
+    """Two-tier cache for typeahead suggestions, fastest first:
+
+    1. In-process LRU (this container only, no I/O) — avoids repeated round-trips
+       for the same prefix within one warm Lambda container's lifetime.
+    2. Shared cache (DynamoDB on aws, survives cold containers and is shared
+       across concurrent Lambdas) — avoids re-issuing a live Suggest call for a
+       popular prefix just because a *different* container or a cold start hit
+       it first. Keyed by the raw query string, a few hours' TTL.
+
+    Only reached on an in-process miss, so the shared-cache round-trip happens
+    at most once per query per warm container, not per keystroke.
+    """
+    key = f"suggest|{q}"
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
+    result = _loc.suggest(q)
+    _cache.set(key, result, ttl_seconds=_SUGGEST_CACHE_TTL_SECONDS)
+    return result
 
 
 @app.get("/suggest")

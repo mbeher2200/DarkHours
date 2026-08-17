@@ -128,6 +128,43 @@ def test_jit_loop_keeps_rural_candidates():
 
 
 # ---------------------------------------------------------------------------
+# aws-backend prefetch cap (_PREFETCH_CANDIDATE_PREFIX)
+# ---------------------------------------------------------------------------
+
+def test_aws_backend_prefetch_capped_to_priority_prefix():
+    """On the aws backend, only a priority-ordered prefix of the (up to
+    60-candidate) band-selected pool is handed to the parallel prefetch —
+    not the full list. Candidates beyond the prefix still get named correctly
+    via the existing per-candidate _settlement() fallback (proven here by
+    forcing the prefetch mock to return no names at all)."""
+    from darkhours import darksky as ds
+
+    candidates = [
+        {
+            "lat": 40.0 + i * 0.5, "lon": -100.0 + i * 0.5,
+            "bortle_class": 3, "sqm": 21.0, "distance_miles": float(i),
+            "direction": "N", "priority_score": float(i),
+        }
+        for i in range(60)
+    ]
+
+    fake_backend = type("FakeBackend", (), {"_name": "aws"})()
+    with patch.object(ds.ports, "get_backend", return_value=fake_backend), \
+         patch.object(ds, "_parallel_prefetch_settlements", return_value={}) as mock_prefetch, \
+         patch.object(ds, "_settlement", side_effect=lambda lat, lon: f"City {lat:.2f}"):
+        result = ds._jit_geocode_candidates(candidates, max_results=10)
+
+    mock_prefetch.assert_called_once()
+    prefetch_input = mock_prefetch.call_args[0][0]
+    assert len(prefetch_input) == ds._PREFETCH_CANDIDATE_PREFIX
+    assert prefetch_input == candidates[:ds._PREFETCH_CANDIDATE_PREFIX]
+    # Loop output unaffected by the cap — every result still got a real name
+    # via the direct _settlement() fallback (prefetch returned nothing).
+    assert len(result) == 10
+    assert all(c["name"].startswith("City ") for c in result)
+
+
+# ---------------------------------------------------------------------------
 # PAD-US Tier 1 tests
 # ---------------------------------------------------------------------------
 

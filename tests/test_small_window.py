@@ -102,6 +102,9 @@ def world(monkeypatch):
 
     fake_src = MagicMock()
     fake_src.read_window.side_effect = read_window
+    # Matches _world_read_window's own pixel anchoring (origin 90N/180W, RES
+    # deg/pixel) so _window_pixel_grid labels line up with the synthetic world.
+    fake_src.grid_meta.return_value = (-180.0, 90.0, RES, RES)
     fake_backend = MagicMock(raster_source=fake_src)
     fake_backend._name = "local"
     monkeypatch.setattr(ds.ports, "get_backend", lambda: fake_backend)
@@ -177,11 +180,18 @@ class TestWindowSelection:
         assert {d for d, _ in small} == {"viirs", "falchi"}
         assert [d for d, _ in big] == ["viirs"]   # VIIRS-only dome fetch
 
-        # Detector got the big window and self-computes its grids.
+        # Detector got the big window. lat_grid/lon_grid are pre-built by
+        # find_nearby (anchored to the raster's absolute grid, not this
+        # window's own bounds — see _window_pixel_grid) rather than left to
+        # the detector's window-relative standalone fallback; land_mask/
+        # viirs_sqm_arr are still self-computed for the bigger bounds.
         assert _bounds_match(seen["bounds"], _big_bounds())
         big_rows = round((_big_bounds()[1] - _big_bounds()[0]) / RES)
         assert seen["shape"][0] == big_rows
-        for key in ("lat_grid", "lon_grid", "land_mask", "viirs_sqm_arr"):
+        assert seen["kwargs"]["lat_grid"] is not None
+        assert seen["kwargs"]["lon_grid"] is not None
+        assert seen["kwargs"]["lat_grid"].shape == seen["shape"]
+        for key in ("land_mask", "viirs_sqm_arr"):
             assert seen["kwargs"][key] is None
         assert len(result["light_domes"]) == 1
 
@@ -208,6 +218,23 @@ class TestWindowSelection:
         ds.find_nearby(OLAT, OLON, RADIUS)
         assert len(world) == 3
         assert any(d == "viirs" and _bounds_match(b, _big_bounds()) for d, b in world)
+
+    def test_bortle7_skips_dome_search(self, world, monkeypatch):
+        # Dome-skip threshold moved from >=8 to >=7: a Bortle 7 origin no longer
+        # gets the big VIIRS-only dome fetch, even though it would still detect
+        # the synthetic city blob if dome search ran (see test_dark_peek_single_big_fetch).
+        monkeypatch.setattr(ds, "lookup", lambda lat, lon: {"bortle_class": 7, "sqm": 18.5})
+        result = ds.find_nearby(OLAT, OLON, RADIUS)
+        assert len(world) == 2
+        assert all(_bounds_match(b, _small_bounds()) for _, b in world)
+        assert result["light_domes"] == []
+
+    def test_bortle6_still_runs_dome_search(self, world, monkeypatch):
+        monkeypatch.setattr(ds, "lookup", lambda lat, lon: {"bortle_class": 6, "sqm": 19.5})
+        result = ds.find_nearby(OLAT, OLON, RADIUS)
+        assert len(world) == 3
+        assert any(d == "viirs" and _bounds_match(b, _big_bounds()) for d, b in world)
+        assert len(result["light_domes"]) == 1
 
     def test_flag_disable_legacy(self, world, monkeypatch):
         monkeypatch.setattr(ds, "_SMALL_WINDOW", False)
