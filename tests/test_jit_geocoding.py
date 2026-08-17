@@ -128,40 +128,104 @@ def test_jit_loop_keeps_rural_candidates():
 
 
 # ---------------------------------------------------------------------------
-# aws-backend prefetch cap (_PREFETCH_CANDIDATE_PREFIX)
+# Backend-unified lazy batch resolution (_lazy_batch_settlements)
 # ---------------------------------------------------------------------------
+# _jit_geocode_candidates runs the exact same scan/gate/resolve algorithm on
+# both backends; only the batch width passed to _lazy_batch_settlements
+# differs (1 = serial on local, per Nominatim's no-parallel policy;
+# _GEOCODE_MAX_WORKERS = parallel on aws, which has no per-second limit).
 
-def test_aws_backend_prefetch_capped_to_priority_prefix():
-    """On the aws backend, only a priority-ordered prefix of the (up to
-    60-candidate) band-selected pool is handed to the parallel prefetch —
-    not the full list. Candidates beyond the prefix still get named correctly
-    via the existing per-candidate _settlement() fallback (proven here by
-    forcing the prefetch mock to return no names at all)."""
+def test_batch_size_is_one_on_local_geocode_workers_on_aws():
+    """The only backend-specific knob in the naming loop is batch_size."""
+    from darkhours import darksky as ds
+
+    candidates = [
+        {"lat": 40.0 + i, "lon": -100.0, "bortle_class": 3, "sqm": 21.0,
+         "distance_miles": float(i)}
+        for i in range(5)
+    ]
+    seen_batch_sizes = []
+
+    def _spy(cands, start_idx, kept_coords, batch_size, padus_index, natural_areas):
+        seen_batch_sizes.append(batch_size)
+        return {}, len(cands)
+
+    with patch.object(ds, "_lazy_batch_settlements", side_effect=_spy), \
+         patch.object(ds, "_settlement", return_value="Somewhere"):
+        ds._jit_geocode_candidates(candidates, max_results=10)
+    assert seen_batch_sizes and all(bs == 1 for bs in seen_batch_sizes)
+
+    fake_backend = type("FakeBackend", (), {"_name": "aws"})()
+    seen_batch_sizes.clear()
+    with patch.object(ds.ports, "get_backend", return_value=fake_backend), \
+         patch.object(ds, "_lazy_batch_settlements", side_effect=_spy), \
+         patch.object(ds, "_settlement", return_value="Somewhere"):
+        ds._jit_geocode_candidates(candidates, max_results=10)
+    assert seen_batch_sizes and all(bs == ds._GEOCODE_MAX_WORKERS for bs in seen_batch_sizes)
+
+
+def test_local_and_aws_backends_name_identical_candidates():
+    """The core claim: which candidates get named, in what order, and what's
+    returned is backend-independent — batch_size only changes how many of a
+    batch's _settlement() calls happen in parallel vs serially, not which
+    candidates end up resolved or kept."""
+    from darkhours import darksky as ds
+
+    candidates = [
+        {
+            "lat": 34.0 + i * 0.3, "lon": -110.0 + i * 0.3,
+            "bortle_class": 3, "sqm": 21.0, "distance_miles": float(i),
+        }
+        for i in range(30)
+    ]
+
+    def _settle(lat, lon):
+        return f"Town {round(lat, 1)}"
+
+    with patch.object(ds, "_settlement", side_effect=_settle):
+        local_result = ds._jit_geocode_candidates(
+            [dict(c) for c in candidates], max_results=10)
+
+    fake_backend = type("FakeBackend", (), {"_name": "aws"})()
+    with patch.object(ds.ports, "get_backend", return_value=fake_backend), \
+         patch.object(ds, "_settlement", side_effect=_settle):
+        aws_result = ds._jit_geocode_candidates(
+            [dict(c) for c in candidates], max_results=10)
+
+    assert len(local_result) == 10
+    assert [c["name"] for c in local_result] == [c["name"] for c in aws_result]
+    assert ([(c["lat"], c["lon"]) for c in local_result]
+            == [(c["lat"], c["lon"]) for c in aws_result])
+
+
+def test_aws_backend_does_not_resolve_beyond_what_is_needed():
+    """On aws, batching still stops once the loop is satisfied — it doesn't
+    eagerly resolve the full candidate pool up front (the previous eager,
+    prefix-capped prefetch's failure mode)."""
     from darkhours import darksky as ds
 
     candidates = [
         {
             "lat": 40.0 + i * 0.5, "lon": -100.0 + i * 0.5,
             "bortle_class": 3, "sqm": 21.0, "distance_miles": float(i),
-            "direction": "N", "priority_score": float(i),
         }
         for i in range(60)
     ]
+    settle_calls = []
+
+    def _settle(lat, lon):
+        settle_calls.append((lat, lon))
+        return f"City {lat:.2f}"
 
     fake_backend = type("FakeBackend", (), {"_name": "aws"})()
     with patch.object(ds.ports, "get_backend", return_value=fake_backend), \
-         patch.object(ds, "_parallel_prefetch_settlements", return_value={}) as mock_prefetch, \
-         patch.object(ds, "_settlement", side_effect=lambda lat, lon: f"City {lat:.2f}"):
+         patch.object(ds, "_settlement", side_effect=_settle):
         result = ds._jit_geocode_candidates(candidates, max_results=10)
 
-    mock_prefetch.assert_called_once()
-    prefetch_input = mock_prefetch.call_args[0][0]
-    assert len(prefetch_input) == ds._PREFETCH_CANDIDATE_PREFIX
-    assert prefetch_input == candidates[:ds._PREFETCH_CANDIDATE_PREFIX]
-    # Loop output unaffected by the cap — every result still got a real name
-    # via the direct _settlement() fallback (prefetch returned nothing).
     assert len(result) == 10
-    assert all(c["name"].startswith("City ") for c in result)
+    # Some batching overshoot is expected (a batch resolves _GEOCODE_MAX_WORKERS
+    # candidates at a time), but nowhere near the full 60-candidate pool.
+    assert len(settle_calls) < 30
 
 
 # ---------------------------------------------------------------------------

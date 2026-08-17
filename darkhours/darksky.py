@@ -578,17 +578,6 @@ _MAX_SEARCH_RADIUS  = 150   # beyond this the Overpass query grows unreliable an
 # than the clustering stage already treats as distinct.
 _NAME_DEDUP_MILES = 8.0
 
-# _parallel_prefetch_settlements input cap: candidates arrive priority-ordered
-# (same order the main loop in _jit_geocode_candidates consumes), so only a
-# prefix needs prefetching, not the full up-to-_MAX_DARK_CANDIDATES=60 band-
-# selected pool. Measured on 25 real search origins: the main loop stopped at
-# _MAX_RESULTS=10 having consumed a median well under this prefix, while the
-# eager full-pool prefetch made 50.9% more Tier-3 calls than were ever
-# used. Any candidate beyond the cap that the loop does reach still gets named
-# — _jit_geocode_candidates falls back to a direct _settlement() call for a
-# cache miss on the prefetch map, so this is a volume cut, not a behavior change.
-_PREFETCH_CANDIDATE_PREFIX = 25
-
 # Main public Overpass instance. The overpass.private.coffee mirror was tried but
 # is unreachable (connections hang to timeout); other community mirrors
 # (kumi.systems, openstreetmap.ru, mail.ru) also failed to respond, while
@@ -2167,39 +2156,76 @@ def _offline_tier_name(
     return ("tier3", None)
 
 
-def _parallel_prefetch_settlements(
+def _lazy_batch_settlements(
     candidates: list,
+    start_idx: int,
+    kept_coords: "list[tuple[float, float]]",
+    batch_size: int,
     padus_index: "dict | None",
     natural_areas: "list | None",
-) -> dict:
-    """Concurrently reverse-geocode the spatially-distinct Tier-3 candidates.
+) -> "tuple[dict, int]":
+    """Resolve names for the next up-to-batch_size Tier-3 candidates starting at
+    start_idx, scanning forward through `candidates`. Both backends run this same
+    scan/gate/resolve algorithm — only batch_size differs (see _jit_geocode_candidates),
+    so which candidates get named and in what order is backend-independent; only
+    whether a batch's calls happen in parallel or serially differs, matching each
+    provider's own policy (AWS Location has no per-second limit; the public Nominatim
+    instance forbids parallel/bulk access).
 
-    Used only on backends with no per-second policy (AWS Location). Candidates that
-    Tiers 1-2 already name or discard are excluded; the remainder are clustered at
-    _NAME_DEDUP_MILES so only one representative per ~8 mi area is fetched (mirroring
-    the serial path's spatial dedup), and those reps are geocoded in parallel.
+    A candidate is included in the batch only if it's Tier-3 (Tiers 1-2 produced no
+    name) and isn't within _NAME_DEDUP_MILES of a coordinate already in kept_coords
+    *as known right now* — the same spatial pre-dedup the main loop itself applies.
+    Because kept_coords keeps growing as the main loop consumes results, a candidate
+    resolved here can occasionally turn out to be spatially superseded by the time the
+    loop actually reaches it (an intervening candidate within this same batch got
+    kept, and is close enough to invalidate a later one) — the main loop's existing
+    prefetch-map-miss fallback (a direct _settlement() call) already covers that rare
+    case, so it costs nothing extra to allow for.
 
-    Returns {(round(lat,3), round(lon,3)): settlement_result}, where the value is
-    whatever _settlement returned (a name / "" / None / _OVER_WATER). The main loop
-    reads names from this map instead of issuing the calls serially.
+    Returns ({(round(lat,3), round(lon,3)): settlement_result}, next_idx) — next_idx
+    is how far the scan got, so the next call can resume from there instead of
+    re-scanning candidates already classified.
     """
-    need = [c for c in candidates
-            if _offline_tier_name(c, padus_index, natural_areas)[0] == "tier3"]
-    if not need:
-        return {}
-    reps = _cluster_points(need, merge_miles=_NAME_DEDUP_MILES)
+    reps_needed: list = []
+    idx = start_idx
+    n = len(candidates)
+    while idx < n and len(reps_needed) < batch_size:
+        c = candidates[idx]
+        lat, lon = c["lat"], c["lon"]
+        kind, _ = _offline_tier_name(c, padus_index, natural_areas)
+        if kind == "tier3" and not any(
+            _haversine_miles(lat, lon, klat, klon) <= _NAME_DEDUP_MILES
+            for klat, klon in kept_coords
+        ):
+            reps_needed.append(c)
+        idx += 1
+    if not reps_needed:
+        return {}, idx
+
+    # Cluster first (mirrors the serial path's own spatial dedup — adjacent dark
+    # pixels reverse-geocode to the same settlement) so a batch that scanned several
+    # nearby candidates still issues only one call per ~8 mi area. Skipped for a
+    # single-candidate batch (batch_size=1, i.e. local): clustering one point is a
+    # no-op, and _cluster_points requires a 'bortle_class' key this call site's
+    # caller doesn't always populate on minimal candidate dicts.
+    reps = reps_needed if len(reps_needed) <= 1 else \
+        _cluster_points(reps_needed, merge_miles=_NAME_DEDUP_MILES)
     out: dict = {}
-    workers = min(_GEOCODE_MAX_WORKERS, len(reps))
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_settlement, c["lat"], c["lon"]): c for c in reps}
-        for fut in futures:
-            c = futures[fut]
-            try:
-                out[(round(c["lat"], 3), round(c["lon"], 3))] = fut.result()
-            except Exception as exc:
-                log.debug("parallel settlement failed (%.4f, %.4f): %s",
-                          c["lat"], c["lon"], exc)
-    return out
+    if len(reps) > 1 and batch_size > 1:
+        workers = min(_GEOCODE_MAX_WORKERS, len(reps))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_settlement, c["lat"], c["lon"]): c for c in reps}
+            for fut in futures:
+                c = futures[fut]
+                try:
+                    out[(round(c["lat"], 3), round(c["lon"], 3))] = fut.result()
+                except Exception as exc:
+                    log.debug("batch settlement failed (%.4f, %.4f): %s",
+                              c["lat"], c["lon"], exc)
+    else:
+        for c in reps:
+            out[(round(c["lat"], 3), round(c["lon"], 3))] = _settlement(c["lat"], c["lon"])
+    return out, idx
 
 
 def _jit_geocode_candidates(
@@ -2226,11 +2252,15 @@ def _jit_geocode_candidates(
       Reached when Tiers 1-2 produced no name. _OVER_WATER → candidate discarded;
       None → coordinate fallback used.
 
-    Concurrency: the public Nominatim instance (local backend) forbids parallel/bulk
-    access, so it keeps the lazy serial path. On the aws backend (AWS Location, no
-    per-second policy) the Tier-3 calls for a priority-ordered prefix of candidates
-    are prefetched in parallel up front and the loop reads names from memory — see
-    _parallel_prefetch_settlements and _PREFETCH_CANDIDATE_PREFIX.
+    Concurrency: both backends walk the exact same lazy, on-demand algorithm — a
+    small forward-looking batch of Tier-3 candidates is resolved just before the
+    loop needs the first one in it (see _lazy_batch_settlements), never further
+    ahead than that, so which candidates get named is identical either way. Only
+    batch_size differs: _GEOCODE_MAX_WORKERS (resolved in parallel) on the aws
+    backend (AWS Location has no per-second policy), 1 (serial) on local — the
+    public Nominatim instance forbids parallel/bulk access, and batch_size=1
+    degenerates to exactly one _settlement() call per candidate, in order, with
+    no look-ahead at all.
 
     Dedup: each unique name appears at most once. Tier-3 candidates also get a spatial
     pre-dedup (see _NAME_DEDUP_MILES) that skips a candidate adjacent to an
@@ -2240,18 +2270,11 @@ def _jit_geocode_candidates(
     dark_clusters: list = []
     kept_coords: list[tuple[float, float]] = []   # (lat, lon) of accepted results
 
-    # On backends with no per-second policy (AWS Location), fetch the Tier-3 names
-    # concurrently so the loop below resolves them from memory instead of one serial
-    # network round-trip per candidate. Only a priority-ordered prefix is prefetched
-    # (see _PREFETCH_CANDIDATE_PREFIX) — the loop below stops at max_results long
-    # before it would walk the full candidate list, so prefetching past that point
-    # was paying for representatives it was never going to reach. Empty on the
-    # local/Nominatim backend.
-    prefetch = (_parallel_prefetch_settlements(
-                    candidates[:_PREFETCH_CANDIDATE_PREFIX], padus_index, natural_areas)
-                if ports.get_backend()._name == "aws" else {})
+    batch_size = _GEOCODE_MAX_WORKERS if ports.get_backend()._name == "aws" else 1
+    resolved: dict = {}
+    scan_idx = 0   # how far _lazy_batch_settlements has scanned candidates so far
 
-    for c in candidates:
+    for i, c in enumerate(candidates):
         lat, lon = c["lat"], c["lon"]
         kind, name = _offline_tier_name(c, padus_index, natural_areas)
         if kind == "discard":
@@ -2267,9 +2290,15 @@ def _jit_geocode_candidates(
                    for klat, klon in kept_coords):
                 continue
             key = (round(lat, 3), round(lon, 3))
-            # Prefetched on aws; otherwise (local, or a non-representative pixel whose
-            # rep was dropped) fall back to a single direct call.
-            name = prefetch[key] if key in prefetch else _settlement(lat, lon)
+            if key not in resolved:
+                more, scan_idx = _lazy_batch_settlements(
+                    candidates, max(scan_idx, i), kept_coords, batch_size,
+                    padus_index, natural_areas)
+                resolved.update(more)
+            # A miss here means this candidate's spatial eligibility changed between
+            # being batch-scanned and the loop reaching it (see _lazy_batch_settlements'
+            # docstring) — falls back to a single direct call, same as before.
+            name = resolved[key] if key in resolved else _settlement(lat, lon)
             if name == _OVER_WATER:
                 continue
             if not name:
@@ -2675,7 +2704,7 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
         areas_thread.start()
 
     # Name light domes. AWS Location has no per-second policy, so geocode them
-    # concurrently (like _parallel_prefetch_settlements); public Nominatim (local
+    # concurrently (like _lazy_batch_settlements); public Nominatim (local
     # backend) stays serial per its usage policy. Names/order are unchanged.
     with prof.phase("dome naming (geocode)"):
         if dome_clusters:

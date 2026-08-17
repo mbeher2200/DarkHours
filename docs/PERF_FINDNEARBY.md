@@ -50,10 +50,12 @@ here, all shipped and still in effect:
 - **Reverse-geocode discipline.** 8-mile pre-dedup of candidate probes
   (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, a 16-point-compass
   directional pre-dedup of dome candidates before naming (`_dedup_domes_by_direction`,
-  2026-08-16 entry), a priority-ordered prefix cap on the dark-candidate Tier-3
-  prefetch (`_PREFETCH_CANDIDATE_PREFIX`, 2026-08-16 entry), and — on the aws
-  backend only — parallel AWS Location calls (~87 ms each in-region) with a
-  pooled client. The local backend stays serial per Nominatim's 1 req/s policy.
+  2026-08-16 entry), and a lazy, backend-unified batch resolver for dark-candidate
+  Tier-3 naming (`_lazy_batch_settlements`, 2026-08-16 entry, reworked same day):
+  both backends run the identical scan/gate/resolve loop, resolving only as far
+  ahead as the next batch, never the whole candidate pool — the only backend
+  difference is batch width (1 = serial on local, per Nominatim's no-parallel
+  policy; `_GEOCODE_MAX_WORKERS` = parallel on aws, which has no per-second limit).
 - **Absolute-grid-anchored pixel labels.** Dome and dark-candidate pixel lat/lon
   labels are built from the raster's fixed absolute grid origin (`_window_pixel_grid`)
   instead of each window's own bounds, so the reverse-geocode cache key for a given
@@ -382,18 +384,26 @@ all shipped here:
    volume on its own, ~38% combined with fix #2 above (dome-side only; #1's
    cache-hit-rate benefit is separate and additive). `_dome_search =
    origin_bortle <= 6` (was `<= 7`).
-4. **Dark-candidate Tier-3 prefetch capped to a priority-ordered prefix.**
-   `_parallel_prefetch_settlements` resolved every Tier-3 representative in the
-   entire up-to-60-candidate band-selected list before the main loop in
-   `_jit_geocode_candidates` even started walking toward `_MAX_RESULTS=10`.
-   Measured on 25 real origins: 50.9% of prefetched calls were never consumed
-   (234 prefetched, 115 actually needed), 100% of the waste on international
-   searches (0 of 13 US origins in that batch needed any Tier-3 call vs. 12 of
-   12 international, averaging 19.5 each). Capped to the first
-   `_PREFETCH_CANDIDATE_PREFIX=25` candidates; a candidate beyond the cap that
-   the loop still reaches falls back to the existing direct `_settlement()`
-   call on a prefetch-map miss, so this is a call-volume cut, not a behavior
-   change.
+4. **Dark-candidate Tier-3 naming unified across backends, on-demand.**
+   `_parallel_prefetch_settlements` used to resolve every Tier-3 representative
+   in the entire up-to-60-candidate band-selected list before the main loop in
+   `_jit_geocode_candidates` even started walking toward `_MAX_RESULTS=10` — and
+   only ran on the aws backend at all, so local dev never exercised the same
+   code path. Measured on 25 real origins: 50.9% of those eager calls were never
+   consumed (234 prefetched, 115 actually needed), 100% of the waste on
+   international searches (0 of 13 US origins in that batch needed any Tier-3
+   call vs. 12 of 12 international, averaging 19.5 each). First fix (shipped,
+   then reworked same day): capped the prefetch to a static 25-candidate prefix.
+   Reworked into `_lazy_batch_settlements`: both backends now run the identical
+   scan/gate/resolve loop, resolving a batch of up to `batch_size` upcoming
+   Tier-3 candidates only right before the loop needs the first one in it, never
+   further ahead — so which candidates get named is backend-independent, proven
+   directly by `test_local_and_aws_backends_name_identical_candidates`. Only
+   `batch_size` differs: 1 (serial, one `_settlement()` call per candidate, no
+   look-ahead — exactly local's original behavior) on local, `_GEOCODE_MAX_WORKERS`
+   (parallel) on aws. A candidate whose spatial eligibility drifts between being
+   batch-scanned and the loop reaching it still falls back to a direct
+   `_settlement()` call, same safety net as before.
 5. **Shared, short-TTL cache for `/suggest`.** `_suggest_cached` was an
    in-process `functools.lru_cache` only — no benefit across different warm
    containers or after a cold start. Added a second tier on the existing
