@@ -1,215 +1,114 @@
 # Circuit breaker for 3rd-party provider calls
 
-Implemented in `darkhours/circuit_breaker.py` (PR #136). Skips calls to a provider that
-has just failed repeatedly, instead of making every user wait through its timeout, and
-surfaces the skip to the UI through the existing "temporarily unavailable" messaging.
-
-## Why it exists
-
-Before this, nothing ever decided *not* to call a provider: `darkhours/provider_health.py`
-passively recorded outcomes for `/healthz`, but every request always attempted the live
-call. A down provider cost each request its full timeout (10–15s for the urllib
-providers; **minutes** for the AWS clients, which ran botocore's 60s/60s defaults × 5
-adaptive retries) before the app fell back or degraded.
+Implemented in `darkhours/circuit_breaker.py`. Skips calls to a provider that has
+failed repeatedly, instead of waiting through its timeout, and surfaces the skip
+through the existing "temporarily unavailable" UI messaging.
 
 ## Relationship to rate limiting
 
-This breaker is **reactive** — it stops calling a provider only after it's already
-failing repeatedly. It does nothing to cap the *rate* of calls while a provider is
-healthy, which is a separate, preventive concern: DarkHours' own fan-out (a trip
-build can fire dozens of concurrent calls to one provider) could otherwise look
-like abusive traffic to a healthy public API even when nothing is failing. See
-[`docs/RATE_LIMITING.md`](RATE_LIMITING.md) (`darkhours/rate_limiter.py`) for that
-half — the two modules never call into each other; call sites use both, in a fixed
-order (`circuit_breaker.allow()` first, `rate_limiter.acquire()` second).
+Reactive (stops calling a provider after it starts failing), not preventive. See
+[`docs/RATE_LIMITING.md`](RATE_LIMITING.md) (`darkhours/rate_limiter.py`) for the
+preventive half. The two modules never call into each other; call sites use both,
+in a fixed order (`circuit_breaker.allow()` first, `rate_limiter.acquire()`
+second).
 
 ## How it works
 
 Two states per provider key, in-process (per warm Lambda container), thread-safe.
 
-- **CLOSED** — calls proceed. `FAILURE_THRESHOLD` (3) *consecutive* failures → OPEN.
-  Any success resets the count. Celestrak overrides to threshold 1 (see below).
+- **CLOSED** — calls proceed. `FAILURE_THRESHOLD` (3) consecutive failures →
+  OPEN. Any success resets the count. Celestrak overrides to threshold 1.
 - **OPEN** — calls are skipped instantly with `ProviderUnavailableError` (a
-  `RuntimeError` subclass, so every existing `except RuntimeError` handles a skipped
-  call exactly like a failed one; carries `.provider` and `.retry_after_seconds`).
+  `RuntimeError` subclass; carries `.provider` and `.retry_after_seconds`).
 
-**Recovery** (OPEN → CLOSED) happens only in `on_success()` — a real call must succeed.
-Which calls get attempted while OPEN depends on the mode, chosen per call at runtime:
+Recovery (OPEN → CLOSED) happens only in `on_success()`.
 
-1. **Monitor-driven** — only when `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` is set AND the
-   provider is one of the four the synthetic ProviderHealth Lambda probes
-   (`open_meteo`, `seven_timer`, `swpc`, `waqi`) AND its table entry is fresh (≤20 min).
-   Fresh DOWN → block, no user request spent probing. Fresh UP → grant one probe,
-   rate-limited to one per 15s (`_PROBE_GUARD_SECONDS`) so a monitor false-UP can't
-   thrash the breaker open/closed while the provider is really down for us.
-2. **Self-timed** — everything else, and the automatic fallback whenever no fresh
-   monitor signal exists (env var unset, read error, stale/missing entry): after the
-   cooldown (60s; Celestrak 300s), grant one probe. Probe failure re-arms a fresh
-   cooldown; the block→probe cycle repeats for as long as the outage lasts.
+1. **Monitor-driven** — active only when `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` is set
+   AND the provider is one the synthetic ProviderHealth Lambda probes
+   (`open_meteo`, `seven_timer`, `swpc`, `waqi`) AND its table entry is fresh
+   (≤20 min). Fresh DOWN → block without probing. Fresh UP → grant one probe,
+   rate-limited to one per 15s (`_PROBE_GUARD_SECONDS`).
+2. **Self-timed** — everything else, and the fallback whenever no fresh monitor
+   signal exists: after a cooldown (60s; Celestrak 300s), grant one probe.
 
-Probe grants are atomic — granting re-arms the clock inside the state lock, so
-concurrent threads (predictor's I/O fan-out) can't all probe at once.
+Probe grants are atomic.
 
-## Provider keys (per-host, because reachability is a host property)
+## Provider keys (per-host)
 
 | Key | Call sites | Notes |
 |---|---|---|
 | `open_meteo` | weather.py forecast + past providers | api.open-meteo.com |
-| `open_meteo_archive` | weather.py historical (ERA5) | archive-api.open-meteo.com — different host, fails independently (see OpenMeteoPastProvider docstring) |
-| `open_meteo_air_quality` | weather.py `_fetch_air_quality` | own host; skip returns `[]` (never a hard dependency) |
+| `open_meteo_archive` | weather.py historical (ERA5) | archive-api.open-meteo.com — separate host, separate breaker |
+| `open_meteo_air_quality` | weather.py `_fetch_air_quality` | own host; skip returns `[]` |
 | `seven_timer` | weather.py SevenTimerProvider | |
-| `celestrak` | tle_provider.py single + Starlink group | threshold 1 / cooldown 300s: global TLE cache concentrates retries at expiry, and Celestrak punishes exactly that; stale-cache fallback makes patience free. Starlink 403 = "unchanged", **not** a failure |
-| `waqi` | aqicn.py `_fetch_url` | parse-level failures (bad JSON, non-ok status) do **not** count — provider was reached |
+| `celestrak` | tle_provider.py single + Starlink group | threshold 1 / cooldown 300s; Starlink 403 = "unchanged", not a failure |
+| `waqi` | aqicn.py `_fetch_url` | parse-level failures don't count |
 | `swpc` | aurora.py `_fetch_url` | covers both Kp products |
-| `nominatim` | location.py geocode + suggest (geopy), darksky.py settlement (raw HTTP) | one key across both access mechanisms — same upstream |
+| `nominatim` | location.py geocode + suggest (geopy), darksky.py settlement (raw HTTP) | one key across both access mechanisms |
 | `aws_location` | location.py aws geocode/suggest, darksky.py settlement | |
 | `aws_georoutes` | darksky.py `_aws_drive_times` | one gate per bounded fan-out batch |
 
-Skips preserve each site's existing degrade contract (suggest → `[]`, air quality →
-`[]`, `get_tle()` → stale cache, drive times → `None` fields, reverse geocode → `None`).
+Skips preserve each site's existing degrade contract (suggest → `[]`, air quality
+→ `[]`, `get_tle()` → stale cache, drive times → `None` fields, reverse geocode →
+`None`).
 
-## Detection-latency budget
+## Timeouts
 
-Time-to-trip = threshold × worst-case single-call latency, so every gated call must
-fail fast. The urllib/geopy sites were already bounded (10–15s). The AWS clients were
-not: `_location()`/`_georoutes()` now run `connect_timeout=2.0, read_timeout=5.0,
-retries={"total_max_attempts": 2, "mode": "adaptive"}` (~15s worst case, ~45s to trip;
-adaptive kept so `find_nearby`'s fan-out still absorbs ThrottlingException).
-`tests/test_circuit_breaker.py::test_location_clients_have_bounded_latency` pins these
-values — a future "bump the retries" edit fails a test instead of silently making the
-breaker minutes-slow. Note: botocore's `Config(retries={"max_attempts": N})` means N
+Urllib/geopy sites: 10–15s. AWS clients (`_location()`/`_georoutes()`):
+`connect_timeout=2.0, read_timeout=5.0, retries={"total_max_attempts": 2, "mode":
+"adaptive"}`. `tests/test_circuit_breaker.py::test_location_clients_have_bounded_latency`
+pins these values. Note: botocore's `Config(retries={"max_attempts": N})` means N
 *retries* (N+1 attempts); use `total_max_attempts`.
 
 ## Flags
 
-Read once at import (same idiom as `PYNIGHTSKY_NO_CACHE`):
-
-- `PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED` — kill switch, **default enabled**.
-- `PYNIGHTSKY_CIRCUIT_BREAKER_<PROVIDER>_DISABLE` — per-key opt-out (key uppercased,
-  e.g. `..._OPEN_METEO_ARCHIVE_DISABLE`). Bookkeeping still runs while disabled.
-- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name. **Wired,
-  deployed, and confirmed live** (PR #137, merged 2026-07-21): `cdk/lambda_api_stack.py`
-  grants the API and worker Lambda roles a scoped `dynamodb:GetItem` statement + sets
-  this env var, both gated on the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret
-  (set to the live table). See "Monitor-driven recovery wiring" below for the one
-  remaining open item (organic end-to-end proof of a real read).
+- `PYNIGHTSKY_CIRCUIT_BREAKER_ENABLED` — kill switch, default enabled.
+- `PYNIGHTSKY_CIRCUIT_BREAKER_<PROVIDER>_DISABLE` — per-key opt-out (key
+  uppercased). Bookkeeping still runs while disabled.
+- `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` — ProviderHealth DynamoDB table name. Grants
+  the API and worker Lambda roles a scoped `dynamodb:GetItem` on this table only.
 
 ## UI surfacing
 
-Single-night `/night`: already worked (`NightReport.wx_error` → `ReportCard.tsx`).
-This change closed the calendar gap: `NightSummary` now carries `wx_error` through
-`trip._to_dict/_from_dict` → `CalendarNight` (types.ts) → `OutlookTelemetryRibbon.tsx`
-("weather providers are temporarily unavailable"). `wx_error` nights cache at the 1h
-weather TTL, not the 24h astro TTL, so an outage message ages out within the hour.
-`/healthz` is unchanged: a skipped call writes no `provider_health.record()`, so it
-keeps showing the last *real* observed status.
+Single-night `/night`: `NightReport.wx_error` → `ReportCard.tsx`. Calendar:
+`NightSummary.wx_error` → `trip._to_dict/_from_dict` → `CalendarNight`
+(types.ts) → `OutlookTelemetryRibbon.tsx`. `wx_error` nights cache at the 1h
+weather TTL, not the 24h astro TTL. `/healthz` shows the last real observed
+status; a skipped call writes no `provider_health.record()`.
 
 ## Known limits (accepted)
 
-- **State is per-container.** A cold-start fan-out of N containers each pays its own
-  failure streak before tripping locally; state resets on recycle. Cross-container
-  shared state is the deferred storm-throttling use case (which would also add call
-  volume/latency metrics — the `allow`/`on_success`/`on_failure` seam is where both
-  hook in).
-- **Trip detection is always local** even in monitor-driven mode; only *recovery*
+- **State is per-container.** A cold-start fan-out of N containers each pays its
+  own failure streak before tripping locally; state resets on recycle.
+  Cross-container shared state is deferred future work.
+- **Trip detection is always local** even in monitor-driven mode; only recovery
   defers to the monitor.
-
-## Monitor-driven recovery wiring
-
-The feature is complete without this (see Recovery above — unset env var degrades
-cleanly to self-timed everywhere). Wiring it upgrades recovery for the four
-monitor-tracked providers: recovery noticed on the monitor's 5-min schedule with zero
-user requests spent probing, consistent across all containers, and the basis for
-future flap detection.
-
-**Status: deployed and confirmed live (PR #137, merged 2026-07-21).** Do not treat any
-of the steps below as still pending — they were checked directly against AWS, not just
-committed:
-
-1. IAM — confirmed live: `cdk/lambda_api_stack.py` grants `dynamodb:GetItem` (only —
-   single-key lookups, scoped to the ProviderHealth table's ARN) on both the API and
-   worker Lambda roles. Verified via `aws iam get-role-policy` on both
-   `PyNightSkyLambda-Api*`/`...-Worker*` roles post-deploy: the statement is exactly
-   `dynamodb:GetItem` on the ProviderHealth table ARN, nothing broader.
-2. Env — confirmed live: `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` is set on both Lambdas
-   (verified via `aws lambda get-function-configuration`), sourced from a plain env
-   var/secret at synth time — **not** a CloudFormation export/import, which would
-   couple the independently-deployed `PyNightSkyProviderHealth` (manual) and
-   `PyNightSkyLambda` (CI) stacks. The table name is never hardcoded (public repo);
-   `provider_health_stack.py` emits it as a plain `CfnOutput` (`ProviderHealthTableName`);
-   the `PYNIGHTSKY_PROVIDER_HEALTH_TABLE` GitHub secret is set from that output, and
-   `deploy.yml` passes it through to `cdk deploy` (empty/absent would be a no-op, same
-   as `AQICN_TOKEN` — but it is not empty; it's set).
-3. Deploy order — satisfied: `PyNightSkyProviderHealth` was already live
-   (`UPDATE_COMPLETE`) before this `PyNightSkyLambda` deploy ran.
-
-**One item still genuinely open — organic end-to-end proof of a real read:**
-
-4. IAM + env are confirmed live (above), but as of 2026-07-21 ~23:35 UTC no `GetItem`
-   call had actually happened yet (`ConsumedReadCapacityUnits` on the table was flat 0
-   since deploy) — because the read only fires once a provider's *local, per-container*
-   breaker has already opened (3 consecutive real failures against a monitor-tracked
-   provider from inside one warm container), and that hadn't occurred yet. **This is
-   expected, not a fault** — the fail-safe design (1s timeouts, 1 attempt, broad except
-   → self-timed fallback) means a *broken* grant would look identical (silent), which
-   is exactly why this needs an active check rather than "no errors in the logs" being
-   read as sufficient proof. If you're picking this doc up fresh: check whether a
-   monitor-tracked provider (`open_meteo`, `seven_timer`, `swpc`, `waqi`) is currently
-   reporting DOWN in the table and whether `ConsumedReadCapacityUnits` has moved off
-   zero since; if not, force it with a deliberate test invoke against the worker that
-   trips one of those providers' breakers, then re-check.
-5. Flap detection is separate, unstarted follow-on work (not part of this wiring): the
-   monitor's table only stores latest status (overwritten each run). It needs either a
-   rolling history in the table or queries against the `ProviderUp` EMF metric (a real
-   time series).
 
 ## Tests
 
 `tests/test_circuit_breaker.py` — state machine, monitor UP/DOWN/None semantics,
-probe-guard thrash bound, probe atomicity (16 threads → one grant), fail-fast on broken
-table reads, client Config pins, cross-module integration (shared nominatim key, trip
-serialization). Breaker-open short-circuit tests live in each provider's own test file.
-`tests/conftest.py` resets breaker state around every test (state is module-global;
-celestrak trips on a single failure). All hermetic — no network, no AWS.
+probe-guard thrash bound, probe atomicity, fail-fast on broken table reads, client
+Config pins, cross-module integration (shared nominatim key, trip serialization).
+Breaker-open short-circuit tests live in each provider's own test file.
+`tests/conftest.py` resets breaker state around every test. All hermetic — no
+network, no AWS.
 
-## Celestrak 403 is a revalidation, not a failure
+## Celestrak 403 handling
 
-Celestrak enforces one download per data update and answers **403** — *"GP data has
-not updated since your last successful download"* — where another service would send
-304. It means the cached copy is still current.
+Celestrak enforces one download per data update and answers 403 ("GP data has not
+updated since your last successful download") where another service would send
+304. `tle_provider` treats a 403 with a cached copy present as success and
+re-writes the cache entry with a fresh `TLE_TTL`.
 
-`tle_provider` now treats it that way: on 403 it re-writes the cached entry with a
-fresh `TLE_TTL`, so the entry cannot expire while Celestrak keeps confirming it, and
-serves it as current rather than stale.
-
-The failure this replaced is worth recording, because the fix is not obvious from the
-code alone. `TLE_TTL` and the warmer interval were both 6h, so a single missed refresh
-let DynamoDB delete the row. `get_stale()` — the designed fallback — then had nothing
-to read, and because the 403 branch called `_cb.on_success()` unconditionally, the
-breaker never opened. Every request with `satellites=true` re-asked Celestrak and got
-the same 403: roughly 3 requests/minute for hours, with no user-visible error, until
-someone read the logs. It could not self-heal, because Celestrak will not serve the
-data again until *their* copy changes.
-
-Two invariants keep it fixed, both covered by tests:
+Two invariants, both covered by tests:
 
 - **`TLE_TTL` (24h) must stay several warmer cycles (6h) wide.** The TTL is when
-  DynamoDB *deletes* the row, not when the data goes stale. Equal values mean one
-  missed run destroys the only copy.
-- **403 with an empty cache must count as a failure.** Retrying cannot help, so it has
-  to trip the breaker. Only 403 *with* something to revalidate is a success.
+  DynamoDB deletes the row, not when the data goes stale.
+- **403 with an empty cache must count as a failure.** Retrying cannot help, so it
+  has to trip the breaker.
 
-### Fetch timeouts are split by caller
+### Fetch timeouts by caller
 
-`_FETCH_TIMEOUT` (5s) applies on the request path; `_WARM_FETCH_TIMEOUT` (30s) is what
-the warmer passes. Both are per-socket-operation, not total-transfer, deadlines — the
-Starlink group file is a couple of MB and streams fine under either.
-
-The asymmetry is the point. Satellite passes are optional and the rest of the forecast
-is already computed by the time the TLE future is awaited, so a stalled fetch on the
-request path is pure user-visible latency: a single 30s default was producing ~30s p99
-spikes whenever Celestrak hung. The warmer has nobody waiting, and every fetch it lands
-is one the request path never makes, so it is the wrong place to give up early.
-
-If you find yourself raising the request-path value to "fix" missing satellite data, the
-problem is almost certainly that the warmer is failing — look there instead.
+`_FETCH_TIMEOUT` (5s) applies on the request path; `_WARM_FETCH_TIMEOUT` (30s) is
+what the warmer passes. Both are per-socket-operation deadlines, not
+total-transfer.
