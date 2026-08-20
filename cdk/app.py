@@ -8,6 +8,7 @@ from lambda_api_stack import LambdaApiStack
 from cicd_stack import CicdStack
 from warmer_stack import WarmerStack
 from provider_health_stack import ProviderHealthStack
+from feature_flags_stack import FeatureFlagsStack
 
 app = cdk.App()
 _env = cdk.Environment(
@@ -26,6 +27,9 @@ WarmerStack(app, "PyNightSkyWarmer", env=_env)
 
 # Weather provider health monitor (EventBridge → Lambda → DynamoDB + alarms).
 ProviderHealthStack(app, "PyNightSkyProviderHealth", env=_env)
+
+# Operator-controlled runtime feature flags (storage only — see feature_flags_stack.py).
+FeatureFlagsStack(app, "PyNightSkyFeatureFlags", env=_env)
 
 # NOTE: the App Runner deployment (PyNightSkyStack in pynightsky_stack.py) was retired
 # and destroyed once the Lambda+CloudFront path was verified (M4.7). The class is kept

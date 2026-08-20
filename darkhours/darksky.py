@@ -40,6 +40,7 @@ from pathlib import Path
 
 from . import cache
 from . import circuit_breaker as _cb
+from . import feature_flags as _ff
 from . import ports
 from . import provider_health as _ph
 from . import rate_limiter as _rl
@@ -2760,10 +2761,10 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
     if best_candidate is not None:
         best_available = best_candidate
 
-    # Drive-time annotation (AWS backend only)
+    # Drive-time annotation (AWS backend only; operator-disableable — see feature_flags.py)
     with prof.phase("drive times (aws)"):
         needs_drive = dark_clusters + ([best_available] if best_available else [])
-        if ports.get_backend()._name == "aws":
+        if ports.get_backend()._name == "aws" and _ff.enabled("routing"):
             _aws_drive_times(lat, lon, needs_drive)
 
             # Sky quality first; drive time is only a tie-breaker for identical bortle_class
@@ -2774,7 +2775,8 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             # Re-assign back to dark_clusters (excluding the best_available)
             dark_clusters = needs_drive[:len(dark_clusters)]
         else:
-            # Keep existing distance-based sort for local backend
+            # Local backend, or routing disabled: keep the distance-based sort and
+            # return results without drive-time fields rather than failing the search.
             for c in needs_drive:
                 c["drive_minutes"] = None
                 c["drive_miles"] = None

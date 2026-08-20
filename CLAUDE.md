@@ -124,6 +124,10 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/RATE_LIMITING.md` — preventive outbound rate limiting (`darkhours/rate_limiter.py`):
   per-provider pace/limit config, the shared Nominatim pacer key, and the TLE
   single-flight dedup — the counterpart to the circuit breaker's reactive protection.
+- `docs/FEATURE_FLAGS.md` — operator-controlled runtime feature flags
+  (`darkhours/feature_flags.py`): DynamoDB-backed, admin-only (no write path from the public
+  API), staged rollout + rollback ladder, and the git-ignored `scripts/local-flags/` operator
+  tooling (not in this repo — see that doc for what to recreate locally).
 - `docs/FEATURES.md` — user-facing feature list (validated against code).
 - `apps/web/README.md` — the DarkHours SPA: dev setup, architecture, red-mode rules.
 - `docs/CLI.md`, `docs/TRIPBUILDER.md`, `PRODUCT.md`, `README.md` — product/engine overview.

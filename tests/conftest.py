@@ -25,6 +25,15 @@ def _fresh_circuit_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_feature_flags():
+    """Reset feature-flags cache state around every test, mirroring _fresh_circuit_breaker."""
+    from darkhours import feature_flags as _ff
+    _ff.reset()
+    yield
+    _ff.reset()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_rate_limiter():
     """Reset rate-limiter state around every test, mirroring _fresh_circuit_breaker.
 

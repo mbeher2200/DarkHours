@@ -39,8 +39,10 @@ tools/lp_db/
 dev.sh
 devctl.sh
 
-# Feature-flag operator tooling — contains the real DynamoDB table name, never commit
-scripts/local-flags/
+# Local operator tooling for the feature-flags table (darkhours/feature_flags.py).
+# Administrative control scripts + the real table name (env.sh) never belong in a
+# public repo — kept entirely out of version control, not just gitignored file-by-file.
+/scripts/local-flags/
 
 # Geospatial rasters — large source/generated COGs live outside the repo
 # (the bundled de421.bsp ephemeris is .bsp, intentionally NOT matched here)

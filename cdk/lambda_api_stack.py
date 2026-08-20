@@ -121,6 +121,11 @@ class LambdaApiStack(Stack):
         # (see docs/CIRCUIT_BREAKER.md "Monitor-driven recovery wiring"); circuit_breaker.py
         # already degrades to self-timed recovery when this is unset.
         provider_health_table = os.environ.get("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", "").strip()
+        # Optional, same lifecycle-decoupling reasoning as provider_health_table above:
+        # deliberately NOT a CloudFormation export/import, so this CI-deployed stack never
+        # depends on the manually-deployed PyNightSkyFeatureFlags stack. feature_flags.py
+        # already degrades to "everything enabled" when this is unset.
+        feature_flags_table = os.environ.get("PYNIGHTSKY_FEATURE_FLAGS_TABLE", "").strip()
 
         Tags.of(self).add("Project", "pynightsky")
         Tags.of(self).add("Env", "prod")
@@ -351,6 +356,23 @@ class LambdaApiStack(Stack):
             for lambda_fn in (fn, worker):
                 lambda_fn.add_to_role_policy(health_read_policy)
                 lambda_fn.add_environment("PYNIGHTSKY_PROVIDER_HEALTH_TABLE", provider_health_table)
+
+        # --- Feature flags read (darkhours/feature_flags.py) ---
+        # Least-privilege on purpose: dynamodb:GetItem only, scoped to this one table's
+        # ARN — these are administrative switches, and no Lambda ever gets write access.
+        # The only writer is an operator's own AWS credentials, used locally (not this
+        # stack). Referenced by name only via from_table_name, same decoupling as above.
+        if feature_flags_table:
+            flags_table = dynamodb.Table.from_table_name(
+                self, "FeatureFlagsTable", feature_flags_table,
+            )
+            flags_read_policy = iam.PolicyStatement(
+                actions=["dynamodb:GetItem"],
+                resources=[flags_table.table_arn],
+            )
+            for lambda_fn in (fn, worker):
+                lambda_fn.add_to_role_policy(flags_read_policy)
+                lambda_fn.add_environment("PYNIGHTSKY_FEATURE_FLAGS_TABLE", feature_flags_table)
 
         # --- Scheduled worker warmup ping — keeps one worker container alive + primed ---
         # The worker is only invoked by SQS, so at sparse traffic nearly every job pays the
