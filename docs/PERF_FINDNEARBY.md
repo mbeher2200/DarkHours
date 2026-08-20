@@ -31,10 +31,12 @@ single-digit milliseconds, and the SQS worker does all the work.
 - **Reverse-geocode discipline.** 8-mile pre-dedup of candidate probes
   (`_NAME_DEDUP_MILES`), POI/PAD-US-index-first naming, a 16-point-compass
   directional pre-dedup of dome candidates before naming
-  (`_dedup_domes_by_direction`), a priority-ordered prefix cap on the
-  dark-candidate Tier-3 prefetch (`_PREFETCH_CANDIDATE_PREFIX`), and — on the aws
-  backend only — parallel AWS Location calls with a pooled client. The local
-  backend stays serial per Nominatim's 1 req/s policy.
+  (`_dedup_domes_by_direction`), and a lazy, backend-unified batch resolver for
+  dark-candidate Tier-3 naming (`_lazy_batch_settlements`): both backends run
+  the identical scan/gate/resolve loop, resolving only as far ahead as the next
+  batch, never the whole candidate pool. Batch width is the only backend
+  difference: 1 (serial) on local, per Nominatim's no-parallel policy;
+  `_GEOCODE_MAX_WORKERS` (parallel) on aws.
 - **Absolute-grid-anchored pixel labels.** Dome and dark-candidate pixel lat/lon
   labels are built from the raster's fixed absolute grid origin
   (`_window_pixel_grid`) instead of each window's own bounds, so the
