@@ -382,6 +382,18 @@ def get_starlink_train_tles(
                         log.warning("%s", err_msg)
                         _ph.record("celestrak", "error", str(e.reason)[:120])
                         _cb.on_failure("celestrak")
+                    except Exception as e:
+                        # A read timeout mid-response (e.g. ssl.SSLSocket.read()) raises a
+                        # raw TimeoutError, not urllib.error.URLError — urllib only wraps
+                        # connect-phase failures, not read-phase ones. Catch anything else
+                        # here too: this function's contract is "return (tles, stale,
+                        # error), never raise" (see get_tle()'s matching broad except),
+                        # and an uncaught exception here previously crashed the entire
+                        # /night response for callers that don't expect this to raise.
+                        err_msg = f"Celestrak Starlink group fetch failed: {e}"
+                        log.warning("%s", err_msg)
+                        _ph.record("celestrak", "error", str(e)[:120])
+                        _cb.on_failure("celestrak")
 
     if raw is None:
         # 3. Stale fallback — always try this; on 403 the stale data IS current

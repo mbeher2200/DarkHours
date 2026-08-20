@@ -93,6 +93,21 @@ def test_satellites_flag_on_by_default_still_fetches(monkeypatch, _mocks):
     monkeypatch.setattr(tle_provider, "get_tle", get_tle)
     monkeypatch.setattr(tle_provider, "get_starlink_train_tles", get_starlink)
     _assemble(_mocks, fetch_weather=False, fetch_satellites=True)
+
+
+def test_starlink_fetch_raising_does_not_crash_the_report(monkeypatch, _mocks):
+    """Not a feature-flag test — a resilience gap found live in production (a
+    Celestrak read timeout raised out of get_starlink_train_tles() and crashed the
+    whole /night response, tel_provider.py fixed at the source separately). This is
+    the defense-in-depth layer: even an unanticipated future failure mode here must
+    not take down weather/moon/darksky, which had already succeeded."""
+    get_tle = mock.MagicMock(return_value=types.SimpleNamespace(lines=None, stale=False))
+    get_starlink = mock.MagicMock(side_effect=TimeoutError("The read operation timed out"))
+    monkeypatch.setattr(tle_provider, "get_tle", get_tle)
+    monkeypatch.setattr(tle_provider, "get_starlink_train_tles", get_starlink)
+    report = _assemble(_mocks, fetch_weather=False, fetch_satellites=True)
+    assert report.sat_starlink_unavailable is True
+    assert report.starlink_trains == []
     assert get_tle.called
 
 

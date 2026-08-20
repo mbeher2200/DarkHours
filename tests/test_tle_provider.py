@@ -403,3 +403,17 @@ class TestCircuitBreaker:
         assert stale is False
         assert error is not None
         assert "unreachable" in error.lower()
+
+    def test_starlink_group_read_timeout_does_not_raise(self):
+        """A read-phase timeout (e.g. ssl.SSLSocket.read() mid-response) raises a raw
+        TimeoutError, not urllib.error.URLError — urllib only wraps connect-phase
+        failures. Confirmed live in production: this previously propagated uncaught
+        out of get_starlink_train_tles() and crashed the entire /night response."""
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen',
+                               side_effect=TimeoutError("The read operation timed out")):
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        assert tles == []
+        assert stale is False
+        assert error is not None and "timed out" in error.lower()

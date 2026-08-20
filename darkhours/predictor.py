@@ -796,7 +796,11 @@ def assemble_night(
                                  _tle_result.lines, lat, lon, sunset, sunrise),
                 ))
             if _sl_future is not None:
-                _sl_tles, _, _sl_error = _sl_future.result()
+                try:
+                    _sl_tles, _, _sl_error = _sl_future.result()
+                except Exception as _sfe:
+                    log.debug("starlink TLE fetch failed (non-fatal): %s", _sfe)
+                    _sl_tles, _sl_error = [], str(_sfe)
                 if _sl_error and not _sl_tles:
                     sat_starlink_unavailable = True
                 elif _sl_tles:
