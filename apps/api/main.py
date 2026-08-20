@@ -172,8 +172,12 @@ def _check_cache_health() -> dict:
                 elif free_pct < 15:
                     result.update(status="degraded",
                                   detail=f"low disk space ({free_pct:.0f}% free)")
-    except Exception as e:
-        result = {"status": "error", "detail": str(e)[:200]}
+    except Exception:
+        # /healthz is public and unauthenticated — log the real exception server-side
+        # (CloudWatch), never echo str(e) back to the caller (could leak internal
+        # details, e.g. AWS resource identifiers embedded in a botocore error message).
+        logging.getLogger(__name__).exception("Cache health check failed")
+        result = {"status": "error", "detail": "cache health check failed"}
     _cache_check_state.update(ts=now, result=result)
     return result
 

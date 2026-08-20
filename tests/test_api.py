@@ -60,6 +60,26 @@ def test_healthz_rate_limit_returns_degraded(monkeypatch):
     assert body["checks"]["open_meteo"]["status"] == "degraded"
 
 
+def test_check_cache_health_does_not_leak_exception_text(monkeypatch):
+    """A cache backend failure must not echo the raw exception message back through
+    /healthz (public, unauthenticated) — it could contain internal details (e.g. an
+    AWS resource identifier embedded in a botocore error). CodeQL: information
+    exposure through an exception."""
+    from darkhours import ports as _ports
+
+    _sensitive_marker = "SENSITIVE-INTERNAL-RESOURCE-DETAIL-DO-NOT-LEAK"
+
+    def _boom(*a, **kw):
+        raise RuntimeError(_sensitive_marker)
+
+    monkeypatch.setattr(_ports.get_backend().cache, "set", _boom)
+    monkeypatch.setitem(main_mod._cache_check_state, "ts", 0.0)  # force a fresh check
+    result = main_mod._check_cache_health()
+    assert result["status"] == "error"
+    assert result["detail"] == "cache health check failed"
+    assert _sensitive_marker not in result["detail"]
+
+
 def test_healthz_includes_feature_flags_snapshot(monkeypatch):
     from darkhours import provider_health as _ph
     monkeypatch.setattr(main_mod, "_check_cache_health",
