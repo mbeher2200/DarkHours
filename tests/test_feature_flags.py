@@ -11,7 +11,9 @@ from darkhours import feature_flags as ff
 
 
 class FakeClock:
-    """Controllable stand-in for time.monotonic."""
+    """Controllable stand-in for time.time() — wall-clock, not monotonic (see
+    _cached_value's docstring: monotonic doesn't reliably advance across a
+    Lambda container's freeze/thaw, so the cache deliberately uses time.time())."""
 
     def __init__(self, start=1_000.0):
         self.t = start
@@ -26,7 +28,7 @@ class FakeClock:
 @pytest.fixture
 def clock(monkeypatch):
     c = FakeClock()
-    monkeypatch.setattr(ff, "time", types.SimpleNamespace(monotonic=c))
+    monkeypatch.setattr(ff, "time", types.SimpleNamespace(time=c))
     ff.reset()
     yield c
     ff.reset()

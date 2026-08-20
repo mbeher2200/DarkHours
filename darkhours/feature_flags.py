@@ -37,7 +37,7 @@ _ENABLED = _flag("PYNIGHTSKY_FEATURE_FLAGS_ENABLED", "1")
 _TABLE = os.environ.get("PYNIGHTSKY_FEATURE_FLAGS_TABLE", "").strip()
 
 _lock = threading.Lock()
-# flag name -> (enabled_or_None, fetched_at_monotonic). None results (miss/error)
+# flag name -> (enabled_or_None, fetched_at_wall_clock). None results (miss/error)
 # are cached too, so a broken table read costs its timeout once per TTL.
 _cache: dict[str, tuple[bool | None, float]] = {}
 _ddb_table = None
@@ -83,7 +83,15 @@ def reset() -> None:
 # --------------------------------------------------------------------------
 
 def _cached_value(name: str) -> bool | None:
-    now = time.monotonic()
+    # time.time(), not time.monotonic(): this cache must stay correct across a
+    # Lambda container's freeze/thaw between invocations, where the monotonic
+    # clock doesn't reliably advance while frozen — a container idle between
+    # sparse requests could otherwise never perceive the TTL as expired and get
+    # stuck serving a stale value indefinitely. Wall-clock time doesn't have
+    # that problem; it isn't used here to measure a duration within one
+    # continuous execution (where monotonic would be the right tool), only to
+    # answer "how long ago, in the real world, was this fetched."
+    now = time.time()
     with _lock:
         cached = _cache.get(name)
         if cached is not None and now - cached[1] < _CACHE_TTL_SECONDS:
