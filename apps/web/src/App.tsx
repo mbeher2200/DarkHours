@@ -598,7 +598,7 @@ export default function App() {
             <p className="es-headline">Built for landscape astrophotography. Not for subscriptions.</p>
             <p className="es-body">
               Most of us only get a handful of clear, dark hours each month to do what we love.{' '}
-              <a href="/blog/my-astrophotography-origin-story-and-a-new-app" target="_blank" rel="noreferrer">
+              <a href="/blog/my-astrophotography-origin-story-and-a-new-app/" target="_blank" rel="noreferrer">
                 I built DarkHours because I needed a highly precise predictive tool for my own landscape astrophotography
               </a>
               . It's open-source, free, and designed to help make the most of every dark hour.
@@ -773,7 +773,7 @@ export default function App() {
 
         <p className="colophon-tagline">
           DarkHours is built by{' '}
-          <a href="/blog/about" target="_blank" rel="noreferrer">Miguel Beher</a>
+          <a href="/blog/about/" target="_blank" rel="noreferrer">Miguel Beher</a>
           , free and{' '}
           <a href="https://github.com/mbeher2200/DarkHours" target="_blank" rel="noreferrer">open source</a>
           , and will never require your email address. Follow our{' '}

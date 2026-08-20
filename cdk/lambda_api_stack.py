@@ -749,17 +749,17 @@ class LambdaApiStack(Stack):
         )
         blog_origin = origins.S3BucketOrigin.with_origin_access_control(blog_bucket)
 
-        # Existing CloudFront Function (created outside CDK) that rewrites directory
-        # requests to index.html so Astro's static output is served correctly from S3.
-        blog_rewrite_fn = cloudfront.Function.from_function_attributes(
-            self, "BlogIndexRewriteFn",
-            function_arn=f"arn:aws:cloudfront::{self.account}:function/AstroBlogIndexRewrite",
-            function_name="AstroBlogIndexRewrite",
-        )
-        blog_fn_assoc = [cloudfront.FunctionAssociation(
-            event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
-            function=blog_rewrite_fn,
-        )]
+        # The blog's directory-index rewrite is the shared static_index_rewrite_fn defined
+        # further down (it is path-agnostic), NOT the out-of-band AstroBlogIndexRewrite
+        # function this stack used to import. That one silently rewrote /blog/foo to
+        # /blog/foo/index.html, so the slashed and unslashed forms of every post both
+        # returned 200 with identical bytes. Google crawled the unslashed form (which is
+        # what the internal links pointed at), found rel=canonical naming the slashed one,
+        # and filed the post under "Alternate page with proper canonical tag" — i.e. not
+        # indexed. Sharing the 301 function fixes that the same way /dark-sky* already did.
+        #
+        # AstroBlogIndexRewrite is now unreferenced. It was created by hand rather than by
+        # CDK, so nothing here deletes it; remove it manually once this is deployed.
 
         # --- Dark-sky destination pages: S3 origin for the darkhours-destinations repo ---
         # Static per-destination guides (SEO landing pages) served at /dark-sky/*. Like the
@@ -788,8 +788,8 @@ class LambdaApiStack(Stack):
         dest_origin = origins.S3BucketOrigin.with_origin_access_control(dest_bucket)
 
         # Directory-index rewrite for the statically generated pages. Written inline (not
-        # created out-of-band like AstroBlogIndexRewrite) because it has to stay in lockstep
-        # with the generator's output, so it belongs versioned with this stack.
+        # created out-of-band like AstroBlogIndexRewrite was) because it has to stay in
+        # lockstep with the generator's output, so it belongs versioned with this stack.
         #
         #   /dark-sky/          -> /dark-sky/index.html
         #   /dark-sky/foo/      -> /dark-sky/foo/index.html
@@ -799,8 +799,18 @@ class LambdaApiStack(Stack):
         # The 301 rather than a silent rewrite is an SEO choice: serving 200 on both the
         # slashed and unslashed form creates two URLs for one page and makes Google dedupe
         # them via rel=canonical. Redirecting removes the ambiguity at the edge instead.
-        # This function is only associated with /dark-sky*, so it never sees SPA or API paths.
-        _dark_sky_rewrite_js = """
+        #
+        # Nothing in the body is /dark-sky-specific, so /blog* shares it (see the blog
+        # origin above) — both origins are Astro sites emitting the same directory layout,
+        # and the blog had exactly the duplicate-URL problem this 301 exists to prevent.
+        # The construct id stays "DarkSkyIndexRewrite" despite now serving both: renaming
+        # it would replace the deployed function for cosmetic reasons only. Associated with
+        # /blog* and /dark-sky* only, so it never sees SPA or API paths.
+        #
+        # The dot test looks at the last path segment, not the whole URI, so a directory
+        # with a dot in an ancestor segment still redirects correctly. (AstroBlogIndexRewrite
+        # tested the whole URI — one of several reasons not to keep it.)
+        _static_index_rewrite_js = """
 function handler(event) {
   var req = event.request;
   var uri = req.uri;
@@ -835,14 +845,14 @@ function handler(event) {
   };
 }
 """
-        dark_sky_rewrite_fn = cloudfront.Function(
+        static_index_rewrite_fn = cloudfront.Function(
             self, "DarkSkyIndexRewrite",
-            code=cloudfront.FunctionCode.from_inline(_dark_sky_rewrite_js),
+            code=cloudfront.FunctionCode.from_inline(_static_index_rewrite_js),
             runtime=cloudfront.FunctionRuntime.JS_2_0,
         )
-        dark_sky_fn_assoc = [cloudfront.FunctionAssociation(
+        static_index_fn_assoc = [cloudfront.FunctionAssociation(
             event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
-            function=dark_sky_rewrite_fn,
+            function=static_index_rewrite_fn,
         )]
 
         # --- Access logs (standard logs) to S3 ---
@@ -891,7 +901,7 @@ function handler(event) {
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
-                    function_associations=blog_fn_assoc,
+                    function_associations=static_index_fn_assoc,
                     response_headers_policy=base_headers_policy,
                 ),
                 # base_headers_policy (no CSP) for now, matching /blog*. The destination
@@ -905,7 +915,7 @@ function handler(event) {
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
-                    function_associations=dark_sky_fn_assoc,
+                    function_associations=static_index_fn_assoc,
                     response_headers_policy=base_headers_policy,
                 ),
             },
