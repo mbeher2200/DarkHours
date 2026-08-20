@@ -650,6 +650,20 @@ export default function ReportCard({
           return parts.length ? parts.join(' · ') : null
         })()
 
+        // MilkyWayAbsent explains an absence with a guessed astronomical reason (moon
+        // phase, Bortle class, latitude) — accurate only when there's genuinely no
+        // Milky Way target for tonight. If visible_targets already contains one but
+        // mw_summary is still missing (e.g. an operator-disabled summary — see
+        // darkhours/feature_flags.py's "milky_way" flag), that guess would be wrong,
+        // so show nothing instead of a confident-but-incorrect claim.
+        const mwTargets  = r.visible_targets.filter(t => t.type === 'milky_way')
+        const mwSection  = (r.mw_summary && r.mw_summary.n_visible > 1)
+          ? <MilkyWayCard key={r.date /* forces refresh when r.date changes */}
+                          summary={r.mw_summary} waypoints={mwTargets} report={r} />
+          : mwTargets.length === 0
+            ? <MilkyWayAbsent report={r} />
+            : null
+
         return (
         <details id="report-targets" className="targets" open>
           <summary>
@@ -658,18 +672,12 @@ export default function ReportCard({
           {!hasAnything
             ? <p className="sat-notice" style={{ paddingTop: 10 }}>No prime targets for this night.</p>
             : <>
-                <div className="mw-section">
-                  <div className="mw-section-label">Milky Way</div>
-                  {r.mw_summary && r.mw_summary.n_visible > 1
-                    ? <MilkyWayCard
-                    key={r.date} // Forces refresh when r.date changes
-                    summary={r.mw_summary}
-                    waypoints={r.visible_targets.filter(t => t.type === 'milky_way')}
-                  report={r}
-              />
-            : <MilkyWayAbsent report={r} />
-          }
-                </div>
+                {mwSection && (
+                  <div className="mw-section">
+                    <div className="mw-section-label">Milky Way</div>
+                    {mwSection}
+                  </div>
+                )}
                 {r.aurora && (
                   <div className="ms-section">
                     <div className="mw-section-label">Aurora</div>

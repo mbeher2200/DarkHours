@@ -60,6 +60,17 @@ def test_healthz_rate_limit_returns_degraded(monkeypatch):
     assert body["checks"]["open_meteo"]["status"] == "degraded"
 
 
+def test_healthz_includes_feature_flags_snapshot(monkeypatch):
+    from darkhours import provider_health as _ph
+    monkeypatch.setattr(main_mod, "_check_cache_health",
+                        lambda: {"status": "ok", "backend": "local"})
+    monkeypatch.setattr(_ph, "snapshot", lambda: {})
+    monkeypatch.setattr(main_mod._ff, "snapshot", lambda: {"satellites": False})
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert r.json()["feature_flags"] == {"satellites": False}
+
+
 def test_night_requires_location_or_coords():
     assert client.get("/night").status_code == 400
 
@@ -153,6 +164,29 @@ def test_nearby_raw_coords_skip_geocoding(monkeypatch, _nearby_mocks):
     assert "job_id" in r.json()
 
 
+def test_nearby_search_flag_off_returns_503_before_resolving(monkeypatch, _nearby_mocks):
+    """The operator kill switch (darkhours/feature_flags.py) must reject before any
+    resolution work or job submission — no cost spent on a disabled feature."""
+    monkeypatch.setenv("PYNIGHTSKY_FEATURE_NEARBY_SEARCH_DISABLE", "1")
+    def _boom(*a, **kw):
+        raise AssertionError("disabled job type must not resolve a location")
+    monkeypatch.setattr(main_mod, "_resolve", _boom)
+    submitted = []
+    monkeypatch.setattr(main_mod.jobs, "submit", lambda params: submitted.append(params) or "unused")
+    r = TestClient(app).get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 60})
+    assert r.status_code == 503
+    assert r.headers.get("retry-after") == "60"
+    # {"detail": ...} — the FastAPI HTTPException shape, the only one the frontend's
+    # error parsing (apps/web/src/api.ts) actually reads.
+    assert r.json() == {"detail": "'nearby_search' is temporarily unavailable. Please try again shortly."}
+    assert submitted == []
+
+
+def test_nearby_search_flag_on_by_default(monkeypatch, _nearby_mocks):
+    r = TestClient(app).get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 60})
+    assert r.status_code == 202
+
+
 # ── /calendar endpoint ────────────────────────────────────────────────────────
 
 _CALENDAR_RESULT = {
@@ -213,6 +247,34 @@ def test_calendar_invalid_start_400():
 
 def test_calendar_requires_location_or_coords():
     assert client.get("/calendar", params={"days": 7}).status_code == 400
+
+
+def test_trip_builder_flag_off_returns_503_before_resolving(monkeypatch, _calendar_mocks):
+    monkeypatch.setenv("PYNIGHTSKY_FEATURE_TRIP_BUILDER_DISABLE", "1")
+    def _boom(*a, **kw):
+        raise AssertionError("disabled job type must not resolve a location")
+    monkeypatch.setattr(main_mod, "_resolve", _boom)
+    submitted = []
+    monkeypatch.setattr(main_mod.jobs, "submit", lambda params: submitted.append(params) or "unused")
+    r = TestClient(app).get("/calendar", params={"lat": 35.2, "lon": -111.6, "days": 7})
+    assert r.status_code == 503
+    assert r.headers.get("retry-after") == "60"
+    assert r.json() == {"detail": "'trip_builder' is temporarily unavailable. Please try again shortly."}
+    assert submitted == []
+
+
+def test_trip_builder_flag_on_by_default(monkeypatch, _calendar_mocks):
+    r = TestClient(app).get("/calendar", params={"lat": 35.2, "lon": -111.6, "days": 7})
+    assert r.status_code == 202
+
+
+def test_job_type_flags_are_independent(monkeypatch, _nearby_mocks, _calendar_mocks):
+    """Disabling one job type must not affect the other, or /night."""
+    monkeypatch.setenv("PYNIGHTSKY_FEATURE_NEARBY_SEARCH_DISABLE", "1")
+    c = TestClient(app)
+    assert c.get("/nearby", params={"lat": 35.2, "lon": -111.6, "radius": 60}).status_code == 503
+    assert c.get("/calendar", params={"lat": 35.2, "lon": -111.6, "days": 7}).status_code == 202
+    assert c.get("/night").status_code == 400   # unaffected: still just "provide a location"
 
 
 @pytest.mark.eph

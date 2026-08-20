@@ -27,6 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as _Request
 
 from darkhours import cache as _cache
+from darkhours import feature_flags as _ff
 from darkhours import location as _loc
 from darkhours import trip as _trip
 from darkhours.predictor import assemble_night
@@ -240,7 +241,7 @@ def healthz():
                "degraded" if "degraded" in statuses else "ok")
     return JSONResponse(
         status_code=503 if overall == "error" else 200,
-        content={"status": overall, "checks": checks},
+        content={"status": overall, "checks": checks, "feature_flags": _ff.snapshot()},
     )
 
 
@@ -335,6 +336,19 @@ def _accepted(job_id: str) -> JSONResponse:
     )
 
 
+def _feature_unavailable(name: str) -> HTTPException:
+    """503 for an operator-disabled job type (darkhours/feature_flags.py) — checked before
+    any resolution work or job submission, so a disabled feature costs nothing. Raised as an
+    HTTPException (not a raw JSONResponse) so the body is {"detail": ...} — the shape every
+    other error response here already uses, and the only shape the frontend's error parsing
+    (apps/web/src/api.ts) reads; a differently-shaped body would render as a generic fallback
+    message instead of this one."""
+    return HTTPException(
+        status_code=503,
+        detail=f"'{name}' is temporarily unavailable. Please try again shortly.",
+        headers={"Retry-After": "60"},
+    )
+
 
 @app.get("/nearby")
 def nearby(
@@ -345,6 +359,8 @@ def nearby(
                         description="Search radius in miles (5–150)"),
 ):
     """Submit a nearby dark-sky search → 202 + job_id (poll /jobs/{id})."""
+    if not _ff.enabled("nearby_search"):
+        raise _feature_unavailable("nearby_search")
     # Only resolve what the job actually uses (lat/lon). The display name and
     # timezone that _resolve() also computes are discarded here, and the worker
     # reverse-geocodes the origin itself — so for raw coordinates (the web UI's
@@ -373,6 +389,8 @@ def calendar_view(
     Open-Meteo forecast window used everywhere else) of today; nights further out
     score on astronomical factors alone.
     """
+    if not _ff.enabled("trip_builder"):
+        raise _feature_unavailable("trip_builder")
     la, lo, disp, tz = _resolve(location, lat, lon)
     s = _parse_date(start, "start")
     e = s + timedelta(days=days - 1)

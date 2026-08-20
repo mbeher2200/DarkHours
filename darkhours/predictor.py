@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from . import aqicn as _aqicn
 from . import aurora as _aur
 from . import darksky as _ds
+from . import feature_flags as _ff
 from . import light_dome as _ld
 from . import moon_events as _me
 from . import ports as _ports
@@ -503,6 +504,12 @@ def assemble_night(
     def _local(dt):
         return dt.astimezone(tz)
 
+    # Operator kill switches (darkhours/feature_flags.py): a client-requested fetch still
+    # only runs if the operator hasn't disabled it. Folding this in here means every
+    # downstream `if fetch_satellites:` / `if fetch_aurora:` block respects it automatically.
+    fetch_satellites = fetch_satellites and _ff.enabled("satellites")
+    fetch_aurora     = fetch_aurora and _ff.enabled("aurora")
+
     _t = {}  # timing checkpoints — emitted as a single log line at end
     _t0 = time.monotonic()
     _now = datetime.now(timezone.utc)
@@ -558,7 +565,7 @@ def assemble_night(
         # out. Same -1 day UTC-slop convention as the aurora gate above.
         _haze_future: _futures.Future | None = None
         _haze_days_ahead = (target - _now.date()).days
-        if fetch_weather and -1 <= _haze_days_ahead <= 1:
+        if fetch_weather and -1 <= _haze_days_ahead <= 1 and _ff.enabled("live_haze"):
             _haze_future = _pool.submit(_aqicn.current_haze, lat, lon)
 
         # Heuristic: start weather for tonight-or-future dates without waiting for
@@ -806,9 +813,17 @@ def assemble_night(
                 aod=_night_aod,
             )
 
-        # Collect satellite passes
+        # Collect satellite passes. Per-satellite try/except: one satellite's failure
+        # shouldn't drop the ones already collected, and must not propagate out of
+        # assemble_night() when weather/moon/darksky already succeeded.
         for _sat_name, _, _pass_f in _pass_futures:
-            _result = _pass_f.result()
+            try:
+                _result = _pass_f.result()
+            except Exception as _spe:
+                log.debug("satellite pass collection failed for %s (non-fatal): %s", _sat_name, _spe)
+                sat_future_stale = True
+                sat_future_warn  = False
+                continue
             if _result is None:
                 sat_future_stale = True
                 sat_future_warn  = False
@@ -819,9 +834,16 @@ def assemble_night(
         sat_pass_list.sort(key=lambda p: p.rise_time)
 
         if _sl_passes_future is not None:
-            starlink_train_list = _sl_passes_future.result()
+            try:
+                starlink_train_list = _sl_passes_future.result()
+            except Exception as _sle:
+                log.debug("starlink train collection failed (non-fatal): %s", _sle)
 
-        target_list = _vt_future.result() if _vt_future is not None else []
+        try:
+            target_list = _vt_future.result() if _vt_future is not None else []
+        except Exception as _vte:
+            log.debug("visible_targets collection failed (non-fatal): %s", _vte)
+            target_list = []
         _t["sat_targets_ms"] = round((time.monotonic() - _tc) * 1000)
 
     # executor exits — all futures are resolved
@@ -957,7 +979,7 @@ def assemble_night(
             log.debug("aurora computation failed (non-fatal): %s", _ae)
 
     # --- Milky Way arch summary (needs weather + moon_alts for best-viewing-time) ---
-    if fetch_targets:
+    if fetch_targets and _ff.enabled("milky_way"):
         _mw_targets = [t for t in target_list if t.type == "milky_way"]
         if _mw_targets:
             try:
