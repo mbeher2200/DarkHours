@@ -83,18 +83,19 @@
          first-ever visit if the download isn't ~instant, instead of a swap
          that reflows already-painted text; once cached (every later visit)
          it applies immediately with nothing to swap. -->
-    <!-- Loaded as preload + swap-to-stylesheet, not a plain blocking <link
-         rel="stylesheet">: that was ~1s of PageSpeed's render-blocking-requests
-         budget for a stylesheet that only affects font rendering, which
-         display=optional above already makes non-critical. The swap can't use
-         the usual onload="this.rel='stylesheet'" attribute — the CSP's
-         script-src has no 'unsafe-inline' (see analytics-init.js) — so
-         font-loader.js does it instead. Deferred: font-loader.js has its own
-         timeout fallback (the preload "load" event isn't reliable enough to
-         depend on alone), so it doesn't need to block parsing to attach in
-         time — and running it synchronously just made it render-blocking
-         instead of the stylesheet it was replacing. -->
-    <link rel="preload" as="style" id="gfont-preload" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional">
+    <!-- Injected by font-loader.js instead of a plain blocking <link
+         rel="stylesheet"> here: that was ~1s of PageSpeed's render-blocking-
+         requests budget for a stylesheet that only affects font rendering,
+         which display=optional above already makes non-critical. Can't use
+         the usual preload+onload="this.rel='stylesheet'" swap — the CSP's
+         script-src has no 'unsafe-inline' (see analytics-init.js) so the
+         inline attribute is blocked, and DevTools tracing on production
+         showed Chrome never fires "load" on a rel=preload link while it's
+         still rel=preload, so a JS listener for it never fires either; only
+         a plain <link rel="stylesheet"> gets a reliable load event. Inserted
+         from a deferred script (not present in the parsed document) so it's
+         fetched and applied out of the critical rendering path without
+         needing preload or a swap step at all. -->
     <script defer src="/font-loader.js"></script>
     <noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional" rel="stylesheet"></noscript>
     <!-- Privacy-friendly analytics by Plausible -->
