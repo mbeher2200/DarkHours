@@ -44,16 +44,10 @@ export default function App() {
   const [place, setPlace] = useState('')
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
-  // tonightIso() reads the visitor's local clock, which the static prerender
-  // can't know at build time -- seeding this from tonightIso() directly baked
-  // a build-time date into the prerendered HTML that drifts stale the moment
-  // real time moves past the last deploy (or just differs by timezone), so
-  // every hydration mismatched it against the client's real "today" and
-  // forced React to tear down and rebuild the whole form section (visible as
-  // a large layout shift). Empty string matches what the prerender emits
-  // (DatePicker and the availability calc below already treat a falsy date
-  // as "not chosen yet"), then the layout effect fixes it up synchronously
-  // before the first paint.
+  // Empty, not tonightIso(): the prerender can't know the visitor's local date,
+  // so seeding it here caused a hydration mismatch and full form-section reflow.
+  // DatePicker/availability already treat falsy as "not chosen"; the layout
+  // effect below fills the real date in synchronously before first paint.
   const [date, setDate] = useState('')
   useLayoutEffect(() => { setDate(d => d || tonightIso()) }, [])
   const [scopeOpen, setScopeOpen] = useState(true)
@@ -107,14 +101,10 @@ export default function App() {
     localStorage.setItem('units', imp ? 'imperial' : 'si')
   }
 
-  // Lazy-init from the URL so a deep-linked report (?q= or ?lat=&lon=, e.g. a
-  // shared "copy link" URL) never paints the marketing empty-state first: that
-  // block is ~2000px of Features/FAQ content, and briefly mounting it before
-  // the mount effect below flips loading to true was the largest source of
-  // real-user layout shift on this page (confirmed via Lighthouse mobile
-  // CPU/network throttling — see the loading-mount effect a few lines down).
-  // window is undefined during the SSR prerender (see entry-server.tsx), which
-  // must keep producing the empty-state view unconditionally, hence the guard.
+  // Lazy-init from the URL so a deep-linked report (?q= or ?lat=&lon=) skips
+  // briefly painting the ~2000px marketing empty-state first (was the largest
+  // source of real-user CLS). window is undefined during SSR prerender
+  // (entry-server.tsx), which must always produce the empty-state, hence the guard.
   const [loading, setLoading] = useState(() => {
     if (typeof window === 'undefined') return false
     const p = new URLSearchParams(window.location.search)
