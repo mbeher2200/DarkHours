@@ -6,7 +6,7 @@
 // Every check below fails the build loudly (non-zero exit) rather than
 // shipping a silently-degraded snapshot — this runs before `cdk deploy` in CI,
 // so a failure here blocks the deploy entirely.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const webDir = new URL('..', import.meta.url).pathname
@@ -66,5 +66,23 @@ if (jsonLd.featureList.length !== FEATURES.length) {
 }
 const finalHtml = html.replace(jsonLdMatch[0], `${jsonLdMatch[1]}\n    ${JSON.stringify(jsonLd, null, 2)}\n    ${jsonLdMatch[3]}`)
 
-writeFileSync(indexPath, finalHtml)
-console.log(`[prerender] injected ${appHtml.length} chars into dist/index.html (${capCount} feature tiles, featureList synced).`)
+// main.tsx loads the ~80KB aws-rum-web chunk via setTimeout(() => import('./rum.ts'), 0)
+// so its parse/init doesn't compete with first render -- but that also means the
+// *network fetch* can't start until the main bundle has already loaded and executed,
+// serializing it behind the main bundle instead of racing it in parallel (confirmed via
+// Lighthouse's network-dependency-tree: this was the longest chain on the page). A
+// modulepreload hint fetches it in parallel with everything else while leaving the
+// setTimeout in main.tsx to control *when it runs* — fetchpriority="low" so it still
+// doesn't compete with anything that actually gates first render.
+const rumChunk = readdirSync(join(webDir, 'dist', 'assets')).find((f) => /^rum-.*\.js$/.test(f))
+if (!rumChunk) {
+  fail('could not find the built rum-*.js chunk in dist/assets — has main.tsx\'s RUM import changed?')
+}
+const rumPreload = `<link rel="modulepreload" fetchpriority="low" href="/assets/${rumChunk}">`
+if (!finalHtml.includes('</head>')) {
+  fail('could not find "</head>" in dist/index.html to inject the rum modulepreload hint.')
+}
+const withRumPreload = finalHtml.replace('</head>', `    ${rumPreload}\n  </head>`)
+
+writeFileSync(indexPath, withRumPreload)
+console.log(`[prerender] injected ${appHtml.length} chars into dist/index.html (${capCount} feature tiles, featureList synced, rum preload -> ${rumChunk}).`)
