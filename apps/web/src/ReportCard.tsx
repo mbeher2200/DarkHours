@@ -641,7 +641,7 @@ export default function ReportCard({
 
         const targetsBrief = (() => {
           const parts: string[] = []
-          if (r.mw_summary && r.mw_summary.n_visible > 1) parts.push(`Milky Way ${r.mw_summary.local_score.toFixed(1)}/10`)
+          if (r.mw_summary && r.mw_summary.n_visible > 0) parts.push(`Milky Way ${r.mw_summary.local_score.toFixed(1)}/10`)
           if (r.aurora) parts.push(`Aurora Kp ${r.aurora.kp_max.toFixed(0)}`)
           const viableN  = primeDSOs.filter(t => t.viability !== 'blocked').length
           const blockedN = primeDSOs.length - viableN
@@ -656,8 +656,15 @@ export default function ReportCard({
         // mw_summary is still missing (e.g. an operator-disabled summary — see
         // darkhours/feature_flags.py's "milky_way" flag), that guess would be wrong,
         // so show nothing instead of a confident-but-incorrect claim.
+        //
+        // Threshold is n_visible > 0, not > 1: n_visible is defined (milky_way.py) as
+        // len(mw_targets), the same count as mwTargets.length below, so n_visible === 1
+        // is not a rare edge case — it happens on every night where exactly one waypoint
+        // is above the horizon, and a `> 1` threshold silently rendered nothing for it
+        // (neither branch of this ternary matched: not `> 1`, and mwTargets.length was 1,
+        // not 0). Confirmed against a real production report with n_visible: 1.
         const mwTargets  = r.visible_targets.filter(t => t.type === 'milky_way')
-        const mwSection  = (r.mw_summary && r.mw_summary.n_visible > 1)
+        const mwSection  = (r.mw_summary && r.mw_summary.n_visible > 0)
           ? <MilkyWayCard key={r.date /* forces refresh when r.date changes */}
                           summary={r.mw_summary} waypoints={mwTargets} report={r} />
           : mwTargets.length === 0
