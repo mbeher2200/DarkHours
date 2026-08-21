@@ -75,7 +75,15 @@
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- display=optional (not swap): the footer's dense, small-text link list
+         reflows and wraps differently once IBM Plex Sans replaces the
+         fallback font, and that reflow was the single largest source of
+         real-user layout shift on this page (confirmed via Lighthouse mobile
+         throttling). optional accepts the fallback font for the rest of a
+         first-ever visit if the download isn't ~instant, instead of a swap
+         that reflows already-painted text; once cached (every later visit)
+         it applies immediately with nothing to swap. -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional" rel="stylesheet">
     <!-- Privacy-friendly analytics by Plausible -->
     <script async src="https://plausible.io/js/pa-dNdadDzL5KmlgdiqqJYJx.js"></script>
     <script defer src="/analytics-init.js"></script>

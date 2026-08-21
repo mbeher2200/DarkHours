@@ -96,7 +96,19 @@ export default function App() {
     localStorage.setItem('units', imp ? 'imperial' : 'si')
   }
 
-  const [loading, setLoading] = useState(false)
+  // Lazy-init from the URL so a deep-linked report (?q= or ?lat=&lon=, e.g. a
+  // shared "copy link" URL) never paints the marketing empty-state first: that
+  // block is ~2000px of Features/FAQ content, and briefly mounting it before
+  // the mount effect below flips loading to true was the largest source of
+  // real-user layout shift on this page (confirmed via Lighthouse mobile
+  // CPU/network throttling — see the loading-mount effect a few lines down).
+  // window is undefined during the SSR prerender (see entry-server.tsx), which
+  // must keep producing the empty-state view unconditionally, hence the guard.
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const p = new URLSearchParams(window.location.search)
+    return !!p.get('q') || !!(p.get('lat') && p.get('lon'))
+  })
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<NightReport | null>(null)
   const [reportWeather, setReportWeather] = useState(false)
@@ -728,7 +740,7 @@ export default function App() {
         </div>
       )}
       {report && !loading && (
-        <Suspense fallback={<div className="card">Loading report…</div>}>
+        <Suspense fallback={<div className="card report-loading">Loading report…</div>}>
           <ReportCard
             report={report}
             showWeather={reportWeather}
@@ -743,6 +755,13 @@ export default function App() {
         </Suspense>
       )}
 
+      {/* Hidden while loading: this is the last element on the page, so
+          showing/hiding it never displaces anything else, but leaving it
+          mounted meant it sat on-screen at its short "waiting" position and
+          then jumped to its real (much lower) position once the report
+          rendered — a CDP trace confirmed that single jump was ~87% of this
+          page's real-user CLS. Nothing here is needed mid-load. */}
+      {!loading && (
       <footer className="colophon">
         <div className="colophon-label">Data</div>
         <div className="colophon-sources">
@@ -787,6 +806,7 @@ export default function App() {
           {' '}<a href="/privacy.html">Privacy</a>.
         </p>
       </footer>
+      )}
     </div>
   )
 }

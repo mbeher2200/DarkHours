@@ -13,6 +13,14 @@
   color: var(--poor);
   background: rgba(217, 83, 79, 0.07);
 }
+/* Suspense fallback while the ReportCard chunk (and its data) load. The real
+   report is always taller than one viewport, so reserving a full viewport
+   here keeps the footer below the fold in both the loading and loaded state
+   instead of jumping onscreen and back off as the chunk swaps in — that jump
+   was the single largest source of the site's real-user CLS. */
+.report-loading {
+  min-height: 100vh;
+}
 
 /* ── query form ───────────────────────────────────────────── */
 .query {
