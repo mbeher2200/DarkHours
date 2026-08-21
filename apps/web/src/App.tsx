@@ -331,13 +331,17 @@ export default function App() {
         </h1>
       </header>
 
+      <main>
       <form className="card query" onSubmit={onSubmit}>
         <div className="location-header">
-          <div className="mode-toggle" role="tablist" aria-label="Location input mode">
+          {/* Not a role="tablist": "Use my location" is an action button, not a
+              third tab, and mixing the two breaks the ARIA tabs contract
+              (a tablist's children must all be role="tab"). role="group" plus
+              aria-pressed on the two mode buttons describes this correctly. */}
+          <div className="mode-toggle" role="group" aria-label="Location input mode">
             <button
               type="button"
-              role="tab"
-              aria-selected={mode === 'place'}
+              aria-pressed={mode === 'place'}
               className={mode === 'place' ? 'active' : ''}
               onClick={() => setMode('place')}
             >
@@ -354,8 +358,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={mode === 'coords'}
+              aria-pressed={mode === 'coords'}
               className={mode === 'coords' ? 'active' : ''}
               onClick={() => setMode('coords')}
             >
@@ -754,6 +757,7 @@ export default function App() {
           />
         </Suspense>
       )}
+      </main>
 
       {/* Hidden while loading: this is the last element on the page, so
           showing/hiding it never displaces anything else, but leaving it
