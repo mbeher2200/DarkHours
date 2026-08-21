@@ -170,9 +170,10 @@ export function MilkyWayAbsent({ report: r, waypoints = [] }: { report: NightRep
     reason = 'Galactic core is below the horizon during tonight\'s dark window'
   }
 
+  const bestAlt = (t: VisibleTarget) => Math.max(...t.windows.map(w => w.peak_alt_deg ?? -Infinity))
   const visibleBand = waypoints.length > 0
     ? [...waypoints]
-        .sort((a, b) => Math.max(...b.windows.map(w => w.peak_alt_deg)) - Math.max(...a.windows.map(w => w.peak_alt_deg)))
+        .sort((a, b) => bestAlt(b) - bestAlt(a))
         .map(t => t.name)
         .join(', ')
     : null
