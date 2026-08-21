@@ -1,26 +1,14 @@
-# Two things that look like style but are not, and broke this file once each:
-#
-# 1. No blank line between "User-agent:" and its rules. A blank line terminates
-#    the group, orphaning every Disallow below it.
-# 2. No blanket "Allow: /". Everything is crawlable by default so it adds
-#    nothing, but it makes the Disallow rules ambiguous: Google resolves
-#    conflicts by longest match (Disallow wins) while first-match-wins parsers
-#    hand the blanket Allow the victory and ignore every Disallow.
-#
-# The Disallow list is the SPA's JSON endpoints (see apps/web/src/api.ts). They
-# return data, not pages, and nothing indexable depends on a crawler fetching
-# them: the shareable report URLs that call them (/?q=...&date=...) all
-# canonicalize to /. Real Googlebot was spending 22 of 156 requests there over
-# 18 days, against a crawl budget of roughly 15 requests a day, while /dark-sky/
-# and two of the three destination guides had never been fetched at all.
+# No blank line after User-agent (terminates the group) or blanket "Allow: /"
+# (creates Disallow ambiguity for first-match parsers) — both broke this file before.
 User-agent: *
 Disallow: /night
 Disallow: /suggest
 Disallow: /nearby
 Disallow: /calendar
 Disallow: /jobs
+# Above: SPA JSON endpoints (apps/web/src/api.ts), not pages — Googlebot was spending
+# 22/156 requests here over 18 days vs. ~15/day budget, while /dark-sky/ and 2 of 3
+# guides went uncrawled. Shareable URLs (/?q=...&date=...) canonicalize to / anyway.
 
-# One entry point. /sitemap.xml is a <sitemapindex> pointing at sitemap-pages.xml
-# plus the blog and dark-sky sitemaps published by their own repos' CI. Declaring
-# all three here separately let them drift out of sync with the index.
+# sitemap.xml is a sitemapindex; declaring sub-sitemaps here too let them drift.
 Sitemap: https://darkhours.app/sitemap.xml

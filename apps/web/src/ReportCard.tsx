@@ -17,17 +17,11 @@ import { LightDomePanel } from './report/LightDomePanel'
 
 const AUTO_CALENDAR_DAYS = 30
 
-// ReportCard fully unmounts and remounts on every /night fetch, including
-// same-location day navigation (App.tsx only renders it once `report` is set
-// and `loading` is false — see the `report && !loading` gate). Without this,
-// the effect below would re-hit /calendar on every single day-nav click. Cache
-// the in-flight promise (not just the settled result) at module scope, keyed
-// by location, so remounts for a location already loading/loaded reuse it —
-// this also collapses React StrictMode's dev-mode double-invoke into one call.
-// TTL matches the server's own weather cache freshness window (_WX_CACHE_TTL,
-// 30 min in predictor.py) — this is an in-memory, tab-lifetime cache with no
-// other invalidation, so without a TTL a long-lived tab would keep serving a
-// result computed hours/days ago even after the underlying data changes.
+// ReportCard remounts on every /night fetch incl. same-location day nav
+// (App.tsx's `report && !loading` gate), which would re-hit /calendar each
+// time. Module-scope promise cache, keyed by location, dedupes that (and
+// StrictMode's double-invoke). TTL matches server _WX_CACHE_TTL (30 min,
+// predictor.py) — no other invalidation, so a long-lived tab needs one.
 const _AUTO_CALENDAR_TTL_MS = 30 * 60 * 1000
 const _autoCalendarCache = new Map<string, { promise: Promise<CalendarResult>; at: number }>()
 
