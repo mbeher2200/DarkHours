@@ -1,18 +1,9 @@
-// Applies the preloaded Google Fonts stylesheet (index.html) without it being
-// a render-blocking <link rel="stylesheet">. Loaded with `defer` in
-// index.html — that's safe here specifically because of the timeout below:
-// the preload's "load" event isn't reliable enough across browsers/network
-// conditions to depend on alone, so this also force-applies on a timer as a
-// fallback. Guarded so it only runs once regardless of which fires first.
+// Injects the Google Fonts stylesheet from script (see index.html for why)
+// so it's fetched and applied without being render-blocking. Loaded with
+// `defer`, so this runs after the document has parsed.
 (function () {
-  var link = document.getElementById('gfont-preload')
-  if (!link) return
-  var applied = false
-  var apply = function () {
-    if (applied) return
-    applied = true
-    link.rel = 'stylesheet'
-  }
-  link.addEventListener('load', apply)
-  setTimeout(apply, 3000)
+  var link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional'
+  document.head.appendChild(link)
 })()
