@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, lazy, Suspense, type FormEvent } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, lazy, Suspense, type FormEvent } from 'react'
 import './App.css'
 import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
@@ -44,7 +44,18 @@ export default function App() {
   const [place, setPlace] = useState('')
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
-  const [date, setDate] = useState(tonightIso())
+  // tonightIso() reads the visitor's local clock, which the static prerender
+  // can't know at build time -- seeding this from tonightIso() directly baked
+  // a build-time date into the prerendered HTML that drifts stale the moment
+  // real time moves past the last deploy (or just differs by timezone), so
+  // every hydration mismatched it against the client's real "today" and
+  // forced React to tear down and rebuild the whole form section (visible as
+  // a large layout shift). Empty string matches what the prerender emits
+  // (DatePicker and the availability calc below already treat a falsy date
+  // as "not chosen yet"), then the layout effect fixes it up synchronously
+  // before the first paint.
+  const [date, setDate] = useState('')
+  useLayoutEffect(() => { setDate(d => d || tonightIso()) }, [])
   const [scopeOpen, setScopeOpen] = useState(true)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
