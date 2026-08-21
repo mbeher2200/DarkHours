@@ -66,14 +66,10 @@ if (jsonLd.featureList.length !== FEATURES.length) {
 }
 const finalHtml = html.replace(jsonLdMatch[0], `${jsonLdMatch[1]}\n    ${JSON.stringify(jsonLd, null, 2)}\n    ${jsonLdMatch[3]}`)
 
-// main.tsx loads the ~80KB aws-rum-web chunk via setTimeout(() => import('./rum.ts'), 0)
-// so its parse/init doesn't compete with first render -- but that also means the
-// *network fetch* can't start until the main bundle has already loaded and executed,
-// serializing it behind the main bundle instead of racing it in parallel (confirmed via
-// Lighthouse's network-dependency-tree: this was the longest chain on the page). A
-// modulepreload hint fetches it in parallel with everything else while leaving the
-// setTimeout in main.tsx to control *when it runs* — fetchpriority="low" so it still
-// doesn't compete with anything that actually gates first render.
+// main.tsx's setTimeout(() => import('./rum.ts'), 0) delays the ~80KB rum-web
+// fetch behind the main bundle load+exec (was the longest network chain on the
+// page). This modulepreload fetches it in parallel instead, fetchpriority="low"
+// so it still doesn't compete with first render; setTimeout still controls when it runs.
 const rumChunk = readdirSync(join(webDir, 'dist', 'assets')).find((f) => /^rum-.*\.js$/.test(f))
 if (!rumChunk) {
   fail('could not find the built rum-*.js chunk in dist/assets — has main.tsx\'s RUM import changed?')
