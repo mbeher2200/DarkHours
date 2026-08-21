@@ -83,19 +83,31 @@
          first-ever visit if the download isn't ~instant, instead of a swap
          that reflows already-painted text; once cached (every later visit)
          it applies immediately with nothing to swap. -->
-    <!-- Injected by font-loader.js instead of a plain blocking <link
-         rel="stylesheet"> here: that was ~1s of PageSpeed's render-blocking-
-         requests budget for a stylesheet that only affects font rendering,
-         which display=optional above already makes non-critical. Can't use
-         the usual preload+onload="this.rel='stylesheet'" swap — the CSP's
-         script-src has no 'unsafe-inline' (see analytics-init.js) so the
-         inline attribute is blocked, and DevTools tracing on production
-         showed Chrome never fires "load" on a rel=preload link while it's
-         still rel=preload, so a JS listener for it never fires either; only
-         a plain <link rel="stylesheet"> gets a reliable load event. Inserted
-         from a deferred script (not present in the parsed document) so it's
-         fetched and applied out of the critical rendering path without
-         needing preload or a swap step at all. -->
+    <!-- Actual stylesheet is injected by font-loader.js instead of a plain
+         blocking <link rel="stylesheet"> here: that was ~1s of PageSpeed's
+         render-blocking-requests budget for a stylesheet that only affects
+         font rendering, which display=optional above already makes
+         non-critical. Can't use the usual preload+onload="this.rel=
+         'stylesheet'" swap — the CSP's script-src has no 'unsafe-inline'
+         (see analytics-init.js) so the inline attribute is blocked, and
+         DevTools tracing on production showed Chrome never fires "load" on
+         a rel=preload link while it's still rel=preload, so a JS listener
+         for it never fires either. font-loader.js's injected <link
+         rel="stylesheet"> gets a reliable load event instead, and needs no
+         swap step at all.
+
+         This preload below is a pure resource-priority hint, not part of
+         that mechanism — nothing here reacts to its "load" event. Without
+         it, Lighthouse's simulated ("Lantern") throttling model has no
+         signal that font-loader.js's script-inserted stylesheet is coming,
+         and estimates its start pessimistically (~3s of "render delay" in
+         PageSpeed Insights, despite the *observed* trace for the same run
+         showing the element actually painted in ~320ms — Lantern's
+         estimate, not reality; real Chrome traces and CrUX field data both
+         confirm sub-second). This preload gets it into Lantern's dependency
+         graph and warms the browser's HTTP cache before font-loader.js's
+         stylesheet request needs it, closing that estimate gap too. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional">
     <script defer src="/font-loader.js"></script>
     <noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=optional" rel="stylesheet"></noscript>
     <!-- Privacy-friendly analytics by Plausible -->
