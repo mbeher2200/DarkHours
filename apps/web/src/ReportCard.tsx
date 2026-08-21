@@ -645,26 +645,24 @@ export default function ReportCard({
           return parts.length ? parts.join(' · ') : null
         })()
 
-        // MilkyWayAbsent explains an absence with a guessed astronomical reason (moon
-        // phase, Bortle class, latitude) — accurate only when there's genuinely no
-        // Milky Way target for tonight. If visible_targets already contains one but
-        // mw_summary is still missing (e.g. an operator-disabled summary — see
-        // darkhours/feature_flags.py's "milky_way" flag), that guess would be wrong,
-        // so show nothing instead of a confident-but-incorrect claim.
+        // mw_summary is null whenever milky_way_arch_summary() can't build an arch
+        // (darkhours/milky_way.py) — most commonly the Galactic Core specifically has
+        // no visible window (e.g. moon-washed) even though other waypoints along the
+        // arch still do. That's not rare or ambiguous: darkhours/render_report.py (the
+        // CLI's reference behavior) handles this exact case by explaining the core's
+        // absence and listing the still-visible waypoints, so MilkyWayAbsent does the
+        // same here instead of rendering nothing — mwTargets already tells us exactly
+        // what's visible.
         //
         // Threshold is n_visible > 0, not > 1: n_visible is defined (milky_way.py) as
         // len(mw_targets), the same count as mwTargets.length below, so n_visible === 1
         // is not a rare edge case — it happens on every night where exactly one waypoint
-        // is above the horizon, and a `> 1` threshold silently rendered nothing for it
-        // (neither branch of this ternary matched: not `> 1`, and mwTargets.length was 1,
-        // not 0). Confirmed against a real production report with n_visible: 1.
+        // is above the horizon.
         const mwTargets  = r.visible_targets.filter(t => t.type === 'milky_way')
         const mwSection  = (r.mw_summary && r.mw_summary.n_visible > 0)
           ? <MilkyWayCard key={r.date /* forces refresh when r.date changes */}
                           summary={r.mw_summary} waypoints={mwTargets} report={r} />
-          : mwTargets.length === 0
-            ? <MilkyWayAbsent report={r} />
-            : null
+          : <MilkyWayAbsent report={r} waypoints={mwTargets} />
 
         return (
         <details id="report-targets" className="targets" open>

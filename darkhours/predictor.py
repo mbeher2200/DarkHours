@@ -996,7 +996,12 @@ def assemble_night(
                     moon_alts=_moon_alts,
                     weather_points=night_points or None,
                 )
-                mw_summary["core_max_alt_deg"] = round(_mw_core_max(lat))
+                # None here is legitimate (e.g. the core itself is moon-washed
+                # while far-side waypoints are still visible) — see
+                # milky_way_arch_summary's docstring. Leave mw_summary as None
+                # rather than crash into the bare except below.
+                if mw_summary is not None:
+                    mw_summary["core_max_alt_deg"] = round(_mw_core_max(lat))
             except Exception as _e:
                 log.debug("mw_arch_summary failed: %s", _e)
 

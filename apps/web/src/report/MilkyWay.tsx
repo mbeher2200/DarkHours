@@ -145,13 +145,20 @@ export function MoonBadge({ type, severity, aodTip }: { type: 'penalty' | 'limit
 }
 
 
-export function MilkyWayAbsent({ report: r }: { report: NightReport }) {
+export function MilkyWayAbsent({ report: r, waypoints = [] }: { report: NightReport; waypoints?: VisibleTarget[] }) {
   const coreMaxAlt = Math.max(0, 90 - Math.abs(r.lat - (-28.9)))
   const bortle     = r.light_pollution?.bortle_class ?? 0
   const bortleDesc = r.light_pollution?.bortle_desc  ?? 'bright sky'
 
   let reason: string
-  if (coreMaxAlt < 10) {
+  if (waypoints.length > 0) {
+    // The core itself has no summary (commonly moon-washed out of its window),
+    // but other waypoints along the arch are still visible tonight — mirrors
+    // darkhours/render_report.py's "Core moon-washed"/"below horizon" split.
+    reason = coreMaxAlt > 10
+      ? `Galactic core isn't in a clear window tonight, likely moon-washed (geometric ceiling ${coreMaxAlt.toFixed(0)}°) — the arch's far side is still visible`
+      : `Galactic core never rises above 10° from this latitude (max ${coreMaxAlt.toFixed(0)}° altitude) — the arch's far side is still visible`
+  } else if (coreMaxAlt < 10) {
     reason = `Galactic core never rises above 10° from this latitude (max ${coreMaxAlt.toFixed(0)}° altitude)`
   } else if (bortle >= 6) {
     reason = `${bortleDesc} (Bortle ${bortle}) — light pollution prevents Milky Way visibility here`
@@ -163,11 +170,19 @@ export function MilkyWayAbsent({ report: r }: { report: NightReport }) {
     reason = 'Galactic core is below the horizon during tonight\'s dark window'
   }
 
+  const visibleBand = waypoints.length > 0
+    ? [...waypoints]
+        .sort((a, b) => Math.max(...b.windows.map(w => w.peak_alt_deg)) - Math.max(...a.windows.map(w => w.peak_alt_deg)))
+        .map(t => t.name)
+        .join(', ')
+    : null
+
   // The Milky Way itself isn't shootable, but the sky dome still is: it shows
   // the realistic view for this site (star wipe-out, glow, moon) at any Bortle.
   return (
     <div className="mw-card">
       <p className="mw-absent-reason">{reason}</p>
+      {visibleBand && <p className="mw-absent-reason">Visible band: {visibleBand}</p>}
       <div className="mw-group-title">360° Sky View</div>
       <div className="mw-mid-section">
         <div className="mw-dome-container">
