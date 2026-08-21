@@ -1,14 +1,15 @@
 /* App.css is an ordered @import shell — the cascade depends on this exact
    order (later files intentionally override earlier ones; responsive last).
-   Add new rules to the section file they belong to, not here. */
+   Add new rules to the section file they belong to, not here.
+
+   Report-view styles (04, 05, 06, 07, 08, plus report-only responsive rules)
+   live in report/report.css instead, imported from ReportCard.tsx — that
+   content never appears until a report renders, so it's kept out of the
+   initial render-blocking bundle. Red-mode, form, empty-state, and date
+   picker stay here since they're all reachable on the bare homepage. */
 @import './styles/01-base.css';
 @import './styles/02-red-mode.css';
 @import './styles/03-form.css';
-@import './styles/04-report-core.css';
-@import './styles/05-timeline-satellites.css';
-@import './styles/06-planning.css';
-@import './styles/07-targets-milkyway.css';
-@import './styles/08-weather-table.css';
 @import './styles/09-empty-state.css';
 @import './styles/10-datepicker.css';
 @import './styles/11-responsive.css';
