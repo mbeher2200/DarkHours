@@ -851,7 +851,6 @@ html.red-mode .tg-blocked-toggle:hover { color: var(--text); }
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-dim);
-  opacity: 0.65;
 }
 .colophon-sources {
   color: var(--text-dim);
@@ -864,5 +863,4 @@ html.red-mode .tg-blocked-toggle:hover { color: var(--text); }
   margin: 0;
   font-size: 11px;
   color: var(--text-dim);
-  opacity: 0.7;
 }

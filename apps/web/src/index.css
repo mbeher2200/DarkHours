@@ -13,7 +13,7 @@
   /* ── Typography ─────────────────────────────────────────────── */
   --text-h: #111316;       /* Near-black heading ink */
   --text: #3B4455;         /* Dark gray body text */
-  --text-dim: #6B7585;     /* Dim labels, captions, metadata */
+  --text-dim: #565E6A;     /* Dim labels, captions, metadata — 4.5:1+ on --card and --field-bg */
   --accent: #4A5EA8;       /* Sun blue */
 
   /* ── Semantic Data ──────────────────────────────────────────── */

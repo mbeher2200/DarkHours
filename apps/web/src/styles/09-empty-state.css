@@ -65,7 +65,6 @@
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-dim);
-  opacity: 0.65;
 }
 .es-quickstart-btns {
   display: flex;
@@ -118,7 +117,6 @@
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-dim);
-  opacity: 0.65;
   margin: 0 0 -6px;
 }
 html.red-mode .es-caps-label { color: var(--text-dim); }
