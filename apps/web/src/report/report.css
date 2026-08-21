@@ -1,0 +1,10 @@
+/* CSS for the report view only, imported from ReportCard.tsx so Vite splits
+   it into ReportCard's own lazy chunk instead of the initial render-blocking
+   bundle -- see App.css for the equivalent upfront-view import shell (same
+   cascade-order rule applies: keep this order, 12 last). */
+@import '../styles/04-report-core.css';
+@import '../styles/05-timeline-satellites.css';
+@import '../styles/06-planning.css';
+@import '../styles/07-targets-milkyway.css';
+@import '../styles/08-weather-table.css';
+@import '../styles/12-report-responsive.css';
