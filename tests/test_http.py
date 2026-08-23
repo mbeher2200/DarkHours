@@ -350,6 +350,47 @@ def test_pool_retries_are_enabled_for_idempotent_gets():
     leaves nothing to recover a connection that went stale during a container
     freeze. Every request through this module is a GET.
     """
-    retries = _http._new_pool().connection_pool_kw["retries"]
+    retries = _http._retry_policy("api.open-meteo.com")
     assert retries.total >= 1 and retries.read >= 1 and retries.redirect >= 1
     assert retries.raise_on_status is False, "4xx/5xx must reach the HTTPError mapping"
+
+
+@pytest.mark.parametrize("host", ["celestrak.org", "gp.celestrak.org"])
+def test_celestrak_requests_are_never_replayed(host):
+    """circuit_breaker.py trips celestrak on the *first* failure with a 300 s
+    cooldown because its anti-abuse policy punishes concentrated retries. A
+    urllib3 retry sits below the breaker, so a replay there would never be
+    counted — the pattern that override exists to prevent.
+    """
+    assert _http._retry_policy(host).read == 0
+    assert _http._retry_policy("api.open-meteo.com").read > 0, "only celestrak is exempt"
+
+
+def test_read_retry_policy_controls_actual_replays(base_url, server, transport):
+    """The counters above are only meaningful if urllib3 honours them."""
+    if transport != "pooled":
+        pytest.skip("retry policy applies to the pooled transport only")
+    import urllib3
+
+    seen = []
+
+    class _Dropper(_Handler):
+        def do_GET(self):
+            seen.append(1)
+            self.close_connection = True  # drop mid-exchange -> a read error
+
+    drop_srv = _Server(("127.0.0.1", 0), _Dropper)
+    threading.Thread(target=drop_srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{drop_srv.server_address[1]}/x"
+    try:
+        for host, expected in (("api.open-meteo.com", 3), ("celestrak.org", 1)):
+            seen.clear()
+            pool = urllib3.PoolManager(num_pools=2, maxsize=2,
+                                       retries=_http._retry_policy(host))
+            with pytest.raises(urllib3.exceptions.HTTPError):
+                pool.request("GET", url, timeout=urllib3.Timeout(connect=3, read=3),
+                             preload_content=False)
+            assert len(seen) == expected, f"{host}: {len(seen)} requests, expected {expected}"
+    finally:
+        drop_srv.shutdown()
+        drop_srv.server_close()

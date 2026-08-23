@@ -26,6 +26,7 @@ import io
 import logging
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from . import _env
@@ -53,6 +54,29 @@ _pool = None
 _pool_lock = threading.Lock()
 
 
+# Hosts that must never see a request replayed underneath the circuit breaker.
+# circuit_breaker.py gives celestrak the override (1 failure, 300 s cooldown)
+# because "Celestrak's anti-abuse policy punishes exactly the concentrated-retry
+# pattern that emerges at cache expiry". A urllib3 retry sits *below* the
+# breaker, so the default policy would turn one call into up to three requests
+# that the breaker never counts — reinstating the pattern that override exists
+# to prevent. These hosts keep connect retries (those never reach the server)
+# and give up read retries, so they lose the stale-connection recovery: cheap
+# here, since get_tle()'s global cache has a stale fallback and one success
+# serves every user for 6 h.
+_NO_REPLAY_HOSTS = ("celestrak.org",)
+
+
+def _retry_policy(host: str):
+    import urllib3
+
+    common = dict(connect=2, redirect=3, backoff_factor=0.2,
+                  status_forcelist=[], raise_on_status=False)
+    if any(host == h or host.endswith("." + h) for h in _NO_REPLAY_HOSTS):
+        return urllib3.Retry(total=2, read=0, **common)
+    return urllib3.Retry(total=2, read=2, **common)
+
+
 def _new_pool():
     """Build the shared PoolManager. Every kwarg here fixes a defect in 7adbe2d."""
     import urllib3
@@ -72,18 +96,10 @@ def _new_pool():
         # 7adbe2d used retries=False, which also switches off redirect following
         # and leaves nothing to recover a pooled connection that went stale while
         # the container was frozen. Every request through this module is a GET,
-        # so retrying is safe. status_forcelist=[] with raise_on_status=False
-        # keeps 4xx/5xx flowing to the HTTPError mapping below instead of being
-        # retried here or raised as a urllib3 error.
-        retries=urllib3.Retry(
-            total=2,
-            connect=2,
-            read=2,
-            redirect=3,
-            backoff_factor=0.2,
-            status_forcelist=[],
-            raise_on_status=False,
-        ),
+        # so replaying is safe in HTTP terms — but see _NO_REPLAY_HOSTS for where
+        # it is not safe in provider-policy terms. Overridden per request by host;
+        # this is the fallback for a pool built without going through urlopen().
+        retries=_retry_policy(""),
     )
 
 
@@ -119,6 +135,7 @@ def _pooled_get(original, full: str, timeout):
             "GET",
             full,
             headers=headers,
+            retries=_retry_policy(urllib.parse.urlsplit(full).hostname or ""),
             # stdlib's timeout is per socket operation, not a deadline for the
             # whole exchange. 7adbe2d used Timeout(total=...), which would cut
             # darksky.py's 60 s multi-MB zip download short partway through.
