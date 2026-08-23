@@ -67,7 +67,7 @@ The engine downloads external datasets on first use and stores them in `~/.darkh
 | Falchi World Atlas 2016 | GFZ Potsdam | Permanent (static dataset) |
 | Nominatim geocoding | OpenStreetMap | 90 days |
 | Overpass API (area names for `--show-nearby`) | OpenStreetMap | 90 days |
-| Weather forecasts | NOAA / Open-Meteo / 7Timer | Hours to days |
+| Weather forecasts | NOAA / Open-Meteo / 7Timer | 60 minutes |
 | Live haze cross-check (PM2.5/PM10) | WAQI (World Air Quality Index Project) | 30 minutes |
 | Aurora Kp forecast (3-day) / outlook (27-day) | NOAA SWPC | 30 minutes / 6 hours |
 | Satellite TLEs (ISS, Hubble, Tiangong, Starlink) | Celestrak | 6 hours |
