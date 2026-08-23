@@ -141,14 +141,25 @@ _MAX_CALENDAR_DAYS = 30              # /calendar range-length cap (mirrors old _
 # ── health check helpers ──────────────────────────────────────────────────────
 
 _CACHE_CHECK_TTL = 60   # reuse cache round-trip result this long (seconds)
-_cache_check_state: dict = {"ts": 0.0, "result": {}}
+# ts is None until the first real probe, never 0.0: the clock below is wall time,
+# but this used to be time.monotonic(), which is uptime-relative. A 0.0 sentinel
+# against a monotonic clock means "now - 0.0 < TTL" is true for the whole first
+# minute of a host's life, so a cold Lambda container returned the empty result
+# below without ever probing the cache — and healthz() reads a missing "status"
+# as neither error nor degraded, i.e. reports ok.
+_cache_check_state: dict = {"ts": None, "result": {}}
 
 
 def _check_cache_health() -> dict:
     """Round-trip the active cache backend. For the local backend, also checks disk space.
     Result is cached for _CACHE_CHECK_TTL seconds so rapid health polls don't hammer DynamoDB."""
-    now = time.monotonic()
-    if now - _cache_check_state["ts"] < _CACHE_CHECK_TTL:
+    # time.time(), not time.monotonic(): the monotonic clock doesn't reliably
+    # advance while a Lambda container is frozen between invocations, so a
+    # sparsely-invoked container could serve a stale probe far longer than the
+    # TTL in real time. Same reasoning as feature_flags._cached_value().
+    now = time.time()
+    last = _cache_check_state["ts"]
+    if last is not None and now - last < _CACHE_CHECK_TTL:
         return _cache_check_state["result"]
     try:
         from darkhours import ports as _p
