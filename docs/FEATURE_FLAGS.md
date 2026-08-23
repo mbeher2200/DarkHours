@@ -50,6 +50,11 @@ absent from the table all select `urllib.request`. Enabling it swaps the
 transport inside `_http.urlopen`; nothing else about a request changes, and
 `tests/test_http.py` runs the full contract against both transports.
 
+Its code default is itself settable with `PYNIGHTSKY_HTTP_POOL=1`, for a
+throwaway in-region test function that has no flags table. Precedence, highest
+first: `PYNIGHTSKY_FEATURE_HTTP_POOL_DISABLE` → table item → `PYNIGHTSKY_HTTP_POOL`
+→ `False`.
+
 ## Administrative — no write path from the public API
 
 The API and worker Lambdas are granted `dynamodb:GetItem` **only** on this

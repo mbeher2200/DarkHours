@@ -28,9 +28,17 @@ import threading
 import urllib.error
 import urllib.request
 
+from . import _env
 from . import feature_flags as _ff
 
 log = logging.getLogger(__name__)
+
+# The code default the DynamoDB flag falls back to, off unless set. Lets a
+# throwaway in-region test function A/B the transport without writing to the
+# shared flags table, and gives the deploy-time counterpart to the existing
+# PYNIGHTSKY_FEATURE_HTTP_POOL_DISABLE hard override. An operator flag in the
+# table still wins over this; PYNIGHTSKY_FEATURE_HTTP_POOL_DISABLE beats both.
+_POOL_DEFAULT = _env.flag("PYNIGHTSKY_HTTP_POOL", "0")
 
 _ALLOWED_SCHEMES = ("https://", "http://")
 
@@ -90,7 +98,7 @@ def _get_pool():
 
 def _pool_enabled() -> bool:
     """Transport selection, isolated so tests can force either path."""
-    return _ff.enabled("http_pool", default=False)
+    return _ff.enabled("http_pool", default=_POOL_DEFAULT)
 
 
 def _pooled_get(original, full: str, timeout):
