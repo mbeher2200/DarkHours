@@ -351,8 +351,6 @@ def _make_hourly(**overrides) -> dict:
     h = {
         "time":                 ["2026-06-15T02:00"],
         "cloud_cover":          [0],
-        "rain":                 [0.0],
-        "snowfall":             [0.0],
         "relative_humidity_2m": [50],
         "wind_speed_10m":       [2.0],
         "temperature_2m":       [15.0],
@@ -433,8 +431,6 @@ class TestParseOpenMeteoHourly:
         h = _make_hourly(
             time=["2026-06-15T02:00", "2026-06-15T03:00"],
             cloud_cover=[0, 100],
-            rain=[0.0, 0.0],
-            snowfall=[0.0, 0.0],
             relative_humidity_2m=[50, 60],
             wind_speed_10m=[2.0, 3.0],
             temperature_2m=[15.0, 14.0],

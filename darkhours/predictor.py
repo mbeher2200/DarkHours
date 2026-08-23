@@ -36,7 +36,13 @@ from . import weather as wx
 
 log = logging.getLogger(__name__)
 
-_WX_CACHE_TTL = 1800  # 30 minutes
+# 60 minutes, sized to the fastest thing in the blob that can actually change:
+# gfs_seamless/gfs_global refresh every 6 h, and only HRRR Conus is hourly (and only
+# over CONUS, for its first 18-48 h). An hour therefore leaves a CONUS "tonight" report
+# at most one HRRR run behind — the reason not to reach further, since the wider series
+# is already coarser than this. The age is disclosed regardless: the report carries
+# wx_fetched_at, which the web provenance badge renders as "UPDATED: 47m ago".
+_WX_CACHE_TTL = 3600
 
 
 def _wx_serialize(points: list, source: str, fetched_at: str) -> dict:
@@ -60,7 +66,7 @@ def _wx_deserialize(cached: dict) -> tuple:
         kwargs["time"] = datetime.fromisoformat(kwargs["time"])
         points.append(wx.WeatherPoint(**kwargs))
     # .get() default for backward compat with cache entries written before this upgrade
-    # (TTL is 30 min, so stale-shape entries self-expire quickly regardless).
+    # (TTL is 60 min, so stale-shape entries self-expire quickly regardless).
     return points, cached["source"], cached.get("fetched_at")
 
 
