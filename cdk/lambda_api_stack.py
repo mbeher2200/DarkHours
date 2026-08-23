@@ -592,33 +592,15 @@ class LambdaApiStack(Stack):
         #                                costs ~1 /night + 1 /calendar submit + a few
         #                                /jobs/{id} polls (polls aren't covered by the
         #                                per-endpoint rules, only this one), plus typeahead
-        #                                /suggest calls.
+        #                                /suggest calls. Still well below anything a scripted
+        #                                scraper needs seconds, not minutes, to exceed.
         #                                The scope-down matters: while this rule counted
         #                                static assets too, real sessions were tripping it on
         #                                favicons and bundle fetches and getting 403s on the
         #                                API calls that followed.
-        #   6  RequireBrowserUserAgent — block requests to /night, /suggest, /nearby,
-        #                                /calendar, /jobs whose User-Agent doesn't start with
-        #                                "Mozilla" (case-insensitive) — every real browser's UA
-        #                                does, and the SPA is same-origin (comment above
-        #                                SpaBucket) so no legitimate non-browser caller of
-        #                                these paths exists.
-        #                                /healthz is excluded: uptime monitors hit it without a
-        #                                browser UA (same reason CommonRuleSet's
-        #                                NoUserAgent_HEADER stays in COUNT, not BLOCK, above).
-        #   7  BotControl               — AWSManagedRulesBotControlRuleSet, TARGETED level.
-        #                                COUNT, not BLOCK, for now (see CommonRuleSet note above
-        #                                for the same rollout pattern).
-        #   8  AllowVerifiedBots        — Allow on label
-        #                                awswaf:managed:aws:bot-control:bot:verified. Required
-        #                                whenever rule 7 runs in COUNT: overriding the whole
-        #                                group to COUNT also suppresses its own verified-bot
-        #                                allow, so this rule restores it explicitly. Must stay
-        #                                at a higher priority number than rule 7.
-        # Total ~945 WCU, still under the 1500-WCU default WebACL capacity (rate-based rule cost
+        # Total ~931 WCU, still under the 1500-WCU default WebACL capacity (rate-based rule cost
         # doesn't scale with the numeric limit). Managed groups use override_action=none so each
-        # group's own block/count actions apply unchanged — except CommonRuleSet and BotControl,
-        # see above. BotControl adds a flat monthly fee; see AWS WAF Bot Control pricing.
+        # group's own block/count actions apply unchanged — except CommonRuleSet, see above.
         managed = lambda name, vendor="AWS": wafv2.CfnWebACL.StatementProperty(
             managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
                 vendor_name=vendor, name=name,
@@ -738,91 +720,6 @@ class LambdaApiStack(Stack):
                         ),
                     ),
                     visibility_config=vis("RateLimitPerIp"),
-                ),
-                wafv2.CfnWebACL.RuleProperty(
-                    name="RequireBrowserUserAgent",
-                    priority=6,
-                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
-                    statement=wafv2.CfnWebACL.StatementProperty(
-                        and_statement=wafv2.CfnWebACL.AndStatementProperty(
-                            statements=[
-                                wafv2.CfnWebACL.StatementProperty(
-                                    or_statement=wafv2.CfnWebACL.OrStatementProperty(
-                                        statements=[
-                                            wafv2.CfnWebACL.StatementProperty(
-                                                byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-                                                    field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(uri_path={}),
-                                                    positional_constraint="STARTS_WITH",
-                                                    search_string=path,
-                                                    text_transformations=[wafv2.CfnWebACL.TextTransformationProperty(
-                                                        priority=0, type="NONE",
-                                                    )],
-                                                ),
-                                            )
-                                            for path in (
-                                                "/night", "/suggest", "/nearby",
-                                                "/calendar", "/jobs",
-                                            )
-                                        ],
-                                    ),
-                                ),
-                                wafv2.CfnWebACL.StatementProperty(
-                                    not_statement=wafv2.CfnWebACL.NotStatementProperty(
-                                        statement=wafv2.CfnWebACL.StatementProperty(
-                                            byte_match_statement=wafv2.CfnWebACL.ByteMatchStatementProperty(
-                                                # SingleHeaderProperty(name=...) renders as
-                                                # lowercase "name" in the synthesized template,
-                                                # but the WAFv2 SingleHeader schema requires
-                                                # "Name" (additionalProperties: false rejects
-                                                # the rest) — pass the dict directly to get the
-                                                # correct casing past CloudFormation validation.
-                                                field_to_match=wafv2.CfnWebACL.FieldToMatchProperty(
-                                                    single_header={"Name": "user-agent"},
-                                                ),
-                                                positional_constraint="STARTS_WITH",
-                                                search_string="mozilla",
-                                                text_transformations=[wafv2.CfnWebACL.TextTransformationProperty(
-                                                    priority=0, type="LOWERCASE",
-                                                )],
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ],
-                        ),
-                    ),
-                    visibility_config=vis("RequireBrowserUserAgent"),
-                ),
-                wafv2.CfnWebACL.RuleProperty(
-                    name="BotControl",
-                    priority=7,
-                    override_action=wafv2.CfnWebACL.OverrideActionProperty(count={}),
-                    statement=wafv2.CfnWebACL.StatementProperty(
-                        managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
-                            vendor_name="AWS",
-                            name="AWSManagedRulesBotControlRuleSet",
-                            managed_rule_group_configs=[
-                                wafv2.CfnWebACL.ManagedRuleGroupConfigProperty(
-                                    aws_managed_rules_bot_control_rule_set=wafv2.CfnWebACL.AWSManagedRulesBotControlRuleSetProperty(
-                                        inspection_level="TARGETED",
-                                    ),
-                                ),
-                            ],
-                        ),
-                    ),
-                    visibility_config=vis("BotControl"),
-                ),
-                wafv2.CfnWebACL.RuleProperty(
-                    name="AllowVerifiedBots",
-                    priority=8,
-                    action=wafv2.CfnWebACL.RuleActionProperty(allow={}),
-                    statement=wafv2.CfnWebACL.StatementProperty(
-                        label_match_statement=wafv2.CfnWebACL.LabelMatchStatementProperty(
-                            scope="LABEL",
-                            key="awswaf:managed:aws:bot-control:bot:verified",
-                        ),
-                    ),
-                    visibility_config=vis("AllowVerifiedBots"),
                 ),
             ],
         )
@@ -1435,7 +1332,6 @@ function handler(event) {
                     _waf_metric("RateLimitNearbyPerIp"),
                     _waf_metric("RateLimitCalendarPerIp"),
                     _waf_metric("RateLimitPerIp"),
-                    _waf_metric("RequireBrowserUserAgent"),
                 ],
             ),
             # CommonRuleSet runs in COUNT (not BLOCK) — this is what tells us whether it's
@@ -1443,11 +1339,6 @@ function handler(event) {
             cloudwatch.GraphWidget(
                 title="WAF — CommonRuleSet counted requests (not yet blocking)",
                 left=[_waf_metric("CommonRuleSet", "CountedRequests")],
-            ),
-            # BotControl runs in COUNT (not BLOCK). See CommonRuleSet note above.
-            cloudwatch.GraphWidget(
-                title="WAF — BotControl counted requests (not yet blocking)",
-                left=[_waf_metric("BotControl", "CountedRequests")],
             ),
             cloudwatch.GraphWidget(
                 title="Upstream errors (Location/Celestrak/7Timer)",
