@@ -2,5 +2,10 @@ geopy==2.5.0
 skyfield==1.55
 timezonefinder==8.2.5
 boto3==1.43.70
+# Pinned, not left transitive: botocore accepts urllib3 >=1.25.4,<3, so the
+# resolved major can differ between a dev venv and a deployed Lambda. That
+# split is the leading suspect for the Lambda-only failures that reverted the
+# _http connection pool (7adbe2d -> 522fe9a). Every direct use is in _http.py.
+urllib3==2.7.0
 global-land-mask>=1.0
 h3>=4.5.0
