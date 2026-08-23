@@ -45,6 +45,21 @@ log = logging.getLogger(__name__)
 _WX_CACHE_TTL = 3600
 
 
+def _timed_io(sink: dict, key: str, fn, *args):
+    """Run one I/O future, recording its own wall clock into ``sink[key]``.
+
+    io_wait_ms is the residual wait after Skyfield finishes, joined across
+    darksky + weather + live haze, so it can't say which of the three was slow.
+    These can, and they're the only way to tell a cold darksky S3 read apart
+    from a weather fetch.
+    """
+    _t0 = time.monotonic()
+    try:
+        return fn(*args)
+    finally:
+        sink[key] = round((time.monotonic() - _t0) * 1000)
+
+
 def _wx_serialize(points: list, source: str, fetched_at: str) -> dict:
     """Serialize weather forecast results for DynamoDB caching."""
     return {
@@ -539,7 +554,7 @@ def assemble_night(
         _max_workers = 9
 
     with _futures.ThreadPoolExecutor(max_workers=_max_workers) as _pool:
-        _ds_future = _pool.submit(_ds.lookup, lat, lon)
+        _ds_future = _pool.submit(_timed_io, _t, "ds_ms", _ds.lookup, lat, lon)
 
         # Aurora forecast — global SWPC products (cached, single-flight): the
         # 3-day Kp forecast within its horizon, the 27-day outlook beyond it
@@ -572,7 +587,7 @@ def assemble_night(
         _haze_future: _futures.Future | None = None
         _haze_days_ahead = (target - _now.date()).days
         if fetch_weather and -1 <= _haze_days_ahead <= 1 and _ff.enabled("live_haze"):
-            _haze_future = _pool.submit(_aqicn.current_haze, lat, lon)
+            _haze_future = _pool.submit(_timed_io, _t, "haze_ms", _aqicn.current_haze, lat, lon)
 
         # Heuristic: start weather for tonight-or-future dates without waiting for
         # sunrise. "Tonight" may be yesterday in UTC when the night spans midnight
@@ -599,7 +614,7 @@ def assemble_night(
                     except Exception as _ce:
                         log.debug("Weather cache write failed (non-fatal): %s", _ce)
                     return ("fresh", _fresh)
-            _wx_future = _pool.submit(_wx_io)
+            _wx_future = _pool.submit(_timed_io, _t, "wx_ms", _wx_io)
 
         # TLE fetches — start immediately, overlaps with ~600 ms of Skyfield work.
         if fetch_satellites:
@@ -1022,13 +1037,18 @@ def assemble_night(
     _t["scoring_ms"] = round((time.monotonic() - _tc) * 1000)
     _t["total_ms"] = round((time.monotonic() - _t0) * 1000)
 
+    # ds/wx/haze default to -1 for "future never submitted", not 0: wx_cached=False
+    # already conflates a genuine cache miss with a request that skipped the fetch
+    # entirely (past date, weather=false, date_only), and reading a 0 there as a
+    # fast fetch is how that gets misattributed.
     log.info(
         "assemble_night timing lat=%.2f lon=%.2f date=%s wx_cached=%s | "
         "sky_events=%dms event_parse=%dms moon=%dms lunar_cycle=%dms "
-        "io_wait=%dms sat_targets=%dms scoring=%dms total=%dms",
+        "io_wait=%dms ds=%dms wx=%dms haze=%dms sat_targets=%dms scoring=%dms total=%dms",
         lat, lon, target, _wx_cached is not None,
         _t["sky_events_ms"], _t["event_parse_ms"], _t["moon_ms"],
         _t["lunar_cycle_ms"], _t["io_wait_ms"],
+        _t.get("ds_ms", -1), _t.get("wx_ms", -1), _t.get("haze_ms", -1),
         _t.get("sat_targets_ms", 0), _t["scoring_ms"],
         _t["total_ms"],
     )

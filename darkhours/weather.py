@@ -19,10 +19,12 @@ Fields a provider cannot supply should be left as None.
 """
 
 import concurrent.futures as _futures
+import contextlib
 import json
 import logging
 import math
 import threading
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -790,6 +792,37 @@ def get_provider() -> WeatherProvider | None:
     return _provider
 
 
+def _timed_leg(sink: dict, name: str, fn, *args):
+    """Run one provider call, recording its own wall clock into ``sink[name]``."""
+    _t0 = time.monotonic()
+    try:
+        return fn(*args)
+    finally:
+        sink[name] = round((time.monotonic() - _t0) * 1000)
+
+
+@contextlib.contextmanager
+def _leg_timings(lat: float, lon: float):
+    """Yield a dict for _timed_leg to fill, and log the three legs on the way out.
+
+    forecast() fans out to Open-Meteo, 7Timer and Open-Meteo air-quality
+    concurrently, so its wall clock is the max of the three, not the sum — but
+    nothing downstream could see which one set it. Emitted on every exit path,
+    including the 7Timer fallback and the both-failed raise. One line per actual
+    fetch (cache hits never reach here).
+    """
+    legs: dict[str, int] = {}
+    t0 = time.monotonic()
+    try:
+        yield legs
+    finally:
+        log.info(
+            "weather.forecast timing lat=%.2f lon=%.2f | om=%dms 7t=%dms aq=%dms fetch=%dms",
+            lat, lon, legs.get("om", 0), legs.get("7t", 0), legs.get("aq", 0),
+            round((time.monotonic() - t0) * 1000),
+        )
+
+
 def forecast(lat: float, lon: float) -> tuple[list, str, str]:
     """
     Fetch a forecast for the given coordinates via Open-Meteo, then blend
@@ -808,14 +841,15 @@ def forecast(lat: float, lon: float) -> tuple[list, str, str]:
     7Timer and air quality are fetched concurrently with the primary provider
     so their latency is hidden rather than added on top.
     """
-    with _futures.ThreadPoolExecutor(max_workers=2) as _pool:
-        _seven_future = _pool.submit(SevenTimerProvider().forecast, lat, lon)
-        _aq_future    = _pool.submit(_fetch_air_quality, lat, lon)
+    with _leg_timings(lat, lon) as _legs, \
+         _futures.ThreadPoolExecutor(max_workers=2) as _pool:
+        _seven_future = _pool.submit(_timed_leg, _legs, "7t", SevenTimerProvider().forecast, lat, lon)
+        _aq_future    = _pool.submit(_timed_leg, _legs, "aq", _fetch_air_quality, lat, lon)
 
         primary = _provider if _provider is not None else OpenMeteoProvider()
         primary_err: str | None = None
         try:
-            points = primary.forecast(lat, lon)
+            points = _timed_leg(_legs, "om", primary.forecast, lat, lon)
             primary_name = primary.name
             fetched_at   = datetime.now(timezone.utc).isoformat()
         except RuntimeError as e:
