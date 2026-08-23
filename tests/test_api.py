@@ -73,11 +73,35 @@ def test_check_cache_health_does_not_leak_exception_text(monkeypatch):
         raise RuntimeError(_sensitive_marker)
 
     monkeypatch.setattr(_ports.get_backend().cache, "set", _boom)
-    monkeypatch.setitem(main_mod._cache_check_state, "ts", 0.0)  # force a fresh check
+    monkeypatch.setitem(main_mod._cache_check_state, "ts", None)  # force a fresh check
     result = main_mod._check_cache_health()
     assert result["status"] == "error"
     assert result["detail"] == "cache health check failed"
     assert _sensitive_marker not in result["detail"]
+
+
+def test_cache_health_probes_on_a_freshly_booted_host(monkeypatch):
+    """A cold Lambda container must still probe the cache.
+
+    The TTL guard used to compare an uptime-relative time.monotonic() against a
+    0.0 sentinel, so for the first _CACHE_CHECK_TTL seconds of a host's life
+    "now - 0.0 < TTL" held and the empty seed result was returned unprobed.
+    healthz() reads a missing "status" as neither error nor degraded, so the
+    endpoint reported ok having never touched the cache. This test pins the
+    fresh-clock case; the suite otherwise only ever runs on a long-uptime host.
+    """
+    calls = []
+    monkeypatch.setattr(main_mod, "_cache_check_state", {"ts": None, "result": {}})
+    monkeypatch.setattr(main_mod.time, "time", lambda: 5.0)  # 5 s since boot
+
+    from darkhours import ports as _ports
+    real_set = _ports.get_backend().cache.set
+    monkeypatch.setattr(_ports.get_backend().cache, "set",
+                        lambda *a, **kw: (calls.append(1), real_set(*a, **kw))[1])
+
+    result = main_mod._check_cache_health()
+    assert calls, "cache was never probed on a freshly-booted host"
+    assert result.get("status") in {"ok", "degraded", "error"}, result
 
 
 def test_healthz_includes_feature_flags_snapshot(monkeypatch):
