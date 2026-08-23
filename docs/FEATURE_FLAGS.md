@@ -39,10 +39,16 @@ dependency of the CI-deployed `PyNightSkyLambda` stack.
 | `routing` | Drive-time annotation (AWS Location) | `darkhours/darksky.py` |
 | `nearby_search` | The whole `/nearby` job type | `apps/api/main.py` |
 | `trip_builder` | The whole `/calendar` job type | `apps/api/main.py` |
+| `http_pool` | urllib3 connection pooling for all outbound HTTP (**default off**) | `darkhours/_http.py` |
 
 Turning off a `/night`-report sub-feature (the first five) produces a report with
 that field simply absent. Turning off a job-type flag returns `503` with
 `Retry-After: 60` before any resolution work or job submission happens.
+
+`http_pool` is the one flag whose code default is `False`: unset, unreachable or
+absent from the table all select `urllib.request`. Enabling it swaps the
+transport inside `_http.urlopen`; nothing else about a request changes, and
+`tests/test_http.py` runs the full contract against both transports.
 
 ## Administrative — no write path from the public API
 

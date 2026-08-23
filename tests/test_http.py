@@ -41,11 +41,29 @@ BODY = b'{"hello": "world"}'
 BIG = b"x" * (256 * 1024)
 
 
+class _Server(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.client_ports = []  # one entry per request, for the reuse assertions
+        self._ports_lock = threading.Lock()
+
+    def handle_error(self, request, client_address):
+        """Stay quiet when a client walks away mid-response (the timeout test)."""
+
+
 class _Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"  # keep-alive, so a pooled transport can reuse
 
     def log_message(self, *args):
         pass
+
+    def handle_one_request(self):
+        with self.server._ports_lock:
+            self.server.client_ports.append(self.client_address[1])
+        super().handle_one_request()
 
     def _send(self, code, body, extra=None):
         self.send_response(code)
@@ -70,20 +88,32 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/slow":
             time.sleep(2.0)
             self._send(200, BODY)
+        elif path == "/hold":
+            # Long enough that concurrent callers genuinely overlap. Over
+            # loopback a request finishes so fast that threads never contend,
+            # and a one-connection pool looks indistinguishable from a healthy
+            # one — which is how 7adbe2d's maxsize=1 could go unnoticed.
+            time.sleep(0.08)
+            self._send(200, BODY)
         else:
             self._send(404, b'{"err": "no route"}')
 
 
 @pytest.fixture(scope="module")
-def base_url():
-    srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _Handler)
-    srv.daemon_threads = True
+def server():
+    srv = _Server(("127.0.0.1", 0), _Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        yield f"http://127.0.0.1:{srv.server_address[1]}"
+        yield srv
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+@pytest.fixture
+def base_url(server):
+    server.client_ports.clear()
+    return f"http://127.0.0.1:{server.server_address[1]}"
 
 
 @pytest.fixture(scope="module")
@@ -94,6 +124,18 @@ def dead_port():
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+@pytest.fixture(params=["stdlib", "pooled"], autouse=True)
+def transport(request, monkeypatch):
+    """Run every test in this module against both transports.
+
+    The whole point of the contract is that swapping the transport changes
+    nothing observable, so asserting it on only one of them would miss exactly
+    the class of bug that reverted the pool the first time.
+    """
+    monkeypatch.setattr(_http, "_pool_enabled", lambda: request.param == "pooled")
+    return request.param
 
 
 # ---------------------------------------------------------------------------
@@ -232,3 +274,82 @@ def test_concurrent_requests_to_one_host_all_succeed(base_url):
     with futures.ThreadPoolExecutor(max_workers=9) as pool:
         results = list(pool.map(fetch, range(18)))
     assert results == [BODY] * 18
+
+
+# ---------------------------------------------------------------------------
+# Connection reuse — the reason the pooled transport exists
+# ---------------------------------------------------------------------------
+
+def _distinct_client_ports(server):
+    """One source port per TCP connection, so this counts handshakes."""
+    return len(set(server.client_ports))
+
+
+def test_sequential_requests_reuse_one_connection_when_pooled(base_url, server, transport):
+    for _ in range(4):
+        with _http.urlopen(f"{base_url}/ok", timeout=5) as resp:
+            resp.read()
+
+    if transport == "pooled":
+        assert _distinct_client_ports(server) == 1, "pooled transport re-handshook"
+    else:
+        assert _distinct_client_ports(server) == 4, "stdlib unexpectedly reused a connection"
+
+
+def test_reuse_holds_under_the_concurrent_fan_out(base_url, server, transport):
+    """Overlapping callers must still reuse, not re-handshake per request.
+
+    /hold forces the workers to genuinely overlap; over loopback a request
+    finishes so fast that threads never contend and any pool looks healthy.
+    """
+    import concurrent.futures as futures
+
+    def fetch(_):
+        with _http.urlopen(f"{base_url}/hold", timeout=5) as resp:
+            return resp.read()
+
+    with futures.ThreadPoolExecutor(max_workers=6) as pool:
+        assert list(pool.map(fetch, range(24))) == [BODY] * 24
+
+    ports = _distinct_client_ports(server)
+    if transport == "pooled":
+        assert ports <= 6, f"expected <=6 connections for 24 requests, got {ports}"
+    else:
+        assert ports >= 24, "stdlib should handshake per request"
+
+
+def test_pool_holds_the_whole_fan_out():
+    """7adbe2d configured num_pools (a count of hosts) and left maxsize at its
+    default of 1, so connections past the first were discarded rather than
+    parked. Asserted directly: with block=False the symptom is lost reuse, not
+    a failure, so no connection-count test reliably catches it.
+    """
+    pool = _http._new_pool()
+    host_pool = pool.connection_from_url("https://celestrak.org/")
+    assert host_pool.pool.maxsize >= 8, "must hold predictor.py's widest fan-out"
+    assert host_pool.block is False, "callers must never block waiting for a connection"
+
+
+def test_pooled_failures_name_the_underlying_cause(dead_port, transport):
+    """provider_health records str(e)[:120]. 7adbe2d mapped every urllib3 error
+    to a flat URLError, so the cause never reached the log — the reason its
+    Lambda-only failures were never diagnosed. Retries mean the wrapper is
+    almost always MaxRetryError, which names nothing, so .reason must lead.
+    """
+    if transport != "pooled":
+        pytest.skip("stdlib raises its own errors; nothing is being mapped")
+    with pytest.raises(urllib.error.URLError) as exc:
+        _http.urlopen(f"http://127.0.0.1:{dead_port}/ok", timeout=5)
+    detail = str(exc.value)[:120]
+    assert "MaxRetryError" not in detail.split(":")[0], "wrapper must not mask the cause"
+    assert "Error" in detail.split(":")[0], f"no urllib3 class in {detail!r}"
+
+
+def test_pool_retries_are_enabled_for_idempotent_gets():
+    """retries=False, 7adbe2d's setting, also switches off redirect following and
+    leaves nothing to recover a connection that went stale during a container
+    freeze. Every request through this module is a GET.
+    """
+    retries = _http._new_pool().connection_pool_kw["retries"]
+    assert retries.total >= 1 and retries.read >= 1 and retries.redirect >= 1
+    assert retries.raise_on_status is False, "4xx/5xx must reach the HTTPError mapping"
