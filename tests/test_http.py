@@ -345,6 +345,30 @@ def test_pooled_failures_name_the_underlying_cause(dead_port, transport):
     assert "Error" in detail.split(":")[0], f"no urllib3 class in {detail!r}"
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_failures_never_echo_the_request_url(dead_port, transport, scheme):
+    """A failure message must not carry the URL, because some carry credentials.
+
+    aqicn's endpoint is ``.../feed/geo:LAT;LON/?token=<secret>``. aqicn.py logs
+    str(e) untruncated to CloudWatch, and provider_health surfaces e.reason on
+    /healthz, which is public and unauthenticated. urllib3 embeds the full URL in
+    its exception text ("Max retries exceeded with url: ..."), so interpolating
+    that message leaks the token through both. stdlib never exposed it; the
+    pooled transport must not either. Mirrors
+    test_check_cache_health_does_not_leak_exception_text in tests/test_api.py.
+    """
+    secret = "SECRET-TOKEN-VALUE-abc123"
+    url = f"{scheme}://127.0.0.1:{dead_port}/feed/geo:37.3;-113.0/?token={secret}"
+    with pytest.raises(OSError) as exc:
+        _http.urlopen(url, timeout=3)
+    message = str(exc.value)
+    reason = str(getattr(exc.value, "reason", ""))
+    assert secret not in message, f"credential leaked into the message: {message[:160]}"
+    assert secret not in reason, f"credential leaked into .reason: {reason[:160]}"
+    assert "token=" not in message and "token=" not in reason
+    assert "geo:37.3" not in message, "request path leaked into the message"
+
+
 def test_pool_retries_are_enabled_for_idempotent_gets():
     """retries=False, 7adbe2d's setting, also switches off redirect following and
     leaves nothing to recover a connection that went stale during a container

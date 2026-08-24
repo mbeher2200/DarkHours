@@ -155,9 +155,17 @@ def _pooled_get(original, full: str, timeout):
         # everything surfaces as MaxRetryError, which names no cause and would
         # be all that survives the 120-char truncation. .reason holds the real
         # one (NewConnectionError, ProtocolError, SSLError, ReadTimeoutError).
+        #
+        # Never interpolate the urllib3 message itself. It embeds the full request
+        # URL, and some of ours carry a credential in the query string (aqicn's
+        # ?token=...). aqicn logs str(e) untruncated to CloudWatch and
+        # provider_health surfaces e.reason on the public, unauthenticated
+        # /healthz, so a URL here reaches both. stdlib never exposed it. The class
+        # name is the part 7adbe2d was missing; the URL was never the useful bit.
         cause = getattr(exc, "reason", None)
         name = type(cause).__name__ if isinstance(cause, Exception) else type(exc).__name__
-        raise urllib.error.URLError(f"{name}: {exc}") from exc
+        host = urllib.parse.urlsplit(full).hostname or "unknown host"
+        raise urllib.error.URLError(f"{name} for {host}") from exc
 
     if resp.status >= 400:
         body = resp.read()      # drains the response, returning the conn to the pool
