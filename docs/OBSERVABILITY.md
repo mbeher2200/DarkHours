@@ -56,6 +56,17 @@ aws sns subscribe --topic-arn <arn> --protocol email --notification-endpoint <yo
 | `DynamoWriteFailureAlarm` | A health-check write to DynamoDB failed |
 | `DeadMansSwitchAlarm` | The monitor itself hasn't run in 6 minutes |
 
+**`PyNightSkyWarmer` stack:**
+
+| Alarm | Condition |
+|---|---|
+| `TleWarmFailureAlarm` | ≥1 TLE cache key not verifiably written in a 30-min window |
+| `TleWarmerErrorsAlarm` | ≥1 warmer Lambda error in 30 min |
+| `TleWarmerDeadMansSwitchAlarm` | The warmer hasn't run in 7 hours (schedule is 6 h) |
+
+Separate SNS topic from `PyNightSkyLambda`; subscribe it separately. See
+[`TLE_CACHE.md`](TLE_CACHE.md).
+
 Test the notification path:
 ```
 aws cloudwatch set-alarm-state --alarm-name <deployed alarm name> --state-value ALARM \
@@ -80,4 +91,6 @@ the provider-health monitor.
 ## Custom metrics
 
 `PyNightSky/WeatherProviders` namespace (EMF): `ProviderUp`, `HTTPVerificationLatency`,
-`DynamoDBWriteFailure` per provider. `PyNightSky` namespace: `UpstreamErrors`.
+`DynamoDBWriteFailure` per provider. `PyNightSky/Tle` namespace (EMF, from the warmer):
+`TleWarmSuccess`, `TleCachedBytes` per key, `TleWarmFailure`. `PyNightSky` namespace:
+`UpstreamErrors`.

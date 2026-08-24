@@ -6,6 +6,8 @@ they are interchangeable. DynamoDB is mocked in-process with moto, so these are
 hermetic: no real AWS, no network, fast. The opt-in real-AWS smoke lives in
 test_aws_smoke.py.
 """
+from unittest import mock
+
 import pytest
 
 
@@ -198,3 +200,72 @@ def test_s3_client_is_a_cached_singleton(monkeypatch):
     monkeypatch.delenv("PYNIGHTSKY_S3_POOL", raising=False)
     src = S3RasterSource(bucket="b")
     assert src._s3() is src._s3()
+
+
+# ── set() reports whether the value was actually stored ──────────────────────
+# A write that returns without raising is not evidence that anything landed.
+# DynamoDB rejects an item over 400 KB; the adapter caught that at DEBUG and set()
+# returned None, so no caller could tell. tle_provider cached the 1.8 MB Starlink
+# group under those conditions for months and the row simply never existed.
+
+def test_set_returns_true_when_the_value_is_stored(cache_impl):
+    assert cache_impl.set("k", {"a": 1}, ttl_seconds=300) is True
+    assert cache_impl.get("k") == {"a": 1}
+
+
+def test_dynamo_set_refuses_an_item_over_the_size_ceiling(monkeypatch, tmp_path, caplog):
+    """The exact production failure, as a unit test.
+
+    The value is the size of the real Celestrak Starlink group response measured
+    live: 1,804,320 bytes, 4.5x DynamoDB's 400 KB item limit. set() must report the
+    refusal, log it loudly enough to be seen at INFO, and not waste a call that
+    cannot succeed.
+    """
+    import logging
+    from darkhours.cache import DynamoCache, _MAX_ITEM_BYTES
+
+    cache = DynamoCache(table_name="test-cache")
+    table = mock.MagicMock()
+    cache._table = table
+
+    oversized = "x" * 1_804_320
+    with caplog.at_level(logging.ERROR, logger="darkhours.cache"):
+        stored = cache.set("tle|group|starlink", oversized, ttl_seconds=300)
+
+    assert stored is False
+    # No point calling DynamoDB with an item it is guaranteed to reject.
+    table.put_item.assert_not_called()
+    assert any(r.levelno >= logging.ERROR for r in caplog.records)
+    assert "tle|group|starlink" in caplog.text
+    assert str(_MAX_ITEM_BYTES) in caplog.text
+
+
+def test_dynamo_set_returns_false_when_the_write_raises(caplog):
+    """Any other rejection (throttling, validation, credentials) must also be visible.
+
+    Previously logged at DEBUG while production ran at INFO, which is how a cache
+    that stored nothing looked identical to one that stored everything.
+    """
+    import logging
+    from darkhours.cache import DynamoCache
+
+    cache = DynamoCache(table_name="test-cache")
+    cache._table = mock.MagicMock()
+    cache._table.put_item.side_effect = RuntimeError("ValidationException")
+
+    with caplog.at_level(logging.WARNING, logger="darkhours.cache"):
+        stored = cache.set("k", {"a": 1}, ttl_seconds=300)
+
+    assert stored is False
+    assert "k" in caplog.text and "FAILED" in caplog.text
+
+
+def test_dynamo_set_accepts_a_value_just_under_the_ceiling():
+    from darkhours.cache import DynamoCache, _MAX_ITEM_BYTES
+
+    cache = DynamoCache(table_name="test-cache")
+    cache._table = mock.MagicMock()
+
+    # json.dumps adds two quote characters, so leave room for them plus the key.
+    assert cache.set("k", "y" * (_MAX_ITEM_BYTES - 100), ttl_seconds=300) is True
+    cache._table.put_item.assert_called_once()

@@ -1,61 +1,96 @@
 """Scheduled TLE cache warmer (M6.2).
 
 Runs on a schedule (EventBridge → Lambda) to keep the satellite TLEs fresh in the
-shared DynamoDB cache, so user ``/night?satellites=true`` requests are cache hits
-and the app is decoupled from Celestrak's availability/rate limits. TLE is GLOBAL
-(one dataset for every user and every location), so there is nothing per-region to
-warm — this just refreshes the handful of tracked-satellite TLEs plus the Starlink
-group, which ``get_tle`` / ``get_starlink_train_tles`` fetch-and-cache under the
-same keys the request path reads.
+shared DynamoDB cache. This is not an optimization — it is the *only* thing that
+populates those keys. ``/night?satellites=true`` reads the cache and never fetches
+(see ``tle_provider``'s module docstring), so if this job stops working, satellite
+data silently disappears from every request. That is why it verifies its own writes
+and alarms on failure rather than reporting a status derived from the fetch alone.
+
+TLE is GLOBAL (one dataset for every user and every location), so there is nothing
+per-region to warm — this refreshes the handful of tracked-satellite TLEs plus the
+filtered Starlink train list, under the same keys the request path reads.
 
 Imports stay light on purpose: ``tle_provider`` only touches the cache port
 (DynamoDB), never the raster adapter (which would pull in rasterio/GDAL — 335 MB).
 That's why this Lambda can be a tiny rasterio-free zip. Env it expects:
 ``PYNIGHTSKY_BACKEND=aws``, ``PYNIGHTSKY_CACHE_TABLE``, ``AWS_REGION``.
 """
+import json
 import logging
+import time
 
 from darkhours import tle_provider as _tle
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
-# (NORAD id, label) for the individually-tracked satellites.
-_TRACKED = [
-    (_tle.ISS_NORAD_ID,      "ISS"),
-    (_tle.HUBBLE_NORAD_ID,   "Hubble"),
-    (_tle.TIANGONG_NORAD_ID, "Tiangong"),
-]
+METRIC_NAMESPACE = "PyNightSky/Tle"
 
 
-def _status(stale: bool, error) -> str:
-    if error is None and not stale:
-        return "ok"
-    return f"{'stale' if stale else 'FAIL'} ({error})"
+def _emit_key_metrics(key_result) -> None:
+    """CloudWatch embedded metric format, per cache key.
+
+    TleWarmSuccess is the signal that matters: it is 1 only when the value was read
+    back out of the cache after the write, so it cannot report success for a write
+    that was silently rejected. TleCachedBytes exists so an item creeping toward
+    DynamoDB's 400 KB ceiling is visible on a graph before it crosses it.
+    """
+    emf = {
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [{
+                "Namespace": METRIC_NAMESPACE,
+                "Dimensions": [["Key"]],
+                "Metrics": [
+                    {"Name": "TleWarmSuccess", "Unit": "Count"},
+                    {"Name": "TleCachedBytes", "Unit": "Bytes"},
+                ],
+            }],
+        },
+        "Key": key_result.label,
+        "TleWarmSuccess": 1 if key_result.verified else 0,
+        "TleCachedBytes": key_result.bytes,
+    }
+    print(json.dumps(emf))
+
+
+def _emit_warm_failure(count: int) -> None:
+    emf = {
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [{
+                "Namespace": METRIC_NAMESPACE,
+                "Dimensions": [[]],
+                "Metrics": [{"Name": "TleWarmFailure", "Unit": "Count"}],
+            }],
+        },
+        "TleWarmFailure": count,
+    }
+    print(json.dumps(emf))
 
 
 def handler(event=None, context=None):
-    """EventBridge target: refresh every tracked TLE into the shared cache."""
-    results: dict[str, str] = {}
-    ok = True
+    """EventBridge target: refresh every tracked TLE into the shared cache.
 
-    # The warmer deliberately uses a longer per-socket timeout than the request
-    # path: nobody is waiting on it, and every fetch it lands here is one the
-    # request path never has to make. Failing fast is the right trade for a user
-    # staring at a spinner, and the wrong one for the job whose whole purpose is
-    # to have the answer ready before they ask.
-    for norad, label in _TRACKED:
-        r = _tle.get_tle(norad, timeout=_tle._WARM_FETCH_TIMEOUT)
-        results[label] = _status(r.stale, r.error)
-        ok = ok and (r.error is None and not r.stale)
+    ``force=True``: refresh unconditionally rather than only when the entry has
+    already expired. A warmer that returns early on a fresh cache hit can only
+    repair expiry, never prevent it — the refresh then lands on whichever user asks
+    first after the entry dies. Refreshing every run keeps the row's age below one
+    schedule interval, so it never reaches its TTL.
 
-    trains, stale, err = _tle.get_starlink_train_tles(
-        timeout=_tle._WARM_FETCH_TIMEOUT,
-    )   # caches "tle|group|starlink"
-    results["starlink"] = (f"ok ({len(trains)} trains)"
-                           if (err is None and not stale) else _status(stale, err))
-    ok = ok and (err is None and not stale)
+    The longer per-socket timeout is deliberate: nobody is waiting on this, and
+    every fetch that lands here is one nobody else has to make.
+    """
+    summary = _tle.warm_cache(timeout=_tle._WARM_FETCH_TIMEOUT, force=True)
 
-    summary = {"ok": ok, "results": results}
-    (log.info if ok else log.warning)("TLE warm: %s", summary)
-    return summary
+    failures = 0
+    for key_result in summary.keys:
+        _emit_key_metrics(key_result)
+        if not key_result.verified or key_result.error is not None:
+            failures += 1
+    _emit_warm_failure(failures)
+
+    out = summary.as_dict()
+    (log.info if summary.ok else log.warning)("TLE warm: %s", out)
+    return out
