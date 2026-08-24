@@ -5,5 +5,5 @@
 # Trivy scan or the throwaway in-region perf-test recipe.
 -r requirements.txt
 awslambdaric==4.0.2
-python-json-logger==4.1.0
+python-json-logger==4.2.0
 aws-xray-sdk==2.15.0

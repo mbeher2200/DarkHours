@@ -1,7 +1,7 @@
 # Runtime dependencies for the API zip Lambda = engine runtime + web layer.
 -r requirements.txt
 fastapi==0.141.1
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.52.4
 mangum==0.21.0
-python-json-logger==4.1.0
+python-json-logger==4.2.0
 aws-xray-sdk==2.15.0
