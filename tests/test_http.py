@@ -232,3 +232,56 @@ def test_concurrent_requests_to_one_host_all_succeed(base_url):
     with futures.ThreadPoolExecutor(max_workers=9) as pool:
         results = list(pool.map(fetch, range(18)))
     assert results == [BODY] * 18
+
+
+# ---------------------------------------------------------------------------
+# read_capped — bounding the whole transfer, not one socket read
+# ---------------------------------------------------------------------------
+# urllib's `timeout` bounds a single socket operation. A response that trickles in
+# just fast enough to keep every individual read under the limit can take
+# arbitrarily long overall — which is what let a 1.8 MB Celestrak group fetch run
+# for 30s against a "5s timeout". The latency histogram was smooth from 1-30s with
+# no pile-up at 5s, which is the signature of a bound that was never binding.
+
+class _SlowResponse:
+    """Yields fixed-size chunks, sleeping between them."""
+
+    def __init__(self, chunks, delay=0.0):
+        self._chunks = list(chunks)
+        self._delay = delay
+
+    def read(self, _n=None):
+        if self._delay:
+            time.sleep(self._delay)
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+def test_read_capped_returns_the_whole_body_when_within_bounds():
+    resp = _SlowResponse([b"abc", b"def", b""])
+    assert _http.read_capped(resp, max_bytes=1024, deadline_s=5) == b"abcdef"
+
+
+def test_read_capped_aborts_past_the_byte_ceiling():
+    resp = _SlowResponse([b"x" * 100] * 50)
+    with pytest.raises(_http.TransferLimitExceeded) as e:
+        _http.read_capped(resp, max_bytes=256, deadline_s=5)
+    assert "256" in str(e.value)
+
+
+def test_read_capped_aborts_past_the_transfer_deadline():
+    """The bound urllib's timeout does not give: each read is fast, the transfer
+    is not."""
+    resp = _SlowResponse([b"x" * 10] * 100, delay=0.02)
+    started = time.monotonic()
+    with pytest.raises(_http.TransferLimitExceeded) as e:
+        _http.read_capped(resp, max_bytes=10 * 1024, deadline_s=0.05)
+    assert "deadline" in str(e.value)
+    assert time.monotonic() - started < 2.0, "must abort, not run to completion"
+
+
+def test_read_capped_bounds_the_starlink_group_fetch():
+    """The only caller that matters: the warmer's group fetch holds a Lambda
+    timeout open, and its success is what keeps TLEs off the request path."""
+    from darkhours import tle_provider as tle
+    assert tle._STARLINK_TRANSFER_DEADLINE < tle._WARM_FETCH_TIMEOUT * 2
+    assert tle._STARLINK_MAX_BYTES > 2 * 1024 * 1024, "must fit the real ~1.8 MB body"

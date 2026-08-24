@@ -72,10 +72,12 @@ imports the other for this purpose; coordination happens through
 
 `tle_provider.py`'s `_lock_for(key)` (mirroring `weather.py`/`aqicn.py`'s
 `lock_for` idiom, keyed by the same string already used as the cache key) makes
-`get_tle()` and `get_starlink_train_tles()` single-flight per resource: a thread
-that waits for the lock re-checks the cache first and finds it warm if another
-thread already fetched it — so N overlapping requests for one resource cost
-exactly 1 real Celestrak fetch, not N.
+`refresh_tle()` and `refresh_starlink_trains()` single-flight per resource, so N
+overlapping refreshes for one resource cost exactly 1 real Celestrak fetch, not N.
+
+Celestrak pacing applies to the warmer and the CLI only. The request path calls
+`cached_tle()`/`cached_starlink_trains()`, which never reach the network — see
+[`docs/TLE_CACHE.md`](TLE_CACHE.md).
 
 ## Known limits (accepted)
 

@@ -14,13 +14,17 @@ import pathlib
 import shutil
 
 from aws_cdk import (
+    CfnOutput,
     Stack,
     Duration,
     Tags,
     aws_lambda as lambda_,
+    aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_dynamodb as dynamodb,
     aws_events as events,
     aws_events_targets as targets,
+    aws_sns as sns,
 )
 from constructs import Construct
 
@@ -59,7 +63,11 @@ class WarmerStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_13,
             handler="apps.warmer.handler.handler",
             code=lambda_.Code.from_asset(_stage_warmer_code()),
-            timeout=Duration.seconds(60),     # Starlink group fetch can take ~30s
+            # The warmer now revalidates every key on every run rather than only
+            # repairing expired ones, so a run is 4 Celestrak calls paced 2s apart
+            # (a 6s floor) plus up to ~30s for the group fetch. Observed max duration
+            # under the old, mostly-no-op behaviour was already 33s against a 60s cap.
+            timeout=Duration.seconds(120),
             memory_size=256,
             environment={
                 "PYNIGHTSKY_BACKEND": "aws",
@@ -83,3 +91,64 @@ class WarmerStack(Stack):
             schedule=events.Schedule.rate(Duration.hours(6)),
             targets=[targets.LambdaFunction(fn)],
         )
+
+        # --- Alarms ---
+        # This stack previously had none, which is how it ran for 14 days reporting
+        # ok=True on every invocation while the Starlink cache row did not exist and
+        # 3 invocations errored outright. The warmer is the only thing that populates
+        # these keys — the request path reads them and never fetches — so a warmer
+        # that stops working is a silent, total loss of satellite data.
+        #
+        # Subscribe after deploy:
+        #   aws sns subscribe --topic-arn <AlarmTopicArn output> \
+        #     --protocol email --notification-endpoint <you>
+        alarm_topic = sns.Topic(self, "AlarmTopic", display_name="PyNightSky TLE Warmer Alarms")
+
+        # TleWarmFailure counts keys that were not readable back out of the cache
+        # after the write. It is emitted (as 0) on every run, so missing data means
+        # the warmer did not run, not that everything is fine.
+        warm_failure_alarm = cloudwatch.Alarm(
+            self, "TleWarmFailureAlarm",
+            alarm_description="A TLE cache key was not verifiably written by the warmer.",
+            metric=cloudwatch.Metric(
+                namespace="PyNightSky/Tle",
+                metric_name="TleWarmFailure",
+                statistic="Sum",
+                period=Duration.minutes(30),
+            ),
+            threshold=0,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        warm_failure_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        warmer_errors_alarm = cloudwatch.Alarm(
+            self, "TleWarmerErrorsAlarm",
+            alarm_description="The TLE warmer Lambda errored.",
+            metric=fn.metric_errors(statistic="Sum", period=Duration.minutes(30)),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        warmer_errors_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Dead man's switch: the schedule is 6h, so a 7h window with no invocation
+        # means the rule stopped firing. BREACHING on missing data is the point —
+        # "no data" is exactly the failure being detected.
+        dead_mans_switch = cloudwatch.Alarm(
+            self, "TleWarmerDeadMansSwitchAlarm",
+            alarm_description="The TLE warmer has not executed within 7 hours.",
+            metric=fn.metric_invocations(statistic="Sum", period=Duration.hours(7)),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.BREACHING,
+        )
+        dead_mans_switch.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        CfnOutput(self, "AlarmTopicArn", value=alarm_topic.topic_arn,
+                  description="Subscribe an email endpoint to receive TLE warmer alarms.")
+        CfnOutput(self, "WarmerFunctionName", value=fn.function_name,
+                  description="Invoke manually to fill a cold TLE cache immediately.")

@@ -153,6 +153,18 @@ def main():
         print(f"Error: '{d_arg}' is not a valid date (expected YYYY-MM-DD).")
         raise SystemExit(1)
 
+    # assemble_night only ever *reads* TLEs from the cache — retrieval is not on the
+    # request path (see tle_provider's module docstring). In the cloud the scheduled
+    # warmer keeps that cache populated; the CLI has no warmer, so it fills a cold
+    # cache itself, here, before the report. force=False leaves an already-fresh
+    # local entry alone so a warm run pays no Celestrak pacing cost.
+    if args.satellites:
+        from darkhours import tle_provider as _tle
+        _warm = _tle.warm_cache(timeout=_tle._WARM_FETCH_TIMEOUT, force=False)
+        if not _warm.ok:
+            print("  Note: some satellite TLEs are unavailable — "
+                  "pass predictions may be incomplete.")
+
     try:
         report = assemble_night(lat, lon, target, tz, display_name=display_name,
                                 fetch_targets=args.targets,

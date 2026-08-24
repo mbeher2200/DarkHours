@@ -78,37 +78,38 @@ def _assemble(target, **kw):
 # satellites
 # ---------------------------------------------------------------------------
 
-def test_satellites_flag_off_skips_tle_fetch(monkeypatch, _mocks):
+def test_satellites_flag_off_skips_tle_read(monkeypatch, _mocks):
     monkeypatch.setenv("PYNIGHTSKY_FEATURE_SATELLITES_DISABLE", "1")
-    get_tle = mock.MagicMock()
-    monkeypatch.setattr(tle_provider, "get_tle", get_tle)
+    cached_tle = mock.MagicMock()
+    monkeypatch.setattr(tle_provider, "cached_tle", cached_tle)
     report = _assemble(_mocks, fetch_weather=False, fetch_satellites=True)
-    get_tle.assert_not_called()
+    cached_tle.assert_not_called()
     assert report.sat_passes == []
 
 
-def test_satellites_flag_on_by_default_still_fetches(monkeypatch, _mocks):
-    get_tle = mock.MagicMock(return_value=types.SimpleNamespace(lines=None, stale=False))
-    get_starlink = mock.MagicMock(return_value=([], False, None))
-    monkeypatch.setattr(tle_provider, "get_tle", get_tle)
-    monkeypatch.setattr(tle_provider, "get_starlink_train_tles", get_starlink)
+def test_satellites_flag_on_by_default_still_reads_the_cache(monkeypatch, _mocks):
+    cached_tle = mock.MagicMock(return_value=types.SimpleNamespace(lines=None, stale=False))
+    cached_starlink = mock.MagicMock(return_value=([], False, None))
+    monkeypatch.setattr(tle_provider, "cached_tle", cached_tle)
+    monkeypatch.setattr(tle_provider, "cached_starlink_trains", cached_starlink)
     _assemble(_mocks, fetch_weather=False, fetch_satellites=True)
+    assert cached_tle.called and cached_starlink.called
 
 
-def test_starlink_fetch_raising_does_not_crash_the_report(monkeypatch, _mocks):
+def test_starlink_read_raising_does_not_crash_the_report(monkeypatch, _mocks):
     """Not a feature-flag test — a resilience gap found live in production (a
-    Celestrak read timeout raised out of get_starlink_train_tles() and crashed the
-    whole /night response, tel_provider.py fixed at the source separately). This is
-    the defense-in-depth layer: even an unanticipated future failure mode here must
+    Celestrak read timeout raised out of the Starlink path and crashed the whole
+    /night response; tle_provider.py fixed at the source separately). This is the
+    defense-in-depth layer: even an unanticipated future failure mode here must
     not take down weather/moon/darksky, which had already succeeded."""
-    get_tle = mock.MagicMock(return_value=types.SimpleNamespace(lines=None, stale=False))
-    get_starlink = mock.MagicMock(side_effect=TimeoutError("The read operation timed out"))
-    monkeypatch.setattr(tle_provider, "get_tle", get_tle)
-    monkeypatch.setattr(tle_provider, "get_starlink_train_tles", get_starlink)
+    cached_tle = mock.MagicMock(return_value=types.SimpleNamespace(lines=None, stale=False))
+    cached_starlink = mock.MagicMock(side_effect=TimeoutError("The read operation timed out"))
+    monkeypatch.setattr(tle_provider, "cached_tle", cached_tle)
+    monkeypatch.setattr(tle_provider, "cached_starlink_trains", cached_starlink)
     report = _assemble(_mocks, fetch_weather=False, fetch_satellites=True)
     assert report.sat_starlink_unavailable is True
     assert report.starlink_trains == []
-    assert get_tle.called
+    assert cached_tle.called
 
 
 # ---------------------------------------------------------------------------

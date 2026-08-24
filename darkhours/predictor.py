@@ -616,14 +616,21 @@ def assemble_night(
                     return ("fresh", _fresh)
             _wx_future = _pool.submit(_timed_io, _t, "wx_ms", _wx_io)
 
-        # TLE fetches — start immediately, overlaps with ~600 ms of Skyfield work.
+        # TLE cache reads — start immediately, overlaps with ~600 ms of Skyfield work.
+        #
+        # cached_tle/cached_starlink_trains contain no network code: TLE retrieval is
+        # never on a user's request path (see tle_provider's module docstring). These
+        # are DynamoDB point reads, a few ms each; the scheduled warmer is what keeps
+        # them populated. Do not swap these for the fetching variants — that is the
+        # regression this split exists to make impossible, and
+        # test_request_path_never_fetches pins it.
         if fetch_satellites:
             from . import tle_provider as _tle_mod
             _sat_stale = _sat_days_offset < 0
             if not _sat_stale:
                 for _norad_id, _ in _tle_mod.TRACKED_SATELLITES:
-                    _tle_futures[_norad_id] = _pool.submit(_tle_mod.get_tle, _norad_id)
-                _sl_future = _pool.submit(_tle_mod.get_starlink_train_tles)
+                    _tle_futures[_norad_id] = _pool.submit(_tle_mod.cached_tle, _norad_id)
+                _sl_future = _pool.submit(_tle_mod.cached_starlink_trains)
 
         # --- Skyfield work runs concurrently with the I/O threads above ---
         _precomputed_dark_hours_tonight = None
@@ -800,6 +807,13 @@ def assemble_night(
         _pass_futures: list[tuple[str, bool, _futures.Future]] = []
         _sl_passes_future: _futures.Future | None = None
 
+        # Timed separately from the pass/target computation below. sat_targets_ms
+        # covers satellite passes AND visible_targets, so a spike in it never said
+        # which one moved — and for a long time it was neither: it was this wait,
+        # on a Celestrak fetch that should never have been on the request path.
+        _t["tle_wait_ms"] = 0
+        _tw = time.monotonic()
+
         if fetch_satellites and not _sat_stale:
             from . import satellites as _sat_mod
             sat_future_warn = _sat_days_offset > 3
@@ -820,7 +834,7 @@ def assemble_night(
                 try:
                     _sl_tles, _, _sl_error = _sl_future.result()
                 except Exception as _sfe:
-                    log.debug("starlink TLE fetch failed (non-fatal): %s", _sfe)
+                    log.debug("starlink TLE read failed (non-fatal): %s", _sfe)
                     _sl_tles, _sl_error = [], str(_sfe)
                 if _sl_error and not _sl_tles:
                     sat_starlink_unavailable = True
@@ -828,6 +842,7 @@ def assemble_night(
                     _sl_passes_future = _pool.submit(
                         _sat_mod.starlink_train_passes, _sl_tles, lat, lon, sunset, sunrise
                     )
+            _t["tle_wait_ms"] = round((time.monotonic() - _tw) * 1000)
 
         _vt_future: _futures.Future | None = None
         if fetch_targets:
@@ -1044,12 +1059,13 @@ def assemble_night(
     log.info(
         "assemble_night timing lat=%.2f lon=%.2f date=%s wx_cached=%s | "
         "sky_events=%dms event_parse=%dms moon=%dms lunar_cycle=%dms "
-        "io_wait=%dms ds=%dms wx=%dms haze=%dms sat_targets=%dms scoring=%dms total=%dms",
+        "io_wait=%dms ds=%dms wx=%dms haze=%dms tle_wait=%dms sat_targets=%dms "
+        "scoring=%dms total=%dms",
         lat, lon, target, _wx_cached is not None,
         _t["sky_events_ms"], _t["event_parse_ms"], _t["moon_ms"],
         _t["lunar_cycle_ms"], _t["io_wait_ms"],
         _t.get("ds_ms", -1), _t.get("wx_ms", -1), _t.get("haze_ms", -1),
-        _t.get("sat_targets_ms", 0), _t["scoring_ms"],
+        _t.get("tle_wait_ms", 0), _t.get("sat_targets_ms", 0), _t["scoring_ms"],
         _t["total_ms"],
     )
 

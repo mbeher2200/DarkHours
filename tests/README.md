@@ -56,7 +56,8 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_meteor_shower_decay.py` | `targets.py` | — | `effective_zhr()` IMO decay model, half-window solver, catalog constants |
 | `test_aurora_model.py` | `aurora.py` | — | Geomagnetic latitude, Kp viewline, visibility tiers, look bearing |
 | `test_aurora_provider.py` | `aurora.py` | — | SWPC 3-day/27-day fetch, parse, cache, night rollup |
-| `test_tle_provider.py` | `tle_provider.py` | — | TLE parsing, Starlink train filter, `get_tle()` state machine |
+| `test_tle_provider.py` | `tle_provider.py` | — | TLE parsing, Starlink train filter, `get_tle()` state machine, forced refresh |
+| `test_tle_request_path.py` | `tle_provider.py`, `predictor.py` | — | The request path never fetches TLEs; filtered-not-raw Starlink caching |
 | `test_aqicn.py` | `aqicn.py` | — | WAQI haze cross-check: station distance filter, thresholds, caching |
 
 **Dark-sky search, rasters & indexes**

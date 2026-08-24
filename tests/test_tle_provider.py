@@ -291,6 +291,34 @@ class TestGetTle:
             get_tle(25544, timeout=7)
         assert urlopen.call_args.kwargs["timeout"] == 7
 
+    def test_refresh_tle_fetches_even_on_a_fresh_cache_hit(self):
+        """refresh_tle is unconditional — that is the whole reason it exists.
+
+        The warmer used to call a function that returned early on a fresh hit, so it
+        was a no-op whenever the cache was healthy and could only repair an entry
+        that had already expired. The refresh then landed on whichever user asked
+        first. Observed live: three tle| rows written 22.1h ago against a 24h TTL,
+        across four warmer runs that touched none of them.
+        """
+        mc = self._mock_cache(get_val=_ISS_RAW, stale_val=_ISS_RAW)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod, '_fetch_tle_raw', return_value=_ISS_RAW) as fetch:
+            result = tle_mod.refresh_tle(25544)
+        fetch.assert_called_once()
+        mc.set.assert_called_once()
+        assert mc.set.call_args.kwargs["ttl_seconds"] == tle_mod.TLE_TTL
+        assert result.stale is False
+
+    def test_cached_tle_never_fetches_and_falls_back_to_stale(self):
+        """The request-path reader: cache only, degrading through stale to nothing."""
+        mc = self._mock_cache(get_val=None, stale_val=_ISS_RAW)
+        with mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen') as urlopen:
+            result = tle_mod.cached_tle(25544)
+        urlopen.assert_not_called()
+        mc.set.assert_not_called()
+        assert result.stale is True and result.lines is not None
+
     def test_ttl_is_wider_than_the_warmer_interval(self):
         """TLE_TTL must stay several refresh cycles wide.
 
@@ -354,9 +382,10 @@ class TestCircuitBreaker:
         """
         import urllib.error
 
-        # Any non-empty TLE block works here — the assertions are about the
-        # revalidation mechanics, not about which satellites survive filtering.
-        mc = self._mock_cache(get_val=None, stale_val=_ISS_RAW)
+        # The cached value is the *filtered train list*, not the raw group block —
+        # see _STARLINK_TRAINS_CACHE_KEY for why the raw block could never be stored.
+        cached = [["STARLINK-1", "1 aaa", "2 bbb"]]
+        mc = self._mock_cache(get_val=None, stale_val=cached)
         err = urllib.error.HTTPError(url="x", code=403, msg="Forbidden",
                                      hdrs=None, fp=None)
         with mock.patch.object(tle_mod, '_cache', mc), \
@@ -364,6 +393,7 @@ class TestCircuitBreaker:
             tles, stale, error = tle_mod.get_starlink_train_tles()
         assert error is None
         assert stale is False, "revalidated data is current, not stale"
+        assert tles == [("STARLINK-1", "1 aaa", "2 bbb")]
         mc.set.assert_called_once()
         assert mc.set.call_args.kwargs["ttl_seconds"] == tle_mod.TLE_TTL
 

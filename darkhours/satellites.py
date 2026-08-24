@@ -276,7 +276,7 @@ def satellite_passes(
     Return all passes of the satellite described by *tle_lines* over (*lat*, *lon*)
     between *t_start* and *t_end*.
 
-    *tle_lines* is a (name, line1, line2) tuple as returned by tle_provider.get_tle().
+    *tle_lines* is a (name, line1, line2) tuple as returned by tle_provider.cached_tle().
     TLE acquisition (fetch, cache, stale fallback) is the caller's responsibility.
 
     Passes are included regardless of sunlight status; see SatPass.in_sunlight.
@@ -457,7 +457,7 @@ def starlink_train_passes(
     Detect Starlink train passes over (*lat*, *lon*) between *t_start* and *t_end*.
 
     Accepts a pre-filtered list of raising-phase Starlink TLEs from
-    tle_provider.get_starlink_train_tles().  Uses a lightweight single-point
+    tle_provider.cached_starlink_trains().  Uses a lightweight single-point
     sunlit check at pass peak (no shadow-window scan) since trains are
     displayed as group summaries rather than precise rise/set events.
 

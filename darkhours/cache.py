@@ -26,6 +26,12 @@ _CACHE_DIR = Path.home() / ".darkhours" / "cache"
 # clear_expired() skip them so a cache flush never wipes saved data.
 _SYSTEM_KEY_PREFIX = "__"
 
+# DynamoDB rejects any item over 400 KB (key + attributes). We refuse a bit below
+# that so the margin absorbs attribute-name/encoding overhead rather than turning
+# into a ValidationException from the service.
+_DYNAMO_ITEM_LIMIT_BYTES = 400 * 1024
+_MAX_ITEM_BYTES          = 380_000
+
 
 class LocalFileCache:
     """Cache backed by one JSON file per key under a local directory."""
@@ -77,8 +83,13 @@ class LocalFileCache:
             log.debug("Cache stale-read error for %s: %s", key, e)
             return None
 
-    def set(self, key: str, value, ttl_seconds: int | None = None) -> None:
-        """Store value under key with optional TTL in seconds. None = no expiry."""
+    def set(self, key: str, value, ttl_seconds: int | None = None) -> bool:
+        """Store value under key with optional TTL in seconds. None = no expiry.
+
+        Returns True if the value was stored. There is no size ceiling here — a
+        local file has none; ``DynamoCache`` carries the 400 KB one because that
+        limit is a DynamoDB fact, not a property of the cache contract.
+        """
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         expires = time.time() + ttl_seconds if ttl_seconds is not None else None
         path = self._key_path(key)
@@ -87,8 +98,10 @@ class LocalFileCache:
             # __-prefixed system records (filenames are hashes and can't reveal it).
             path.write_text(json.dumps({"key": key, "expires": expires, "value": value}))
             log.debug("Cache set: %s (ttl=%s)", key, ttl_seconds)
+            return True
         except Exception as e:
-            log.debug("Cache write error for %s: %s", key, e)
+            log.warning("Cache write FAILED for %s: %s", key, e)
+            return False
 
     def invalidate(self, key: str) -> None:
         """Remove a single cache entry."""
@@ -208,15 +221,38 @@ class DynamoCache:
             log.debug("Cache stale-read error for %s: %s", key, e)
             return None
 
-    def set(self, key: str, value, ttl_seconds: int | None = None) -> None:
-        item = {"cache_key": key, "value": json.dumps(value)}
+    def set(self, key: str, value, ttl_seconds: int | None = None) -> bool:
+        """Store value under key. Returns True only if DynamoDB accepted the write.
+
+        The size check is not defensive padding — it is the bug this cache shipped
+        with. ``tle_provider`` cached the raw Celestrak Starlink group (1.8 MB) here
+        for months; every put_item was rejected, the exception was logged at DEBUG
+        while production ran at INFO, and ``set()`` returned None so no caller could
+        tell. The row simply never existed, and every user request re-downloaded the
+        group. Checking the size up front turns "silently impossible" into one ERROR
+        line naming the key and the byte count, and skips a call that cannot succeed.
+        """
+        payload = json.dumps(value)
+        size = len(payload.encode("utf-8")) + len(key.encode("utf-8"))
+        if size > _MAX_ITEM_BYTES:
+            log.error(
+                "Cache write REFUSED for %s: %d bytes exceeds the %d-byte item ceiling "
+                "(DynamoDB's hard limit is %d) — this value can never be cached; store a "
+                "reduced form or move it out of DynamoDB",
+                key, size, _MAX_ITEM_BYTES, _DYNAMO_ITEM_LIMIT_BYTES,
+                extra={"service": "cache"},
+            )
+            return False
+        item = {"cache_key": key, "value": payload}
         if ttl_seconds is not None:
             item["expires"] = int(time.time()) + ttl_seconds
         try:
             self.table.put_item(Item=item)
-            log.debug("Cache set: %s (ttl=%s)", key, ttl_seconds)
+            log.debug("Cache set: %s (ttl=%s, %d bytes)", key, ttl_seconds, size)
+            return True
         except Exception as e:
-            log.debug("Cache write error for %s: %s", key, e)
+            log.warning("Cache write FAILED for %s (%d bytes): %s", key, size, e)
+            return False
 
     def invalidate(self, key: str) -> None:
         try:
@@ -312,10 +348,17 @@ def get_stale(key: str):
     return ports.get_backend().cache.get_stale(key)
 
 
-def set(key: str, value, ttl_seconds: int | None = None) -> None:
+def set(key: str, value, ttl_seconds: int | None = None) -> bool:
+    """Store a value; returns True if it was actually stored.
+
+    Callers whose correctness depends on the write landing (the TLE warmer, whose
+    entire job is to have the answer cached before a user asks) must check this.
+    Under PYNIGHTSKY_NO_CACHE the store is bypassed, so this reports False — nothing
+    was written, and a caller that verifies should see that honestly.
+    """
     if _NO_CACHE:
-        return
-    ports.get_backend().cache.set(key, value, ttl_seconds)
+        return False
+    return bool(ports.get_backend().cache.set(key, value, ttl_seconds))
 
 
 def invalidate(key: str) -> None:
