@@ -56,8 +56,8 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_meteor_shower_decay.py` | `targets.py` | — | `effective_zhr()` IMO decay model, half-window solver, catalog constants |
 | `test_aurora_model.py` | `aurora.py` | — | Geomagnetic latitude, Kp viewline, visibility tiers, look bearing |
 | `test_aurora_provider.py` | `aurora.py` | — | SWPC 3-day/27-day fetch, parse, cache, night rollup |
-| `test_tle_provider.py` | `tle_provider.py` | — | TLE parsing, Starlink train filter, `get_tle()` state machine, forced refresh |
-| `test_tle_request_path.py` | `tle_provider.py`, `predictor.py` | — | The request path never fetches TLEs; filtered-not-raw Starlink caching |
+| `test_tle_provider.py` | `tle_provider.py` | — | TLE parsing, COSPAR designator, Starlink train filter, `get_tle()` state machine, forced refresh |
+| `test_tle_request_path.py` | `tle_provider.py`, `predictor.py`, `satellites.py` | — | The request path never fetches TLEs; filtered-not-raw Starlink caching; SATCAT launch-date join |
 | `test_aqicn.py` | `aqicn.py` | — | WAQI haze cross-check: station distance filter, thresholds, caching |
 
 **Dark-sky search, rasters & indexes**
@@ -86,13 +86,14 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_jobs.py` | `apps/jobs.py` | — | Inline/SQS job lifecycle, worker handler, 202→done flow |
 | `test_warmer.py` | `apps/warmer` | — | TLE warmer handler: warm-all-ok, failure reporting, stale detection |
 | `test_aws_smoke.py` | `darksky.py` / `cache.py` | `aws` | Real DynamoDB cache round-trip; real S3 grid lookups (VIIRS + Falchi) |
-| `test_provider_smoke.py` | providers | `live` | Live connectivity: Open-Meteo, 7Timer, Celestrak, Nominatim, AWS Location |
+| `test_provider_smoke.py` | providers | `live` | Live connectivity: Open-Meteo, 7Timer, Celestrak GP + SATCAT, Nominatim, AWS Location |
 
 ## Known gaps (future work)
 
 - **`satellites.py`** — `satellite_passes()` staleness guard and
   `starlink_train_passes()` grouping still lack direct coverage (need real TLEs +
-  Skyfield).
+  Skyfield). Its launch-date handoff from `tle_provider` is covered in
+  `test_tle_request_path.py`.
 - **`trip.py`** — `plan_trip()` ranking and dual-TTL caching.
 - **Rendering** — `render_report.py`, `render_calendar.py`, `render_trip.py`,
   `format_ctx.py` pure-function helpers.

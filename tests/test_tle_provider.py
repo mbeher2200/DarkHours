@@ -9,8 +9,8 @@ import pytest
 
 from darkhours import tle_provider as tle_mod
 from darkhours.tle_provider import (
+    _cospar_designator,
     _filter_train_tles,
-    _parse_launch_date,
     _parse_mean_motion,
     get_tle,
 )
@@ -59,40 +59,32 @@ class TestParseMeanMotion:
 
 
 # ---------------------------------------------------------------------------
-# _parse_launch_date — COSPAR International Designator parsing
+# _cospar_designator — International Designator parsing
+#
+# These previously asserted the day-of-year reading as ground truth ("98067A" →
+# day 67), which is what made the Starlink train filter match nothing: NNN is the
+# launch's sequence number within its year, not a day of it.
 # ---------------------------------------------------------------------------
 
-class TestParseLaunchDate:
-    def test_iss_launch_1998(self):
-        """ISS intl designator '98067A' → year=1998, DOY=67 (March 8)."""
-        d = _parse_launch_date(_ISS_L1)
-        assert d is not None
-        assert d.year == 1998
-        assert d.timetuple().tm_yday == 67
+class TestCosparDesignator:
+    def test_iss_is_the_67th_launch_of_1998_not_day_67(self):
+        """1998-067A is the ISS. It launched on 20 November 1998; day 67 is 8 March."""
+        assert _cospar_designator(_ISS_L1) == "1998-067"
 
     def test_year_below_57_maps_to_2000s(self):
-        # year_2d=20 < 57 → 2000+20=2020, DOY=001
         l1 = "1 00001U 20001A   24191.50000000  .00000000  00000-0  00000-0 0  9999"
-        d = _parse_launch_date(l1)
-        assert d is not None
-        assert d.year == 2020
-        assert d.timetuple().tm_yday == 1
+        assert _cospar_designator(l1) == "2020-001"
 
     def test_year_57_maps_to_1957(self):
-        # year_2d=57 ≥ 57 → 1900+57=1957 (Sputnik era)
         l1 = "1 00002U 57001A   24191.50000000  .00000000  00000-0  00000-0 0  9999"
-        d = _parse_launch_date(l1)
-        assert d is not None
-        assert d.year == 1957
-        assert d.timetuple().tm_yday == 1
+        assert _cospar_designator(l1) == "1957-001"
 
     def test_blank_intl_designator_returns_none(self):
-        # All spaces in cols 9-16 → stripped to "" → len < 5 → None
         l1 = "1 00001U         24191.50000000  .00000000  00000-0  00000-0 0  9999"
-        assert _parse_launch_date(l1) is None
+        assert _cospar_designator(l1) is None
 
     def test_too_short_line_returns_none(self):
-        assert _parse_launch_date("1 00001U") is None
+        assert _cospar_designator("1 00001U") is None
 
 
 # ---------------------------------------------------------------------------
@@ -102,25 +94,17 @@ class TestParseLaunchDate:
 def _make_train_block() -> str:
     """
     Build a multi-TLE block with four synthetic Starlink satellites:
-      RECENT-HIGH   — launched 5 days ago, MM=15.60 → INCLUDE
-      RECENT-LOW    — launched 5 days ago, MM=15.30 → EXCLUDE (operational altitude)
-      OLD-HIGH      — launched 30 days ago, MM=15.70 → EXCLUDE (stale batch)
-      UNKNOWN-DATE  — empty intl designator, MM=15.55 → INCLUDE (no date = conservative)
+      RECENT-HIGH   — launch 2026-040, 5 days ago,  MM=15.60 → INCLUDE
+      RECENT-LOW    — launch 2026-040, 5 days ago,  MM=15.06 → EXCLUDE (on station)
+      OLD-HIGH      — launch 2026-030, 30 days ago, MM=15.70 → EXCLUDE (stale batch)
+      UNKNOWN-DATE  — blank designator,             MM=15.55 → EXCLUDE (undatable)
+
+    UNKNOWN-DATE used to be included on the theory that an unknown launch date was
+    safest treated as recent. It is the opposite: an undatable satellite at high mean
+    motion is far more likely to be an old one on its way down.
     """
-    today  = date.today()
-    recent = today - timedelta(days=5)
-    old    = today - timedelta(days=30)
-
-    def _doy(d: date) -> int:
-        return (d - date(d.year, 1, 1)).days + 1
-
-    def _l1(n: int, d: date | None, piece: str = "A") -> str:
-        if d is None:
-            intl = "        "   # blank = unknown launch
-        else:
-            yy  = d.year % 100
-            doy = _doy(d)
-            intl = f"{yy:02d}{doy:03d}{piece}  "[:8]
+    def _l1(n: int, designator: str) -> str:
+        intl = f"{designator}  "[:8] if designator else "        "
         return f"1 {n:05d}U {intl}24001.50000000  .00000000  00000-0  00000-0 0  9999"
 
     def _l2(n: int, mm: float) -> str:
@@ -128,52 +112,52 @@ def _make_train_block() -> str:
         return prefix + f"{mm:.8f}00001 0"
 
     return "\n".join([
-        "STARLINK-RECENT-HIGH",
-        _l1(10001, recent),
-        _l2(10001, 15.60),
-
-        "STARLINK-RECENT-LOW",
-        _l1(10002, recent),
-        _l2(10002, 15.30),
-
-        "STARLINK-OLD-HIGH",
-        _l1(10003, old),
-        _l2(10003, 15.70),
-
-        "STARLINK-UNKNOWN-DATE",
-        _l1(10004, None),
-        _l2(10004, 15.55),
+        "STARLINK-RECENT-HIGH",  _l1(10001, "26040A"), _l2(10001, 15.60),
+        "STARLINK-RECENT-LOW",   _l1(10002, "26040B"), _l2(10002, 15.06),
+        "STARLINK-OLD-HIGH",     _l1(10003, "26030A"), _l2(10003, 15.70),
+        "STARLINK-UNKNOWN-DATE", _l1(10004, ""),       _l2(10004, 15.55),
     ])
+
+
+_TODAY        = date.today()
+_LAUNCH_DATES = {
+    "2026-040": _TODAY - timedelta(days=5),
+    "2026-030": _TODAY - timedelta(days=30),
+}
 
 
 class TestFilterTrainTles:
     def setup_method(self):
-        self.block = _make_train_block()
-        self.results = _filter_train_tles(self.block)
-        self.names = {r[0] for r in self.results}
+        self.block   = _make_train_block()
+        self.results = _filter_train_tles(self.block, _LAUNCH_DATES)
+        self.names   = {r[0] for r in self.results}
 
     def test_recent_high_mm_included(self):
         assert "STARLINK-RECENT-HIGH" in self.names
 
-    def test_recent_low_mm_excluded(self):
+    def test_operational_mean_motion_excluded(self):
         assert "STARLINK-RECENT-LOW" not in self.names
 
     def test_old_high_mm_excluded(self):
         assert "STARLINK-OLD-HIGH" not in self.names
 
-    def test_unknown_date_high_mm_included(self):
-        assert "STARLINK-UNKNOWN-DATE" in self.names
+    def test_unknown_date_excluded(self):
+        assert "STARLINK-UNKNOWN-DATE" not in self.names
 
-    def test_each_result_is_three_tuple(self):
+    def test_each_result_carries_its_launch_date(self):
         for entry in self.results:
-            assert len(entry) == 3   # (name, line1, line2)
+            assert len(entry) == 4          # (name, line1, line2, launch_date)
+            assert entry[3] == (_TODAY - timedelta(days=5)).isoformat()
 
     def test_empty_block_returns_empty(self):
-        assert _filter_train_tles("") == []
+        assert _filter_train_tles("", _LAUNCH_DATES) == []
 
     def test_malformed_block_skipped_gracefully(self):
         block = "JUNK LINE\nNOT A TLE\nALSO JUNK"
-        assert _filter_train_tles(block) == []
+        assert _filter_train_tles(block, _LAUNCH_DATES) == []
+
+    def test_no_launch_dates_matches_nothing(self):
+        assert _filter_train_tles(self.block, {}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +316,15 @@ class TestGetTle:
 # circuit breaker integration
 # ---------------------------------------------------------------------------
 
+_GROUP_TEST_LAUNCH_DATES = {"2026-040": date.today() - timedelta(days=3)}
+
+
+def _with_launch_dates():
+    """Stub the SATCAT leg so the group fetch below is what is under test."""
+    return mock.patch.object(tle_mod, "_fetch_starlink_launch_dates",
+                             return_value=dict(_GROUP_TEST_LAUNCH_DATES))
+
+
 class TestCircuitBreaker:
     @staticmethod
     def _mock_cache(get_val=None, stale_val=None):
@@ -384,16 +377,17 @@ class TestCircuitBreaker:
 
         # The cached value is the *filtered train list*, not the raw group block —
         # see _STARLINK_TRAINS_CACHE_KEY for why the raw block could never be stored.
-        cached = [["STARLINK-1", "1 aaa", "2 bbb"]]
+        recent = (date.today() - timedelta(days=3)).isoformat()
+        cached = [["STARLINK-1", "1 aaa", "2 bbb", recent]]
         mc = self._mock_cache(get_val=None, stale_val=cached)
         err = urllib.error.HTTPError(url="x", code=403, msg="Forbidden",
                                      hdrs=None, fp=None)
-        with mock.patch.object(tle_mod, '_cache', mc), \
+        with _with_launch_dates(), mock.patch.object(tle_mod, '_cache', mc), \
              mock.patch.object(tle_mod._http, 'urlopen', side_effect=err):
             tles, stale, error = tle_mod.get_starlink_train_tles()
         assert error is None
         assert stale is False, "revalidated data is current, not stale"
-        assert tles == [("STARLINK-1", "1 aaa", "2 bbb")]
+        assert tles == [("STARLINK-1", "1 aaa", "2 bbb", recent)]
         mc.set.assert_called_once()
         assert mc.set.call_args.kwargs["ttl_seconds"] == tle_mod.TLE_TTL
 
@@ -409,7 +403,7 @@ class TestCircuitBreaker:
         mc = self._mock_cache(get_val=None, stale_val=None)
         err = urllib.error.HTTPError(url="x", code=403, msg="Forbidden",
                                      hdrs=None, fp=None)
-        with mock.patch.object(tle_mod, '_cache', mc), \
+        with _with_launch_dates(), mock.patch.object(tle_mod, '_cache', mc), \
              mock.patch.object(tle_mod._http, 'urlopen', side_effect=err):
             tles, stale, error = tle_mod.get_starlink_train_tles()
         assert tles == []
@@ -425,7 +419,7 @@ class TestCircuitBreaker:
         import urllib.error
 
         mc = self._mock_cache(get_val=None, stale_val=None)
-        with mock.patch.object(tle_mod, '_cache', mc), \
+        with _with_launch_dates(), mock.patch.object(tle_mod, '_cache', mc), \
              mock.patch.object(tle_mod._http, 'urlopen',
                                side_effect=urllib.error.URLError("dns failure")):
             tles, stale, error = tle_mod.get_starlink_train_tles()
@@ -434,13 +428,26 @@ class TestCircuitBreaker:
         assert error is not None
         assert "unreachable" in error.lower()
 
+    def test_no_launch_dates_skips_the_group_fetch_entirely(self):
+        """SATCAT unreachable → no launch dates → the group cannot be filtered into
+        trains, so downloading 1.8 MB of it buys nothing. Surface the reason instead."""
+        mc = self._mock_cache(get_val=None, stale_val=None)
+        with mock.patch.object(tle_mod, "_fetch_starlink_launch_dates",
+                               return_value={}), \
+             mock.patch.object(tle_mod, '_cache', mc), \
+             mock.patch.object(tle_mod._http, 'urlopen') as urlopen:
+            tles, stale, error = tle_mod.get_starlink_train_tles()
+        urlopen.assert_not_called()
+        assert tles == []
+        assert error is not None and "launch dates" in error
+
     def test_starlink_group_read_timeout_does_not_raise(self):
         """A read-phase timeout (e.g. ssl.SSLSocket.read() mid-response) raises a raw
         TimeoutError, not urllib.error.URLError — urllib only wraps connect-phase
         failures. Confirmed live in production: this previously propagated uncaught
         out of get_starlink_train_tles() and crashed the entire /night response."""
         mc = self._mock_cache(get_val=None, stale_val=None)
-        with mock.patch.object(tle_mod, '_cache', mc), \
+        with _with_launch_dates(), mock.patch.object(tle_mod, '_cache', mc), \
              mock.patch.object(tle_mod._http, 'urlopen',
                                side_effect=TimeoutError("The read operation timed out")):
             tles, stale, error = tle_mod.get_starlink_train_tles()

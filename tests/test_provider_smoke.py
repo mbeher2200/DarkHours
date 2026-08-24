@@ -8,7 +8,7 @@ is set (keeps the default `pytest` run offline and deterministic). Run with:
 Covers every outbound data provider the engine depends on:
   * Open-Meteo            — primary weather forecast
   * 7Timer ASTRO         — seeing / transparency weather
-  * Celestrak            — satellite TLEs
+  * Celestrak            — satellite TLEs + SATCAT launch dates
   * NOAA SWPC            — Kp forecast + 27-day outlook (aurora)
   * Nominatim            — forward geocoding (local backend)
   * AWS Location         — forward geocoding (aws backend; additionally needs the
@@ -58,6 +58,26 @@ def test_celestrak_live():
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert any(ln.startswith("1 ") for ln in lines), "no TLE line 1 from Celestrak"
     assert any(ln.startswith("2 ") for ln in lines), "no TLE line 2 from Celestrak"
+
+
+def test_celestrak_satcat_live():
+    """SATCAT is the only source of launch dates — a TLE carries a launch number.
+
+    Also reports the freshness gap that decides whether trains are reportable at
+    all: no train can be found while the newest launch with GP elements is older
+    than _STARLINK_RECENT_DAYS.
+    """
+    from datetime import datetime, timezone
+    from darkhours import tle_provider
+
+    dates = tle_provider._fetch_starlink_launch_dates()
+    assert dates, "Celestrak SATCAT returned no recent Starlink launches"
+    assert all(d.count("-") == 1 for d in dates), "designators must be YYYY-NNN"
+
+    newest = max(dates.values())
+    age = (datetime.now(timezone.utc).date() - newest).days
+    print(f"\nnewest Starlink launch in SATCAT: {newest} ({age}d ago); "
+          f"train window is {tle_provider._STARLINK_RECENT_DAYS}d")
 
 
 # ── NOAA SWPC (aurora) ───────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ Public API:
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -427,22 +427,20 @@ def _az_diff(az1: float, az2: float) -> float:
     return min(diff, 360 - diff)
 
 
-def _parse_cospar_launch_date(line1: str) -> Optional[date]:
-    """
-    Extract the launch date from the TLE line 1 International Designator (cols 9-16).
+def _entry_launch_date(entry) -> Optional[date]:
+    """Read the launch date tle_provider carries alongside the TLE.
 
-    Format: YYLAUNCH_DOY + PIECE, e.g. "24191G" = 2024, day-of-year 191, piece G.
-    Returns None if the field is absent, a placeholder ("TBA"), or malformed.
+    It is not derivable from the TLE. Line 1 columns 10-17 hold the launch *number*
+    within its year, not a day of the year, so reading "26159" as day 159 dates the
+    11 July 2026 launch to 8 June. tle_provider joins the real dates on from the
+    SATCAT at filter time and passes them through as a fourth element; entries
+    without one (an older cache row) simply have no launch date to show.
     """
+    if len(entry) < 4:
+        return None
     try:
-        intl = line1[9:17].strip()
-        if len(intl) < 5 or not intl[:2].isdigit() or not intl[2:5].isdigit():
-            return None
-        year_2d = int(intl[:2])
-        year    = 2000 + year_2d if year_2d < 57 else 1900 + year_2d
-        doy     = int(intl[2:5])
-        return date(year, 1, 1) + timedelta(days=doy - 1)
-    except (ValueError, IndexError):
+        return date.fromisoformat(entry[3])
+    except (TypeError, ValueError):
         return None
 
 
@@ -457,9 +455,11 @@ def starlink_train_passes(
     Detect Starlink train passes over (*lat*, *lon*) between *t_start* and *t_end*.
 
     Accepts a pre-filtered list of raising-phase Starlink TLEs from
-    tle_provider.cached_starlink_trains().  Uses a lightweight single-point
-    sunlit check at pass peak (no shadow-window scan) since trains are
-    displayed as group summaries rather than precise rise/set events.
+    tle_provider.cached_starlink_trains(), as (name, line1, line2, launch_date_iso)
+    entries; three-element entries are accepted without a launch date.  Uses a
+    lightweight single-point sunlit check at pass peak (no shadow-window scan)
+    since trains are displayed as group summaries rather than precise rise/set
+    events.
 
     Groups passes into trains when:
       - Rise times of consecutive members are ≤ _TRAIN_GAP_S seconds apart
@@ -485,7 +485,9 @@ def starlink_train_passes(
 
         all_passes: list[dict] = []
 
-        for name, line1, line2 in train_tles:
+        for entry in train_tles:
+            name, line1, line2 = entry[0], entry[1], entry[2]
+            launch_date        = _entry_launch_date(entry)
             try:
                 satellite = EarthSatellite(line1, line2, name, ts)
 
@@ -526,7 +528,7 @@ def starlink_train_passes(
                         "dur_min":     float(dur_min),
                         "sky_dark":    sun_alt < _CIVIL_TWILIGHT_ALT,
                         "moon_sep":    moon_sep,
-                        "launch_date": _parse_cospar_launch_date(line1),
+                        "launch_date": launch_date,
                     })
             except Exception:
                 continue
