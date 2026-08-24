@@ -187,6 +187,22 @@ def _visible_window(satellite, planets, ts, t_rise, t_set):
     return vis_rise, vis_set, ends_in_shadow
 
 
+def _clamp_to_window(t, t_start, t_end):
+    """Clamp Skyfield Time *t* into [t_start, t_end].
+
+    Used to pull the geometric culmination into the *visible* window. A satellite's
+    altitude over one pass is unimodal — a single culmination between the two
+    horizon crossings — so when that culmination falls outside the sunlit
+    sub-interval, the highest visible point is the nearer endpoint. Clamping is
+    therefore exact here, not an approximation.
+    """
+    if t.tt < t_start.tt:
+        return t_start
+    if t.tt > t_end.tt:
+        return t_end
+    return t
+
+
 # ---------------------------------------------------------------------------
 # Moon proximity — coarse → fine
 # ---------------------------------------------------------------------------
@@ -333,14 +349,27 @@ def satellite_passes(
         results = []
 
         for group in groups:
-            t_geom_rise, t_peak, t_geom_set = group
-
-            peak_az, peak_alt = _az_alt(satellite, observer, t_peak)
+            t_geom_rise, t_culmination, t_geom_set = group
 
             # Refine rise/set to actual visible window (shadow-aware)
             t_vis_rise, t_vis_set, ends_in_shadow = _visible_window(
                 satellite, planets, ts, t_geom_rise, t_geom_set
             )
+
+            # The culmination is only the *visible* peak when it happens while the
+            # satellite is lit. On a pre-dawn pass the satellite often leaves Earth's
+            # shadow after culminating: it appears already descending, and the real
+            # geometric high point happened while it was invisible. Reporting that
+            # unclamped put rise_time after peak_time on live passes, and quoted a
+            # peak altitude the observer could never have seen — e.g. Tiangong over
+            # White Sands 2026-08-25, rise 04:26:25 at 23.1 deg against a "peak" of
+            # 04:24:54 at 39.2 deg. Everything derived from the peak (altitude,
+            # azimuth, sun altitude, Moon separation) has to come from the clamped
+            # time, or it describes a moment nobody could observe.
+            t_peak = (t_culmination if t_vis_rise is None
+                      else _clamp_to_window(t_culmination, t_vis_rise, t_vis_set))
+
+            peak_az, peak_alt = _az_alt(satellite, observer, t_peak)
 
             # Sun altitude at pass peak — determines whether sky is dark enough to observe
             sun_alt  = _sun_alt_deg(planets, observer_pos, t_peak)
