@@ -355,12 +355,57 @@ def test_night_date_only_omits_location_fields():
     assert "light_pollution" not in d
     assert "bortle_score" not in d
     assert "light_dome" not in d
-    # display_name too — it's location-keyed like the others, and stripping it avoids
-    # a wasted reverse-geocode lookup on every "View Details" click.
+    # display_name too — it's location-keyed like the others.
     assert "display_name" not in d
     # Date-dependent fields are still present.
     assert isinstance(d["sunset"], str)
     assert d["phase_name"] and d["score"] is not None
+
+
+@pytest.mark.eph
+@requires_rasters
+def test_night_date_only_skips_the_reverse_geocode(monkeypatch):
+    """date_only pops display_name from the response, so the lookup that produces it
+    must never run. It used to: _resolve reverse-geocoded unconditionally and the
+    result was discarded a few lines later, on every "View Details" drill-in."""
+    def _boom(*a, **kw):
+        raise AssertionError("date_only /night should not reverse-geocode")
+    monkeypatch.setattr(main_mod._loc, "reverse_geocode", _boom)
+    r = client.get("/night", params={
+        "lat": 35.1983, "lon": -111.6513, "date": "2026-06-15",
+        "weather": "false", "targets": "false", "satellites": "false",
+        "date_only": "true",
+    })
+    assert r.status_code == 200
+    assert "display_name" not in r.json()
+
+
+@pytest.mark.eph
+@requires_rasters
+def test_night_without_date_only_still_reverse_geocodes(monkeypatch):
+    """The other half of the guard above: a full fetch must still name the place,
+    so the skip cannot quietly widen to every raw-coord request."""
+    monkeypatch.setattr(main_mod._loc, "reverse_geocode", lambda lat, lon: "Named Place")
+    r = client.get("/night", params={
+        "lat": 35.1983, "lon": -111.6513, "date": "2026-06-15",
+        "weather": "false", "targets": "false", "satellites": "false",
+    })
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "Named Place"
+
+
+def test_resolve_by_name_still_geocodes_when_name_not_needed(monkeypatch):
+    """need_display_name is honoured only on the raw-coord branch: a named request
+    has to geocode to get coordinates at all, so the flag must not skip it."""
+    monkeypatch.setattr(
+        main_mod._loc, "resolve",
+        lambda name: (35.1983, -111.6513, "Flagstaff, AZ", "America/Phoenix"),
+    )
+    la, lo, disp, tz = main_mod._resolve("Flagstaff", None, None,
+                                         need_display_name=False)
+    assert (la, lo) == (35.1983, -111.6513)
+    assert disp == "Flagstaff, AZ"
+    assert str(tz) == "America/Phoenix"
 
 
 @pytest.mark.eph
