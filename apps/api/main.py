@@ -103,6 +103,9 @@ app.add_middleware(
 # Structured access log: path, status, duration, Lambda request-id.
 _access_log = logging.getLogger("pynightsky.access")
 
+# Per-phase timing for _resolve(), which runs before assemble_night's own timings.
+_resolve_log = logging.getLogger(__name__)
+
 class _AccessLog(BaseHTTPMiddleware):
     async def dispatch(self, request: _Request, call_next):
         t0 = time.monotonic()
@@ -209,12 +212,25 @@ def _parse_date(s: str | None, field: str = "date") -> date:
     return d
 
 
-def _resolve(location: str | None, lat: float | None, lon: float | None):
+def _resolve(location: str | None, lat: float | None, lon: float | None,
+             *, need_display_name: bool = True):
     """Resolve a request's place to (lat, lon, display_name, ZoneInfo).
 
     For a lat/lon request, `_loc.reverse_geocode` itself checks the local POI/PAD-US
     index before falling back to the network settlement lookup — see its docstring.
+
+    *need_display_name* is False when the caller throws the name away (/night's
+    date_only drill-in). Only the raw-coord branch can honour it: for a named
+    request the geocode IS how the coordinates are found, so there is nothing to
+    skip. The coordinate string it substitutes is the same fallback a point over
+    water or an unreachable geocoder already produces.
+
+    Emits one timing line per resolve. assemble_night's own phase timings start
+    only after this returns, so resolution was previously unmeasured even though
+    it sits on the critical path of every /night and /calendar request. Phases
+    that did not run report -1, matching predictor.py's convention.
     """
+    _t0 = time.monotonic()
     if location:
         try:
             la, lo, disp, tz_name = _loc.resolve(location)
@@ -222,13 +238,28 @@ def _resolve(location: str | None, lat: float | None, lon: float | None):
             raise HTTPException(404, str(e))      # not found
         except RuntimeError as e:
             raise HTTPException(502, str(e))      # geocoder unreachable
+        _resolve_log.info(
+            "resolve timing mode=name | tz=%dms rev=%dms total=%dms",
+            -1, -1, round((time.monotonic() - _t0) * 1000),
+        )
         return la, lo, disp, ZoneInfo(tz_name)
     if lat is not None and lon is not None:
         try:
             tz = _loc.timezone_for(lat, lon)
         except ValueError as e:
             raise HTTPException(400, str(e))   # e.g. no timezone for the point
-        disp = _loc.reverse_geocode(lat, lon) or f"{lat:.4f}°, {lon:.4f}°"
+        _tz_ms = round((time.monotonic() - _t0) * 1000)
+        _t1 = time.monotonic()
+        if need_display_name:
+            disp = _loc.reverse_geocode(lat, lon) or f"{lat:.4f}°, {lon:.4f}°"
+            _rev_ms = round((time.monotonic() - _t1) * 1000)
+        else:
+            disp = f"{lat:.4f}°, {lon:.4f}°"
+            _rev_ms = -1
+        _resolve_log.info(
+            "resolve timing mode=coords | tz=%dms rev=%dms total=%dms",
+            _tz_ms, _rev_ms, round((time.monotonic() - _t0) * 1000),
+        )
         return lat, lon, disp, tz
     raise HTTPException(400, "Provide 'location' or both 'lat' and 'lon'.")
 
@@ -272,7 +303,9 @@ def night(
     date_only: bool = Query(False, description="Omit location-keyed fields (light_pollution/bortle_score/light_dome) the client already has from a prior full fetch for this location"),
 ):
     """Single-night report for a location/date (mirrors the CLI single-night path)."""
-    la, lo, disp, tz = _resolve(location, lat, lon)
+    # date_only discards display_name below, so don't pay to look it up. Raw coords
+    # only: a named request needs the geocode regardless (see _resolve).
+    la, lo, disp, tz = _resolve(location, lat, lon, need_display_name=not date_only)
     target = _parse_date(date)
     try:
         report = assemble_night(
@@ -294,8 +327,9 @@ def night(
     if date_only:
         # Location-keyed, not date-keyed — the client already has these from
         # the initial full fetch for this location and doesn't need them again.
-        # display_name is included here too, avoiding a wasted reverse-geocode/
-        # POI-index lookup on every "View Details" date-only click.
+        # display_name is included here too; _resolve was told to skip the
+        # reverse-geocode/POI-index lookup that would have produced it, so this
+        # pop discards a coordinate-string placeholder rather than real work.
         d.pop("light_pollution", None)
         d.pop("bortle_score", None)
         d.pop("light_dome", None)
