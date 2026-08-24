@@ -7,6 +7,7 @@ exactly what it did in production for months.
 """
 import json
 import time
+from datetime import date
 
 import pytest
 
@@ -50,18 +51,38 @@ def fake_cache(monkeypatch):
     return c
 
 
+def _ok_launch_dates(monkeypatch, cache):
+    """Wire the SATCAT leg to succeed and populate *cache*, as the real one does.
+
+    warm_cache warms the launch-date map under its own key: the train filter cannot
+    run without it, so a SATCAT failure has to show up as itself rather than as an
+    unexplained empty train list.
+    """
+    dates = {"2026-040": date(2026, 8, 12)}
+
+    def fake_fetch_dates(timeout=None):
+        cache.set(tle._STARLINK_LAUNCH_DATES_CACHE_KEY,
+                  {d: v.isoformat() for d, v in dates.items()},
+                  ttl_seconds=tle.TLE_TTL)
+        return dict(dates)
+
+    monkeypatch.setattr(tle, "_fetch_starlink_launch_dates", fake_fetch_dates)
+    return dates
+
+
 def _ok_refreshers(monkeypatch, cache, trains=1):
     """Wire refresh_* to succeed and actually populate *cache*, as the real ones do."""
     seen = {}
+    _ok_launch_dates(monkeypatch, cache)
 
     def fake_refresh_tle(norad, timeout=None):
         seen["tle"] = timeout
         cache.set(tle._tle_key(norad), "NAME\nline1\nline2", ttl_seconds=tle.TLE_TTL)
         return tle.TLEResult(lines=("NAME", "line1", "line2"), stale=False, error=None)
 
-    def fake_refresh_group(timeout=None):
+    def fake_refresh_group(timeout=None, launch_dates=None):
         seen["group"] = timeout
-        value = [["S", "1 x", "2 x"]] * trains
+        value = [["S", "1 x", "2 x", "2026-08-12"]] * trains
         cache.set(tle._STARLINK_TRAINS_CACHE_KEY, value, ttl_seconds=tle.TLE_TTL)
         return value, False, None
 
@@ -83,8 +104,9 @@ def test_warm_all_ok(monkeypatch, fake_cache):
 def test_warm_reports_failures(monkeypatch, fake_cache):
     monkeypatch.setattr(tle, "refresh_tle",
                         lambda n, timeout=None: tle.TLEResult(lines=None, stale=False, error="HTTP 503"))
+    _ok_launch_dates(monkeypatch, fake_cache)
     monkeypatch.setattr(tle, "refresh_starlink_trains",
-                        lambda timeout=None: ([], True, "timed out"))
+                        lambda timeout=None, launch_dates=None: ([], True, "timed out"))
     out = h.handler({}, None)
     assert out["ok"] is False
     assert "FAIL" in out["results"]["ISS"]["status"]
@@ -95,8 +117,9 @@ def test_warm_stale_is_not_ok(monkeypatch, fake_cache):
     monkeypatch.setattr(
         tle, "refresh_tle",
         lambda n, timeout=None: tle.TLEResult(lines=("a", "b", "c"), stale=True, error="HTTP 500"))
+    _ok_launch_dates(monkeypatch, fake_cache)
     monkeypatch.setattr(tle, "refresh_starlink_trains",
-                        lambda timeout=None: ([("a", "b", "c")], False, None))
+                        lambda timeout=None, launch_dates=None: ([("a", "b", "c")], False, None))
     out = h.handler({}, None)
     assert out["ok"] is False
     assert "stale" in out["results"]["ISS"]["status"]
@@ -116,8 +139,9 @@ def test_warm_is_not_ok_when_the_write_is_silently_dropped(monkeypatch):
     monkeypatch.setattr(
         tle, "refresh_tle",
         lambda n, timeout=None: tle.TLEResult(lines=("a", "b", "c"), stale=False, error=None))
+    _ok_launch_dates(monkeypatch, dead)
     monkeypatch.setattr(tle, "refresh_starlink_trains",
-                        lambda timeout=None: ([("a", "b", "c")], False, None))
+                        lambda timeout=None, launch_dates=None: ([("a", "b", "c")], False, None))
 
     out = h.handler({}, None)
 
@@ -140,13 +164,15 @@ def test_warmer_forces_a_refresh_even_when_the_cache_is_fresh(monkeypatch, fake_
     for norad, _ in tle.TRACKED_SATELLITES:
         fake_cache.set(tle._tle_key(norad), "NAME\nl1\nl2", ttl_seconds=tle.TLE_TTL)
     fake_cache.set(tle._STARLINK_TRAINS_CACHE_KEY, [], ttl_seconds=tle.TLE_TTL)
+    _ok_launch_dates(monkeypatch, fake_cache)
 
     calls = []
     monkeypatch.setattr(tle, "refresh_tle", lambda n, timeout=None: (
         calls.append(n),
         tle.TLEResult(lines=("a", "b", "c"), stale=False, error=None))[1])
-    monkeypatch.setattr(tle, "refresh_starlink_trains", lambda timeout=None: (
-        calls.append("group"), ([], False, None))[1])
+    monkeypatch.setattr(tle, "refresh_starlink_trains",
+                        lambda timeout=None, launch_dates=None: (
+                            calls.append("group"), ([], False, None))[1])
 
     h.handler({}, None)
 
@@ -165,8 +191,13 @@ def test_cli_warm_skips_refresh_when_already_fresh(monkeypatch, fake_cache):
     fake_cache.set(tle._STARLINK_TRAINS_CACHE_KEY, [], ttl_seconds=tle.TLE_TTL)
 
     calls = []
+    fake_cache.set(tle._STARLINK_LAUNCH_DATES_CACHE_KEY, {"2026-040": "2026-08-12"},
+                   ttl_seconds=tle.TLE_TTL)
     monkeypatch.setattr(tle, "refresh_tle", lambda n, timeout=None: calls.append(n))
-    monkeypatch.setattr(tle, "refresh_starlink_trains", lambda timeout=None: calls.append("g"))
+    monkeypatch.setattr(tle, "refresh_starlink_trains",
+                        lambda timeout=None, launch_dates=None: calls.append("g"))
+    monkeypatch.setattr(tle, "_fetch_starlink_launch_dates",
+                        lambda timeout=None: calls.append("dates"))
 
     summary = tle.warm_cache(force=False)
 
@@ -201,7 +232,35 @@ def test_emits_one_failure_metric_and_a_per_key_success_metric(monkeypatch, fake
     per_key = [e for e in emitted if "TleWarmSuccess" in e]
     failures = [e for e in emitted if "TleWarmFailure" in e]
 
-    assert {e["Key"] for e in per_key} == {"ISS", "Hubble Telescope", "Tiangong", "starlink"}
+    assert {e["Key"] for e in per_key} == {"ISS", "Hubble Telescope", "Tiangong",
+                                           "starlink", "starlink-launch-dates"}
     assert all(e["TleWarmSuccess"] == 1 for e in per_key)
     assert all(e["TleCachedBytes"] > 0 for e in per_key)
     assert len(failures) == 1 and failures[0]["TleWarmFailure"] == 0
+
+    # A verified write of an empty list is a success by every other measure here,
+    # and for the train key an empty list is also the normal state between launches
+    # — which is how a filter that could never match anything stayed invisible.
+    by_key = {e["Key"]: e for e in per_key}
+    assert by_key["starlink"]["TleWarmItems"] == 1
+    assert by_key["starlink-launch-dates"]["TleWarmItems"] == 1
+
+
+def test_a_permanently_empty_train_list_is_still_visible_as_a_count(monkeypatch, fake_cache, capsys):
+    """The state that hid the broken filter: every key verified, ok=True, no trains.
+
+    Nothing here is a failure — an empty train list is the normal state between
+    launches — so the count is the only thing that separates "nothing tonight" from
+    "nothing, for weeks".
+    """
+    _ok_refreshers(monkeypatch, fake_cache, trains=0)
+    out = h.handler({}, None)
+
+    assert out["ok"] is True
+    assert out["results"]["starlink"]["count"] == 0
+
+    emitted = [json.loads(line) for line in capsys.readouterr().out.splitlines()
+               if line.startswith("{")]
+    starlink = next(e for e in emitted if e.get("Key") == "starlink")
+    assert starlink["TleWarmSuccess"] == 1, "a verified write of [] is still a write"
+    assert starlink["TleWarmItems"] == 0

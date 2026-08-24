@@ -8,8 +8,9 @@ data silently disappears from every request. That is why it verifies its own wri
 and alarms on failure rather than reporting a status derived from the fetch alone.
 
 TLE is GLOBAL (one dataset for every user and every location), so there is nothing
-per-region to warm — this refreshes the handful of tracked-satellite TLEs plus the
-filtered Starlink train list, under the same keys the request path reads.
+per-region to warm — this refreshes the handful of tracked-satellite TLEs, the
+recent-launch dates the train filter needs, and the filtered Starlink train list,
+under the same keys the request path reads.
 
 Imports stay light on purpose: ``tle_provider`` only touches the cache port
 (DynamoDB), never the raster adapter (which would pull in rasterio/GDAL — 335 MB).
@@ -35,6 +36,12 @@ def _emit_key_metrics(key_result) -> None:
     back out of the cache after the write, so it cannot report success for a write
     that was silently rejected. TleCachedBytes exists so an item creeping toward
     DynamoDB's 400 KB ceiling is visible on a graph before it crosses it.
+
+    TleWarmItems is how many entries the value holds. A verified write of an empty
+    list is a success by every other measure here, and for the Starlink train key an
+    empty list is also the normal state between launches — which is exactly how a
+    filter that could never match anything stayed invisible. The count separates
+    "nothing to show tonight" from "nothing, for weeks".
     """
     emf = {
         "_aws": {
@@ -45,12 +52,14 @@ def _emit_key_metrics(key_result) -> None:
                 "Metrics": [
                     {"Name": "TleWarmSuccess", "Unit": "Count"},
                     {"Name": "TleCachedBytes", "Unit": "Bytes"},
+                    {"Name": "TleWarmItems", "Unit": "Count"},
                 ],
             }],
         },
         "Key": key_result.label,
         "TleWarmSuccess": 1 if key_result.verified else 0,
         "TleCachedBytes": key_result.bytes,
+        "TleWarmItems": key_result.count,
     }
     print(json.dumps(emf))
 

@@ -20,9 +20,9 @@ flag to misconfigure and no new call site that can quietly reintroduce a fetch.
 
 Public API:
     cached_tle(norad_id)                 → TLEResult              (request path)
-    cached_starlink_trains()             → (list[tuple], stale, error)
+    cached_starlink_trains()             → (list[tuple], stale, error)   (request path)
     refresh_tle(norad_id, timeout=…)     → TLEResult              (warmer/CLI)
-    refresh_starlink_trains(timeout=…)   → (list[tuple], stale, error)
+    refresh_starlink_trains(timeout=…, launch_dates=…)                   (warmer/CLI)
     warm_cache(timeout=…, force=True)    → WarmSummary            (warmer/CLI)
     get_tle(norad_id, timeout=…)         → TLEResult              (CLI convenience)
     get_starlink_train_tles(timeout=…)   → (list[tuple], stale, error)
@@ -31,12 +31,15 @@ Public API:
     TRACKED_SATELLITES                   → [(norad_id, display_name), ...]
 """
 
+import csv
+import io
 import json
 import logging
 import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 
 from . import cache as _cache
 from . import circuit_breaker as _cb
@@ -128,6 +131,7 @@ class WarmKeyResult:
     status: str            # human-readable, for the log line
     verified: bool         # the value was read back out of the cache afterwards
     bytes: int = 0         # serialized size of the verified value
+    count: int = 0         # how many items the value holds, where that is meaningful
     error: str | None = None
 
 
@@ -140,7 +144,8 @@ class WarmSummary:
         return {
             "ok": self.ok,
             "results": {
-                k.label: {"status": k.status, "verified": k.verified, "bytes": k.bytes}
+                k.label: {"status": k.status, "verified": k.verified,
+                          "bytes": k.bytes, "count": k.count}
                 for k in self.keys
             },
         }
@@ -250,13 +255,16 @@ def cached_tle(norad_id: int) -> TLEResult:
     return TLEResult(lines=None, stale=False, error=msg)
 
 
-def cached_starlink_trains() -> tuple[list[tuple[str, str, str]], bool, str | None]:
+def cached_starlink_trains() -> tuple[list[tuple[str, str, str, str | None]], bool, str | None]:
     """Return the cached Starlink train TLEs, or a degraded result. Never fetches.
 
     An empty list is a legitimate answer — there is frequently no launch in the
     raising phase — so every check here is ``is not None``, not truthiness. Reading
     an empty cached list as "nothing cached" would send us back to fetching on the
     request path for the most common case.
+
+    Each entry is ``(name, line1, line2, launch_date_iso)``. The launch date rides
+    along because it is not derivable from the TLE — see ``_cospar_designator``.
     """
     key = _STARLINK_TRAINS_CACHE_KEY
 
@@ -274,12 +282,32 @@ def cached_starlink_trains() -> tuple[list[tuple[str, str, str]], bool, str | No
     return [], False, msg
 
 
-def _as_tle_tuples(value) -> list[tuple[str, str, str]]:
-    """Coerce the cached JSON (lists of 3 strings) back to the tuples callers expect."""
-    out: list[tuple[str, str, str]] = []
+def _as_tle_tuples(value) -> list[tuple[str, str, str, str | None]]:
+    """Coerce the cached JSON back to the tuples callers expect.
+
+    Entries are ``[name, line1, line2, launch_date]``. The launch date travels
+    with the TLE because it cannot be recovered from one: line 1 carries the
+    launch *number* within its year, not a date (see ``_cospar_designator``).
+    Three-element entries written by an older build are still accepted and read
+    as an unknown launch date.
+    """
+    out: list[tuple[str, str, str, str | None]] = []
     for entry in value or []:
-        if isinstance(entry, (list, tuple)) and len(entry) == 3:
-            out.append((entry[0], entry[1], entry[2]))
+        if isinstance(entry, (list, tuple)) and len(entry) >= 3:
+            launch = entry[3] if len(entry) > 3 else None
+            out.append((entry[0], entry[1], entry[2],
+                        launch if isinstance(launch, str) else None))
+    return out
+
+
+def _as_launch_dates(value) -> dict[str, date]:
+    """Coerce the cached ``{designator: "YYYY-MM-DD"}`` map back to dates."""
+    out: dict[str, date] = {}
+    for designator, iso in (value or {}).items():
+        try:
+            out[designator] = date.fromisoformat(iso)
+        except (TypeError, ValueError):
+            continue
     return out
 
 
@@ -301,9 +329,31 @@ _STARLINK_GROUP_URL       = ("https://celestrak.org/NORAD/elements/gp.php"
 # never read back in the wrong shape.
 _STARLINK_TRAINS_CACHE_KEY = "tle|starlink|trains"
 
-_STARLINK_TRAIN_MM_MIN    = 15.5   # rev/day → altitude ≲ 430 km → raising phase
-                                   # (operational Starlink sits at ~550 km / ~15.1 rev/day)
+# Celestrak's SATCAT is the only place a launch *date* exists. GP/TLE data carries
+# a launch number, not a date (see _cospar_designator), so the recency half of the
+# train filter has no other source. Warmer path only, like every fetch here.
+_STARLINK_SATCAT_URL      = ("https://celestrak.org/satcat/records.php"
+                             "?GROUP=starlink&FORMAT=CSV")
+_STARLINK_LAUNCH_DATES_CACHE_KEY = "tle|starlink|launch_dates"
+
+# rev/day. Every operational Starlink shell sits at or below ~15.12 rev/day
+# (530-560 km); above this line a satellite has not reached its shell yet. The
+# previous value of 15.5 (~345 km) described only the lowest insertion orbit, and
+# dropped batches deployed directly at ~465 km — three of the four most recent
+# launches in the feed on 2026-08-23.
+_STARLINK_TRAIN_MM_MIN    = 15.2
 _STARLINK_RECENT_DAYS     = 21     # only launches within this window can form a visible train
+
+# The cached launch-date map is pruned to this window. The filter only ever asks
+# about _STARLINK_RECENT_DAYS; the wider margin keeps the item small (tens of
+# entries out of ~700 Starlink launches) while leaving headroom to widen the
+# train window without needing a second change here.
+_STARLINK_LAUNCH_DATE_WINDOW_DAYS = 90
+
+# Whole-transfer bounds for the SATCAT fetch — same reasoning as the group fetch
+# below. The CSV is ~1 MB today.
+_SATCAT_MAX_BYTES         = 16 * 1024 * 1024
+_SATCAT_TRANSFER_DEADLINE = 45.0
 
 # Ceiling on what we will store. The observed raising-phase population is ~880
 # satellites (~150 KB serialized) before the recency filter narrows it; capping the
@@ -326,61 +376,182 @@ def _parse_mean_motion(line2: str) -> float | None:
         return None
 
 
-def _parse_launch_date(line1: str):
-    """
-    Parse the launch date from the TLE line 1 International Designator (cols 9-16).
+def _cospar_designator(line1: str) -> str | None:
+    """Return the launch's COSPAR designator from TLE line 1, e.g. ``"2026-159"``.
 
-    Format: YYLAUNCHDAY_OF_YEAR + PIECE, e.g. "24191G" = 2024, day 191, piece G.
-    Returns a date object or None if the field is absent / malformed.
+    Columns 10-17 hold ``YYNNNPPP``: two-digit year, launch number *within that
+    year*, and piece. NNN is a sequence number, not a day of the year — 1998-067A
+    (the ISS) launched on 20 November 1998, and day 67 of 1998 is 8 March.
+
+    This identifies a launch; it cannot date one. Reading NNN as a day-of-year is
+    what made the train filter match nothing: it re-dated every launch to somewhere
+    in the first third of its year, so on 2026-08-23 the newest launch in the feed
+    (2026-159, launched 11 July) presented as 8 June and fell outside every window
+    the filter could reasonably use. Launch dates come from the SATCAT instead —
+    see _fetch_starlink_launch_dates.
     """
-    from datetime import date, timedelta
-    try:
-        intl = line1[9:17].strip()
-        if len(intl) < 5 or not intl[:2].isdigit() or not intl[2:5].isdigit():
-            return None
-        year_2d = int(intl[:2])
-        year    = 2000 + year_2d if year_2d < 57 else 1900 + year_2d
-        doy     = int(intl[2:5])
-        return date(year, 1, 1) + timedelta(days=doy - 1)
-    except (ValueError, IndexError):
+    intl = line1[9:17].strip()
+    if len(intl) < 5 or not intl[:5].isdigit():
         return None
+    year_2d = int(intl[:2])
+    year    = 2000 + year_2d if year_2d < 57 else 1900 + year_2d
+    return f"{year}-{intl[2:5]}"
 
 
-def _filter_train_tles(raw: str) -> list[tuple[str, str, str]]:
+def _parse_satcat_launch_dates(csv_text: str, today: date) -> dict[str, date]:
+    """Build ``{designator: launch date}`` from a SATCAT CSV, pruned to recent launches."""
+    cutoff = today - timedelta(days=_STARLINK_LAUNCH_DATE_WINDOW_DAYS)
+    out: dict[str, date] = {}
+    for row in csv.DictReader(io.StringIO(csv_text)):
+        object_id = (row.get("OBJECT_ID") or "").strip()
+        raw_date  = (row.get("LAUNCH_DATE") or "").strip()
+        if len(object_id) < 8:
+            continue
+        try:
+            launched = date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+        if launched >= cutoff:
+            out[object_id[:8]] = launched
+    return out
+
+
+def _filter_train_tles(
+    raw: str, launch_dates: dict[str, date]
+) -> list[tuple[str, str, str, str]]:
     """
     Parse a multi-TLE block and return only raising-phase Starlinks from recent launches.
 
     Two-part filter:
-      1. Mean motion ≥ _STARLINK_TRAIN_MM_MIN — satellite is below operational altitude
-      2. Launch date within _STARLINK_RECENT_DAYS — satellite is from a recent deployment;
-         older batches have spread out and no longer form a visible train even if they
-         haven't yet reached full operational altitude
+      1. Mean motion ≥ _STARLINK_TRAIN_MM_MIN — the satellite is still below every
+         operational shell, so it has not been handed over to service yet.
+      2. The launch is within _STARLINK_RECENT_DAYS, per *launch_dates* — an older
+         batch has spread around its orbit and no longer crosses the sky as a train
+         even while it is still raising.
+
+    Recency is the load-bearing half, and it is why this needs the SATCAT. Mean
+    motion alone is not a train signal: ~880 of the ~10,700 satellites in the group
+    are above the threshold at any moment, and most are old satellites being lowered
+    for re-entry rather than new ones being raised.
+
+    An empty *launch_dates* therefore fails closed. Without dates the two populations
+    are indistinguishable, and emitting the raising-phase set unfiltered would put
+    hundreds of decaying satellites on screen labelled as trains.
+
+    Ordered newest launch first so _STARLINK_MAX_TRAINS truncates the oldest batch
+    rather than an arbitrary one.
 
     The recency cutoff is evaluated here, at filter time, and the result is what gets
     cached — so it is frozen for up to one refresh interval (6 h) against a 21-day
     window. That drift is immaterial; caching the raw block instead is what was not.
     """
-    from datetime import datetime, timedelta, timezone
+    if not launch_dates:
+        log.error("No Starlink launch dates available — cannot tell a train from a "
+                  "decaying satellite, so no trains will be reported",
+                  extra={"service": "celestrak"})
+        return []
+
     cutoff = datetime.now(timezone.utc).date() - timedelta(days=_STARLINK_RECENT_DAYS)
 
     lines  = [l.strip() for l in raw.splitlines() if l.strip()]
-    result = []
+    dated: list[tuple[date, tuple[str, str, str, str]]] = []
+    raising = 0
     i = 0
     while i + 2 <= len(lines) - 1:
         name, l1, l2 = lines[i], lines[i + 1], lines[i + 2]
         if l1.startswith("1 ") and l2.startswith("2 "):
-            mm          = _parse_mean_motion(l2)
-            launch_date = _parse_launch_date(l1)
-            is_raising  = mm is not None and mm >= _STARLINK_TRAIN_MM_MIN
-            # Include if launch date is unknown (un-catalogued) OR within the cutoff
-            is_recent   = launch_date is None or launch_date >= cutoff
-            if is_raising and is_recent:
-                result.append((name, l1, l2))
+            mm = _parse_mean_motion(l2)
+            if mm is not None and mm >= _STARLINK_TRAIN_MM_MIN:
+                raising += 1
+                launched = launch_dates.get(_cospar_designator(l1) or "")
+                if launched is not None and launched >= cutoff:
+                    dated.append((launched, (name, l1, l2, launched.isoformat())))
             i += 3
         else:
             i += 1
-    log.debug("Filtered %d Starlink train candidates from group TLE", len(result))
-    return result
+
+    dated.sort(key=lambda entry: entry[0], reverse=True)
+    log.debug("Filtered %d Starlink train candidates from group TLE (%d raising)",
+              len(dated), raising)
+    return [entry for _, entry in dated]
+
+
+def _prune_expired_trains(
+    trains: list[tuple[str, str, str, str | None]],
+) -> list[tuple[str, str, str, str | None]]:
+    """Drop cached entries whose launch has aged out of the train window.
+
+    Celestrak's 403 means the group has not changed, so there is nothing to
+    re-filter — but the 21-day window has still moved since the list was built, and
+    the raw block is deliberately not kept. Each entry carries its own launch date,
+    so the cached list can be aged without refetching anything.
+    """
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=_STARLINK_RECENT_DAYS)
+    kept: list[tuple[str, str, str, str | None]] = []
+    for entry in trains:
+        try:
+            launched = date.fromisoformat(entry[3])
+        except (TypeError, ValueError):
+            continue
+        if launched >= cutoff:
+            kept.append(entry)
+    return kept
+
+
+def _fetch_starlink_launch_dates(timeout: float = _WARM_FETCH_TIMEOUT) -> dict[str, date]:
+    """Fetch recent Starlink launch dates from Celestrak's SATCAT, and cache them.
+
+    Falls back to the cached map (fresh, then expired) on any failure: a launch date
+    does not change once it is set, so a stale map is as good as a new one for every
+    launch it already covers, and losing the map entirely disables the train filter.
+    """
+    key = _STARLINK_LAUNCH_DATES_CACHE_KEY
+
+    if not _cb.allow("celestrak"):
+        log.debug("SATCAT fetch skipped — celestrak circuit open")
+    else:
+        req = urllib.request.Request(_STARLINK_SATCAT_URL,
+                                     headers={"User-Agent": _USER_AGENT})
+        try:
+            with _rl.acquire("celestrak"), _http.urlopen(req, timeout=timeout) as resp:
+                body = _http.read_capped(
+                    resp, _SATCAT_MAX_BYTES, _SATCAT_TRANSFER_DEADLINE
+                )
+            dates = _parse_satcat_launch_dates(
+                body.decode("utf-8"), datetime.now(timezone.utc).date()
+            )
+            _ph.record("celestrak", "ok")
+            _cb.on_success("celestrak")
+            if dates:
+                _cache.set(key, {d: v.isoformat() for d, v in dates.items()},
+                           ttl_seconds=TLE_TTL)
+                log.debug("Fetched %d recent Starlink launch dates from SATCAT", len(dates))
+                return dates
+            # Reached Celestrak and it had nothing recent. Not a transport failure,
+            # so it must not touch the breaker.
+            log.warning("Celestrak SATCAT listed no Starlink launch in the last %d days",
+                        _STARLINK_LAUNCH_DATE_WINDOW_DAYS)
+        except urllib.error.HTTPError as e:
+            log.warning("Celestrak SATCAT HTTP %d", e.code)
+            _ph.record("celestrak",
+                       "degraded" if e.code == 429 else "error", f"HTTP {e.code}")
+            _cb.on_failure("celestrak")
+        except urllib.error.URLError as e:
+            log.warning("Celestrak SATCAT unreachable: %s", e.reason)
+            _ph.record("celestrak", "error", str(e.reason)[:120])
+            _cb.on_failure("celestrak")
+        except Exception as e:
+            log.warning("Celestrak SATCAT fetch failed: %s", e)
+            _ph.record("celestrak", "error", str(e)[:120])
+            _cb.on_failure("celestrak")
+
+    cached = _cache.get(key)
+    if cached is None:
+        cached = _cache.get_stale(key)
+    if cached:
+        log.debug("Using cached Starlink launch dates")
+        return _as_launch_dates(cached)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +613,8 @@ def refresh_tle(norad_id: int, timeout: float = _WARM_FETCH_TIMEOUT) -> TLEResul
 
 def refresh_starlink_trains(
     timeout: float = _WARM_FETCH_TIMEOUT,
-) -> tuple[list[tuple[str, str, str]], bool, str | None]:
+    launch_dates: dict[str, date] | None = None,
+) -> tuple[list[tuple[str, str, str, str | None]], bool, str | None]:
     """Fetch the Starlink group, filter it to raising-phase trains, and cache that.
 
     Returns (tles, stale, error). Never raises: a read timeout mid-response arrives
@@ -450,11 +622,35 @@ def refresh_starlink_trains(
     connect-phase failures), and an uncaught exception here previously crashed the
     entire /night response for callers that do not expect this to raise.
 
+    *launch_dates* is fetched here when the caller does not supply one; warm_cache
+    passes the map it already has so a warm run makes exactly one SATCAT request.
+
     The filtered list is what reaches the cache — see _STARLINK_TRAINS_CACHE_KEY for
     why caching the raw response could never work.
     """
     key = _STARLINK_TRAINS_CACHE_KEY
     err_msg: str | None = None
+
+    if launch_dates is None:
+        launch_dates = _fetch_starlink_launch_dates(timeout)
+
+    if not launch_dates:
+        # Nothing to gain from downloading 1.8 MB we cannot filter: without launch
+        # dates the group is indistinguishable from a list of decaying satellites
+        # (see _filter_train_tles). Returning here also keeps a SATCAT failure
+        # reported as itself, rather than as a group fetch that quietly never ran
+        # because the shared celestrak breaker had already opened underneath it.
+        if not _cb.allow("celestrak"):
+            # An open breaker is a deliberate skip, not a failure — same silent-skip
+            # contract the group fetch below honours.
+            log.debug("Starlink train refresh skipped — celestrak circuit open")
+        else:
+            err_msg = "no Starlink launch dates available — cannot identify trains"
+            log.warning("%s", err_msg)
+        cached = _cache.get_stale(key)
+        if cached is not None:
+            return _prune_expired_trains(_as_tle_tuples(cached)), True, err_msg
+        return [], False, err_msg
 
     with _lock_for(key):
         if not _cb.allow("celestrak"):
@@ -468,7 +664,7 @@ def refresh_starlink_trains(
                         resp, _STARLINK_MAX_BYTES, _STARLINK_TRANSFER_DEADLINE
                     )
                 raw    = body.decode("utf-8").strip()
-                trains = _filter_train_tles(raw)[:_STARLINK_MAX_TRAINS]
+                trains = _filter_train_tles(raw, launch_dates)[:_STARLINK_MAX_TRAINS]
                 _cache.set(key, trains, ttl_seconds=TLE_TTL)
                 log.debug("Fetched Starlink group TLE (%d bytes → %d trains)",
                           len(raw), len(trains))
@@ -483,12 +679,14 @@ def refresh_starlink_trains(
                     # keeps confirming it.
                     cached = _cache.get_stale(key)
                     if cached is not None:
-                        _cache.set(key, cached, ttl_seconds=TLE_TTL)
+                        trains = _prune_expired_trains(_as_tle_tuples(cached))
+                        _cache.set(key, [list(t) for t in trains], ttl_seconds=TLE_TTL)
                         log.info("Celestrak Starlink group 403 — revalidated, "
-                                 "TTL extended to %d h", TLE_TTL // 3600)
+                                 "%d trains still in window, TTL extended to %d h",
+                                 len(trains), TLE_TTL // 3600)
                         _ph.record("celestrak", "ok")
                         _cb.on_success("celestrak")
-                        return _as_tle_tuples(cached), False, None
+                        return trains, False, None
                     # 403 with nothing cached: re-asking returns the same 403, so
                     # treat it as a failure and let the breaker open rather than
                     # retrying on every request.
@@ -558,7 +756,8 @@ def warm_cache(timeout: float = _WARM_FETCH_TIMEOUT, force: bool = True) -> Warm
     """
     summary = WarmSummary()
 
-    def _record(key: str, label: str, status: str, error: str | None = None) -> None:
+    def _record(key: str, label: str, status: str, error: str | None = None,
+                count: int = 0) -> None:
         verified, size = _verify(key)
         if not verified:
             status = f"{status} but NOT CACHED"
@@ -566,7 +765,8 @@ def warm_cache(timeout: float = _WARM_FETCH_TIMEOUT, force: bool = True) -> Warm
         if error is not None:
             summary.ok = False
         summary.keys.append(WarmKeyResult(key=key, label=label, status=status,
-                                          verified=verified, bytes=size, error=error))
+                                          verified=verified, bytes=size,
+                                          count=count, error=error))
 
     for norad, label in TRACKED_SATELLITES:
         key = _tle_key(norad)
@@ -581,17 +781,43 @@ def warm_cache(timeout: float = _WARM_FETCH_TIMEOUT, force: bool = True) -> Warm
         else:
             _record(key, label, "ok")
 
+    # Launch dates first: the train filter cannot run without them, and warming
+    # them under their own key means a SATCAT failure shows up as itself rather
+    # than as an unexplained empty train list.
+    dates_key    = _STARLINK_LAUNCH_DATES_CACHE_KEY
+    launch_dates: dict[str, date] = {}
+    if not force and _cache.get(dates_key) is not None:
+        launch_dates = _as_launch_dates(_cache.get(dates_key))
+        _record(dates_key, "starlink-launch-dates", "fresh (skipped)",
+                count=len(launch_dates))
+    else:
+        launch_dates = _fetch_starlink_launch_dates(timeout=timeout)
+        if launch_dates:
+            _record(dates_key, "starlink-launch-dates",
+                    f"ok ({len(launch_dates)} launches)", count=len(launch_dates))
+        else:
+            _record(dates_key, "starlink-launch-dates", "FAIL",
+                    error="no Starlink launch dates from SATCAT")
+
     key = _STARLINK_TRAINS_CACHE_KEY
     if not force and _cache.get(key) is not None:
-        _record(key, "starlink", "fresh (skipped)")
+        _record(key, "starlink", "fresh (skipped)",
+                count=len(_as_tle_tuples(_cache.get(key))))
     else:
-        trains, stale, err = refresh_starlink_trains(timeout=timeout)
+        trains, stale, err = refresh_starlink_trains(timeout=timeout,
+                                                     launch_dates=launch_dates)
         if err is not None:
-            _record(key, "starlink", "FAIL", error=err)
+            _record(key, "starlink", "FAIL", error=err, count=len(trains))
         elif stale:
-            _record(key, "starlink", "stale", error="stale")
+            _record(key, "starlink", "stale", error="stale", count=len(trains))
         else:
-            _record(key, "starlink", f"ok ({len(trains)} trains)")
+            # A train list is legitimately empty most of the time, so this is not a
+            # failure — but it is the state that hid a broken filter for months, and
+            # the count is what makes a permanent zero visible on a graph.
+            newest = max((t[3] for t in trains if len(t) > 3 and t[3]), default=None)
+            detail = f" (newest launch {newest})" if newest else ""
+            _record(key, "starlink", f"ok ({len(trains)} trains){detail}",
+                    count=len(trains))
 
     return summary
 
@@ -625,7 +851,7 @@ def get_tle(norad_id: int, timeout: float = _FETCH_TIMEOUT) -> TLEResult:
 
 def get_starlink_train_tles(
     timeout: float = _FETCH_TIMEOUT,
-) -> tuple[list[tuple[str, str, str]], bool, str | None]:
+) -> tuple[list[tuple[str, str, str, str | None]], bool, str | None]:
     """Return (tles, stale, error) for Starlink satellites currently in raising phase,
     fetching if the cache has no fresh entry."""
     cached = _cache.get(_STARLINK_TRAINS_CACHE_KEY)

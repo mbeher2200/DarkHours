@@ -11,7 +11,7 @@ cached_starlink_trains, which contain no network code. These tests hold that lin
 Everything here is hermetic — no network, no ephemeris, no AWS.
 """
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -174,20 +174,26 @@ def test_cached_readers_contain_no_network_call(no_network):
 # The root cause: what actually gets written
 # ---------------------------------------------------------------------------
 
-def _synthetic_group(n_sats: int) -> str:
+_TODAY      = datetime.now(timezone.utc).date()
+_DESIGNATOR = f"{_TODAY.year}-042"
+
+
+def _synthetic_group(n_sats: int, designator_suffix: str = "042") -> str:
     """A GROUP=starlink-shaped block. The real one is ~1.8 MB / ~10,700 satellites."""
-    today = datetime.now(timezone.utc).date()
-    doy   = today.timetuple().tm_yday
-    yy    = today.year % 100
+    yy  = _TODAY.year % 100
     out = []
     for i in range(n_sats):
-        # Mean motion 15.90 → raising phase; today's launch date → inside the window.
+        # Mean motion 15.90 → below every operational shell → raising phase.
         out.append(f"STARLINK-{i:05d}")
-        out.append(f"1 {50000 + i:05d}U {yy:02d}{doy:03d}A   26235.50000000  "
+        out.append(f"1 {50000 + i:05d}U {yy:02d}{designator_suffix}A   26235.50000000  "
                    f".00002182  00000+0  40768-4 0  9992")
         out.append(f"2 {50000 + i:05d}  53.0000 100.0000 0001000  90.0000 270.0000 "
                    f"15.90000000    10")
     return "\n".join(out)
+
+
+def _recent_launch_dates(days_ago: int = 1) -> dict:
+    return {_DESIGNATOR: _TODAY - timedelta(days=days_ago)}
 
 
 def test_starlink_refresh_caches_the_filtered_list_not_the_raw_group(monkeypatch):
@@ -207,7 +213,9 @@ def test_starlink_refresh_caches_the_filtered_list_not_the_raw_group(monkeypatch
     resp.__enter__.return_value.read.side_effect = [raw.encode(), b""]
     monkeypatch.setattr(_http, "urlopen", mock.MagicMock(return_value=resp))
 
-    trains, stale, error = tle.refresh_starlink_trains()
+    trains, stale, error = tle.refresh_starlink_trains(
+        launch_dates=_recent_launch_dates()
+    )
 
     assert error is None and stale is False
     stored = cache.written[tle._STARLINK_TRAINS_CACHE_KEY]
@@ -233,9 +241,139 @@ def test_cached_starlink_trains_reads_an_empty_list_as_data_not_as_a_miss(monkey
 
 def test_cached_starlink_trains_round_trips_the_json_shape(monkeypatch):
     """The cache stores JSON, so tuples come back as lists — callers expect tuples."""
+    cache = _StateCache(fresh={
+        tle._STARLINK_TRAINS_CACHE_KEY: [["S-1", "1 aaa", "2 bbb", "2026-08-12"]]
+    })
+    monkeypatch.setattr(tle, "_cache", cache)
+
+    trains, _, _ = tle.cached_starlink_trains()
+
+    assert trains == [("S-1", "1 aaa", "2 bbb", "2026-08-12")]
+
+
+def test_cached_starlink_trains_tolerates_a_three_element_row(monkeypatch):
+    """Rows written before the launch date rode along must still be readable —
+    they are simply a train whose launch date we cannot show."""
     cache = _StateCache(fresh={tle._STARLINK_TRAINS_CACHE_KEY: [["S-1", "1 aaa", "2 bbb"]]})
     monkeypatch.setattr(tle, "_cache", cache)
 
     trains, _, _ = tle.cached_starlink_trains()
 
-    assert trains == [("S-1", "1 aaa", "2 bbb")]
+    assert trains == [("S-1", "1 aaa", "2 bbb", None)]
+
+
+# ---------------------------------------------------------------------------
+# The launch date: a TLE carries a launch *number*, not a date
+# ---------------------------------------------------------------------------
+
+def test_cospar_designator_reads_a_launch_number_not_a_day_of_year():
+    """The bug that made the feature render nothing, pinned to ground truth.
+
+    The International Designator's middle field is the launch's sequence number
+    within its year. The ISS is 1998-067A and launched on 1998-11-20; day 67 of
+    1998 is 8 March. Starlink 2026-159 launched on 2026-07-11; day 159 is 8 June —
+    which is exactly the date the old day-of-year reading produced, putting the
+    newest launch in the feed 76 days in the past and outside every train window.
+    """
+    iss = "1 25544U 98067A   24191.72490000  .00022888  00000+0  40424-3 0  9998"
+    assert tle._cospar_designator(iss) == "1998-067"
+
+    starlink = "1 69975U 26159A   26235.52033823  .00235854  00000+0  15329-2 0  9991"
+    assert tle._cospar_designator(starlink) == "2026-159"
+
+    assert tle._cospar_designator("1 25544U          24191.72490000") is None
+
+
+def test_filter_needs_launch_dates_and_fails_closed_without_them(caplog):
+    """No launch dates → no trains, loudly.
+
+    Mean motion alone cannot tell a raising batch from an old satellite being
+    lowered for re-entry: ~880 of the ~10,700 satellites in the real group are above
+    the threshold at any moment, and most are decaying. Emitting them unfiltered
+    would put hundreds of stale satellites on screen labelled as trains.
+    """
+    raw = _synthetic_group(30)
+
+    with caplog.at_level("ERROR"):
+        assert tle._filter_train_tles(raw, {}) == []
+    assert "launch dates" in caplog.text
+
+
+def test_filter_drops_raising_satellites_from_an_old_launch():
+    """Still raising is not the same as still a train — an older batch has spread
+    around its orbit even while it climbs."""
+    raw = _synthetic_group(30)
+
+    inside  = tle._filter_train_tles(raw, _recent_launch_dates(days_ago=1))
+    edge    = tle._filter_train_tles(
+        raw, _recent_launch_dates(days_ago=tle._STARLINK_RECENT_DAYS))
+    outside = tle._filter_train_tles(
+        raw, _recent_launch_dates(days_ago=tle._STARLINK_RECENT_DAYS + 1))
+
+    assert len(inside) == 30
+    assert len(edge) == 30, "the cutoff is inclusive"
+    assert outside == []
+
+
+def test_filter_carries_the_launch_date_and_orders_newest_first():
+    """satellites.py renders "launched Nd ago" from this, and the cap must truncate
+    the oldest batch rather than an arbitrary one."""
+    older_designator = f"{_TODAY.year}-041"
+    raw = _synthetic_group(2) + "\n" + _synthetic_group(2, designator_suffix="041")
+    dates = {
+        _DESIGNATOR:      _TODAY - timedelta(days=2),
+        older_designator: _TODAY - timedelta(days=9),
+    }
+
+    trains = tle._filter_train_tles(raw, dates)
+
+    assert len(trains) == 4
+    assert all(len(t) == 4 for t in trains)
+    assert [t[3] for t in trains] == [
+        (_TODAY - timedelta(days=2)).isoformat()] * 2 + [
+        (_TODAY - timedelta(days=9)).isoformat()] * 2
+
+
+def test_satcat_parsing_keeps_recent_launches_keyed_by_designator():
+    csv_text = (
+        "OBJECT_NAME,OBJECT_ID,NORAD_CAT_ID,LAUNCH_DATE\n"
+        "STARLINK-38024,2026-159A,69975,2026-07-11\n"
+        "STARLINK-37993,2026-159B,69976,2026-07-11\n"
+        "STARLINK-1008,2019-074B,44714,2019-11-11\n"
+        "BROKEN,2026-160A,99999,\n"
+    )
+    dates = tle._parse_satcat_launch_dates(csv_text, date(2026, 8, 23))
+
+    assert dates == {"2026-159": date(2026, 7, 11)}, \
+        "old launches are pruned, undated rows are skipped, pieces collapse to a launch"
+
+
+def test_revalidation_ages_the_cached_train_list():
+    """Celestrak's 403 says the group has not changed, but the 21-day window has
+    moved and the raw block is deliberately not kept. Each entry carries its own
+    launch date so the list can be aged in place."""
+    fresh = ("S-1", "1 a", "2 b", (_TODAY - timedelta(days=3)).isoformat())
+    aged  = ("S-2", "1 c", "2 d",
+             (_TODAY - timedelta(days=tle._STARLINK_RECENT_DAYS + 5)).isoformat())
+    undated = ("S-3", "1 e", "2 f", None)
+
+    assert tle._prune_expired_trains([fresh, aged, undated]) == [fresh]
+
+
+def test_satellites_reads_the_launch_date_tle_provider_attaches():
+    """The seam, pinned from both sides.
+
+    satellites.py used to re-derive the launch date from the TLE with the same
+    day-of-year misreading, so "launched 5d ago" in the report was wrong whenever it
+    appeared at all. It now reads the date tle_provider attached, and the two halves
+    have to agree on the tuple shape or the report silently loses the date again.
+    """
+    from darkhours.satellites import _entry_launch_date
+
+    raw = _synthetic_group(1)
+    launched = _TODAY - timedelta(days=4)
+    entry = tle._filter_train_tles(raw, {_DESIGNATOR: launched})[0]
+
+    assert _entry_launch_date(entry) == launched
+    assert _entry_launch_date(entry[:3]) is None, "a legacy 3-element row has no date"
+    assert _entry_launch_date(("n", "1", "2", "not-a-date")) is None
