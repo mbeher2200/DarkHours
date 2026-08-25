@@ -124,6 +124,10 @@ def _table():
                         connect_timeout=1.0,
                         read_timeout=1.0,
                         retries={"total_max_attempts": 1, "mode": "standard"},
+                        # This Config set every bound except the pool, so the
+                        # client silently kept botocore's default of 10 while
+                        # find_nearby checked flags from a wider fan-out.
+                        max_pool_connections=_env.dynamo_pool(),
                     ),
                 ).Table(_TABLE)
     return _ddb_table
