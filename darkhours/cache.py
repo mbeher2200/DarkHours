@@ -15,6 +15,7 @@ import os
 import time
 from pathlib import Path
 
+from . import _env
 from . import ports
 
 log = logging.getLogger(__name__)
@@ -165,8 +166,8 @@ def _dynamo_table(table_name: str | None = None):
     # boto3 default of 10 connections is a separate pool per caller under concurrent
     # access within one container — the same "Connection pool is full, discarding
     # connection" churn the S3 client hit (see darksky.py's _s3()), just for
-    # DynamoDB. Bumped as a straightforward fix; PYNIGHTSKY_DYNAMO_POOL overrides it.
-    pool = int(os.environ.get("PYNIGHTSKY_DYNAMO_POOL", "25"))
+    # DynamoDB. Sizing lives in _env so every DynamoDB client shares one knob.
+    pool = _env.dynamo_pool()
     return boto3.resource(
         "dynamodb", region_name=region, config=Config(max_pool_connections=pool)
     ).Table(name)

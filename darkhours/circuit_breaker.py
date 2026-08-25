@@ -306,6 +306,9 @@ def _table():
                         connect_timeout=1.0,
                         read_timeout=1.0,
                         retries={"total_max_attempts": 1, "mode": "standard"},
+                        # Sized like every other DynamoDB client here; this one
+                        # bounded timeouts and retries but never the pool.
+                        max_pool_connections=_env.dynamo_pool(),
                     ),
                 ).Table(_HEALTH_TABLE)
     return _ddb_table
