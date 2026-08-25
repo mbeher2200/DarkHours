@@ -80,6 +80,12 @@ async def lifespan(app: FastAPI):
                 jobs._sqs()   # build the boto3 SQS client off the first enqueue's path
             except Exception as _e:
                 logging.getLogger(__name__).debug("SQS pre-warm failed: %s", _e)
+            try:
+                # Parse timezonefinder's binary data once, here, instead of on the
+                # first /night or /calendar to reach this container.
+                _loc._timezone_finder()
+            except Exception as _e:
+                logging.getLogger(__name__).debug("Timezone index pre-warm failed: %s", _e)
 
         threading.Thread(target=_prewarm, daemon=True).start()
     yield

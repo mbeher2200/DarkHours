@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -174,8 +175,37 @@ def _geocode_query(name: str) -> str:
     return name
 
 
+# One TimezoneFinder for the process. Constructing one parses its bundled binary
+# data, which dwarfs the timezone_at() lookup it enables — hundreds of
+# milliseconds against microseconds. This used to be constructed per call and
+# discarded, so every caller paid the setup to use it exactly once.
+#
+# Shared behind a lock rather than one instance per thread: the API serves sync
+# endpoints from a threadpool, timezonefinder makes no thread-safety guarantee we
+# verified, and a per-thread instance would pay the construction again per thread
+# and hold another copy of the data. Serializing a 12 µs lookup costs nothing at
+# any concurrency this serves, so the lock buys safety for free.
+#
+# apps/api/main.py's lifespan pre-warm builds this during init so the one
+# construction stays off the first request's path.
+_tf = None
+_tf_lock = threading.Lock()
+
+
+def _timezone_finder() -> TimezoneFinder:
+    """Return the process-wide TimezoneFinder, building it on first use."""
+    global _tf
+    if _tf is None:
+        with _tf_lock:
+            if _tf is None:
+                _tf = TimezoneFinder()
+    return _tf
+
+
 def _tz_name_for(lat: float, lon: float) -> str:
-    tz_name = TimezoneFinder().timezone_at(lat=lat, lng=lon)
+    finder = _timezone_finder()
+    with _tf_lock:
+        tz_name = finder.timezone_at(lat=lat, lng=lon)
     if not tz_name:
         raise ValueError(f"Could not determine timezone for {lat}, {lon}")
     return tz_name
