@@ -12,6 +12,8 @@ so the public repo carries no identifiers.
 import os
 import pathlib
 import shutil
+import subprocess
+import sys
 
 from aws_cdk import (
     CfnOutput,
@@ -31,12 +33,30 @@ from constructs import Construct
 _REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
+# The only third-party package the warmer path imports. tle_provider renders the
+# filtered Starlink rows from OMM back into TLE line pairs with sgp4.exporter, so
+# the group refresh raises ModuleNotFoundError without it — caught, logged, and
+# reported as a warm failure, which is how this was found rather than by anything
+# silently degrading.
+_WARMER_PIP_DEPS = ("sgp4==2.27",)
+
+# Matches the Function's architecture and runtime below. Wheels are downloaded for
+# the target platform rather than this host's, so no Docker and no cross-compile —
+# which is what keeps this stack deployable from a laptop.
+_WARMER_PLATFORM       = "manylinux2014_x86_64"
+_WARMER_PYTHON_VERSION = "3.13"
+
+
 def _stage_warmer_code() -> str:
-    """Stage just the source the warmer needs into a clean dir (no Docker, no deps).
+    """Stage the source the warmer needs, plus its one dependency, into a clean dir.
 
     boto3 comes from the Lambda runtime; rasterio/skyfield are never imported by the
-    warmer path, so only the source tree is shipped. de421.bsp (16 MB ephemeris) and
+    warmer path, so nothing else is shipped. de421.bsp (16 MB ephemeris) and
     apps/api (FastAPI) are intentionally left out — the warmer imports neither.
+
+    sgp4 is installed with --platform/--only-binary so pip fetches the Linux wheel
+    regardless of the host: a macOS wheel here would import fine locally and fail in
+    Lambda, which is the failure mode worth designing out.
     """
     stage = _REPO / "cdk" / ".warmer_build"
     if stage.exists():
@@ -46,6 +66,13 @@ def _stage_warmer_code() -> str:
     (stage / "apps").mkdir(parents=True)
     shutil.copy(_REPO / "apps" / "__init__.py", stage / "apps" / "__init__.py")
     shutil.copytree(_REPO / "apps" / "warmer", stage / "apps" / "warmer", ignore=_ignore)
+
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet", "--target", str(stage),
+         "--platform", _WARMER_PLATFORM, "--python-version", _WARMER_PYTHON_VERSION,
+         "--only-binary=:all:", *_WARMER_PIP_DEPS],
+        check=True,
+    )
     return str(stage)
 
 
