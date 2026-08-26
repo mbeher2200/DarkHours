@@ -289,12 +289,22 @@ def test_every_third_party_import_is_bundled_or_runtime_provided():
     import subprocess
     import sys
 
+    import ast
+
     repo = pathlib.Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(repo / "cdk"))
-    try:
-        from warmer_stack import _WARMER_PIP_DEPS
-    finally:
-        sys.path.pop(0)
+    # Read the literal out of the source rather than importing warmer_stack: that
+    # module imports aws_cdk, which lives in cdk/requirements.txt and is absent from
+    # the test environment, so importing it here fails CI while passing on any
+    # machine that happens to have the CDK installed.
+    stack_src = (repo / "cdk" / "warmer_stack.py").read_text()
+    deps_node = next(
+        (n.value for n in ast.parse(stack_src).body
+         if isinstance(n, ast.Assign)
+         and any(getattr(tgt, "id", None) == "_WARMER_PIP_DEPS" for tgt in n.targets)),
+        None,
+    )
+    assert deps_node is not None, "_WARMER_PIP_DEPS not found in cdk/warmer_stack.py"
+    _WARMER_PIP_DEPS = ast.literal_eval(deps_node)
 
     probe = r"""
 import json, pathlib, sys, sysconfig
