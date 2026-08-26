@@ -47,6 +47,7 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_date_tz.py` | `predictor.py` / `targets.py` | — | Date/timezone correctness (incl. the UTC-vs-local night_date regression) |
 | `test_timezone_finder.py` | `location.py` | — | Process-wide `TimezoneFinder`: built once, thread-safe under concurrent lookups, answers unchanged |
 | `test_dynamo_pool.py` | `_env.py` / `cache.py` / `feature_flags.py` / `circuit_breaker.py` | — | Every DynamoDB client sizes `max_pool_connections` above botocore's default; env override and bad-value fallback |
+| `test_starlink_train_grouping.py` | `satellites.py` | — | `_group_passes_into_trains`: interleaved trains both reported, sub-threshold groups release their passes, no satellite counted twice |
 | `test_weather_conditions.py` | `weather.py` | — | `rate_conditions()` all branches (cloud, seeing, wind, humidity, AOD/PM2.5, precip cap); Open-Meteo parsing; 7Timer merge tolerance |
 | `test_weather_fallback.py` | `weather.py` | — | Provider selection and fallback |
 | `test_moon_events.py` | `moon_events.py` | — / `eph` | `classify_full_moon()` boundaries; lunar-eclipse detection |
