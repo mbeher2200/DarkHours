@@ -91,6 +91,13 @@ _FALCHI_GRID = _GRID_DIR / "world_atlas_2016"
 _L_NATURAL   = 0.252   # mcd/m²
 _SQM_NATURAL = 22.08   # mag/arcsec²
 
+# Decimal places the payload `sqm` carries. Classification runs on the unrounded value;
+# this is the display quantum only. At 1 dp the rendered figure lands exactly on a _BORTLE
+# threshold (all of which are 1 dp) often enough to read as the neighbouring class; 2 dp
+# reduces that to ~1.2% of CONUS pixels. Below the model's ±0.5–1.0 mag/arcsec² accuracy
+# either way — this governs presentation, not precision.
+_SQM_DISPLAY_DP = 2
+
 # Correction factor applied to Falchi luminance values before computing SQM.
 # The Falchi 2016 atlas is built on DMSP-OLS data (~2014), which reads 2–5×
 # lower than VIIRS for the same sites (Kyba et al. 2017).  At dark-sky sites
@@ -426,8 +433,12 @@ def radiance_to_sqm(radiance_nw: float) -> float:
         SQM ≈ 21.7 − 2.5 × log10(L + 0.6)
     The 0.6 offset represents natural airglow in the VIIRS band.
     Accuracy: ±0.5–1.0 mag/arcsec² (one Bortle class).
+
+    Returns the unrounded regression value. Quantise only at a display boundary
+    (`_SQM_DISPLAY_DP`); `sqm_to_bortle`/`sqm_to_zone` take the full-precision value,
+    since their thresholds are themselves fixed-decimal.
     """
-    return round(21.7 - 2.5 * math.log10(radiance_nw + 0.6), 1)
+    return 21.7 - 2.5 * math.log10(radiance_nw + 0.6)
 
 
 def luminance_to_sqm(la_mcd_m2: float) -> float:
@@ -436,11 +447,14 @@ def luminance_to_sqm(la_mcd_m2: float) -> float:
         SQM = 22.08 − 2.5 × log10((La + 0.252) / 0.252)
     0.252 mcd/m² is the Falchi (2016) natural sky reference.
     At La = 0: SQM = 22.08; at La = 0.252: SQM ≈ 21.3 (Bortle 3).
+
+    Returns the unrounded model value, matching `radiance_to_sqm`. Both branches are
+    now full precision — the La <= 0 branch always was, so the two exits agree.
     """
     if la_mcd_m2 <= 0.0:
         return _SQM_NATURAL
-    return round(_SQM_NATURAL - 2.5 * math.log10(
-        (la_mcd_m2 + _L_NATURAL) / _L_NATURAL), 1)
+    return _SQM_NATURAL - 2.5 * math.log10(
+        (la_mcd_m2 + _L_NATURAL) / _L_NATURAL)
 
 
 def sqm_to_bortle(sqm: float) -> tuple[int, str]:
@@ -479,12 +493,25 @@ def lookup(lat: float, lon: float) -> dict | None:
       2. Falchi 2016 — fallback for dark sites where VIIRS = 0
 
     Return dict keys:
-      sqm            float | None
+      sqm            float | None  — quantised to _SQM_DISPLAY_DP for presentation
       bortle_class   int | None
       bortle_desc    str | None
       lp_zone        str | None  — djlorenz zone ("0", "1a" … "7b")
       below_detection bool  — True only if both sources return 0/None
       source         str   — "VIIRS 2025" or "Falchi 2016"
+      sqm_raw        float — the unrounded SQM the classification was derived from
+
+    `bortle_class` and `lp_zone` are derived from the unrounded SQM, matching the
+    vectorized classifier in `_extract_dark_sky_candidates`. `sqm` carries the display
+    quantum, so at a threshold it can read as the adjacent class; the class is
+    authoritative.
+
+    `sqm_raw` is carried so a cached entry can be reclassified exactly without a raster
+    read. The cache key quantises the coordinate to 0.01°, coarser than either raster
+    pixel (VIIRS 0.00417°, Falchi 0.00833°), so the key cannot identify the pixel an
+    entry was read from; storing the reading itself sidesteps that. The sampled
+    coordinate is deliberately not stored — entries are shared across every caller
+    whose coordinate falls in the same cell.
 
     Returns None if the raster grids are unavailable or both reads fail.
     """
@@ -512,15 +539,16 @@ def lookup(lat: float, lon: float) -> dict | None:
         # VIIRS has a measurable signal — Falchi result already available but not needed.
         sqm = radiance_to_sqm(radiance)
         bortle_cls, bortle_d = sqm_to_bortle(sqm)
-        log.debug("Using VIIRS 2025: radiance=%.3f  SQM=%.1f  Bortle=%d",
+        log.debug("Using VIIRS 2025: radiance=%.3f  SQM=%.3f  Bortle=%d",
                   radiance, sqm, bortle_cls)
         result = {
-            "sqm":            sqm,
+            "sqm":            round(sqm, _SQM_DISPLAY_DP),
             "bortle_class":   bortle_cls,
             "bortle_desc":    bortle_d,
             "lp_zone":        sqm_to_zone(sqm),
             "below_detection": False,
             "source":         "VIIRS 2025",
+            "sqm_raw":        sqm,
         }
         _bortle_mem_cache[_cache_key] = result
         try:
@@ -542,15 +570,16 @@ def lookup(lat: float, lon: float) -> dict | None:
     scaled = luminance * _FALCHI_SCALE
     sqm = luminance_to_sqm(scaled)
     bortle_cls, bortle_d = sqm_to_bortle(sqm)
-    log.debug("Using Falchi 2016: luminance=%.4f  scaled=%.4f  SQM=%.1f  Bortle=%d",
+    log.debug("Using Falchi 2016: luminance=%.4f  scaled=%.4f  SQM=%.3f  Bortle=%d",
               luminance, scaled, sqm, bortle_cls)
     result = {
-        "sqm":            sqm,
+        "sqm":            round(sqm, _SQM_DISPLAY_DP),
         "bortle_class":   bortle_cls,
         "bortle_desc":    bortle_d,
         "lp_zone":        sqm_to_zone(sqm),
         "below_detection": False,
         "source":         "Falchi 2016",
+        "sqm_raw":        sqm,
     }
     _bortle_mem_cache[_cache_key] = result
     try:

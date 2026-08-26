@@ -334,7 +334,7 @@ export function moonUpAt(iso: string, moonrise: string | null, moonset: string |
 export function lpString(lp: LightPollution): string | null {
   if (lp.below_detection) return 'Light pollution data unavailable'
   if (lp.sqm == null) return null
-  return `SQM ${lp.sqm}  ·  Zone ${lp.lp_zone}  ·  Bortle ${lp.bortle_class}  (${lp.bortle_desc})  [${lp.source}]`
+  return `SQM ${lp.sqm.toFixed(2)}  ·  Zone ${lp.lp_zone}  ·  Bortle ${lp.bortle_class}  (${lp.bortle_desc})  [${lp.source}]`
 }
 
 /** 1–10 → a band used for color + label. */
