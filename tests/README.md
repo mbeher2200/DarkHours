@@ -87,7 +87,7 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_aws_location.py` | `location.py` / `darksky.py` | — | AWS Location geocoding + GeoRoutes drive times (mocked boto3), per-leg cache |
 | `test_api.py` | `apps/api/main.py` | — / `eph` | All endpoints, input validation, DoS guards, error paths |
 | `test_jobs.py` | `apps/jobs.py` | — | Inline/SQS job lifecycle, worker handler, 202→done flow |
-| `test_warmer.py` | `apps/warmer` | — | TLE warmer handler: warm-all-ok, failure reporting, stale detection |
+| `test_warmer.py` | `apps/warmer` | — | TLE warmer handler: warm-all-ok, failure reporting, stale detection ; deployment bundle covers every third-party import |
 | `test_aws_smoke.py` | `darksky.py` / `cache.py` | `aws` | Real DynamoDB cache round-trip; real S3 grid lookups (VIIRS + Falchi) |
 | `test_provider_smoke.py` | providers | `live` | Live connectivity: Open-Meteo, 7Timer, Celestrak GP + SATCAT, Nominatim, AWS Location |
 

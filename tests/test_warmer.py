@@ -264,3 +264,97 @@ def test_a_permanently_empty_train_list_is_still_visible_as_a_count(monkeypatch,
     starlink = next(e for e in emitted if e.get("Key") == "starlink")
     assert starlink["TleWarmSuccess"] == 1, "a verified write of [] is still a write"
     assert starlink["TleWarmItems"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Deployment bundle — the warmer ships source plus a pinned dependency list
+# ---------------------------------------------------------------------------
+
+def test_every_third_party_import_is_bundled_or_runtime_provided():
+    """The warmer Lambda is not built from requirements.txt.
+
+    cdk/warmer_stack.py stages the source tree and pip-installs exactly
+    _WARMER_PIP_DEPS; boto3/botocore come from the Lambda runtime. Anything else the
+    warmer path imports is simply absent in production, and the first sign is a
+    ModuleNotFoundError at refresh time — which is how a working local change shipped
+    broken once already.
+
+    Run in a subprocess so the shared pytest session's imports do not pollute the
+    answer, and the group filter is exercised rather than merely imported: sgp4 is
+    imported lazily inside the conversion, so importing the handler alone reports
+    nothing at all.
+    """
+    import json
+    import pathlib
+    import subprocess
+    import sys
+
+    import ast
+
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    # Read the literal out of the source rather than importing warmer_stack: that
+    # module imports aws_cdk, which lives in cdk/requirements.txt and is absent from
+    # the test environment, so importing it here fails CI while passing on any
+    # machine that happens to have the CDK installed.
+    stack_src = (repo / "cdk" / "warmer_stack.py").read_text()
+    deps_node = next(
+        (n.value for n in ast.parse(stack_src).body
+         if isinstance(n, ast.Assign)
+         and any(getattr(tgt, "id", None) == "_WARMER_PIP_DEPS" for tgt in n.targets)),
+        None,
+    )
+    assert deps_node is not None, "_WARMER_PIP_DEPS not found in cdk/warmer_stack.py"
+    _WARMER_PIP_DEPS = ast.literal_eval(deps_node)
+
+    probe = r"""
+import json, pathlib, sys, sysconfig
+from datetime import date, timedelta
+import apps.warmer.handler                      # noqa: F401
+from darkhours import tle_provider as tle
+
+today = date.today()
+cols = ("OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,"
+        "RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,EPHEMERIS_TYPE,"
+        "CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,"
+        "MEAN_MOTION_DOT,MEAN_MOTION_DDOT")
+row = ("STARLINK-1,2026-160A,2026-08-25T12:00:00.000000,15.90000000,.0001000,"
+       "53.0000,100.0000,90.0000,270.0000,0,U,100001,999,100,.0001000,.00000000,0")
+# Exercises the lazy sgp4 import inside _omm_row_to_tle.
+out = tle._filter_train_tles(cols + chr(10) + row, {"2026-160": today})
+assert len(out) == 1, out
+
+site = pathlib.Path(sysconfig.get_paths()["purelib"]).resolve()
+ext = set()
+for name, mod in list(sys.modules.items()):
+    if "." in name or mod is None:
+        continue
+    f = getattr(mod, "__file__", None)
+    if not f:
+        continue
+    try:
+        pth = pathlib.Path(f).resolve()
+    except (OSError, ValueError):
+        continue
+    if site in pth.parents:
+        ext.add(name.lower())
+print(json.dumps(sorted(ext)))
+"""
+    res = subprocess.run([sys.executable, "-c", probe], capture_output=True,
+                         text=True, cwd=str(repo),
+                         env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(repo)})
+    assert res.returncode == 0, f"probe failed: {res.stderr[-600:]}"
+    imported = set(json.loads(res.stdout))
+
+    bundled = {d.split("==")[0].replace("-", "_").lower() for d in _WARMER_PIP_DEPS}
+    runtime_provided = {"boto3", "botocore", "s3transfer", "jmespath", "dateutil",
+                        "urllib3", "six"}
+
+    unaccounted = imported - bundled - runtime_provided
+    assert not unaccounted, (
+        f"the warmer path imports {sorted(unaccounted)} but cdk/warmer_stack.py "
+        f"bundles only {sorted(bundled)} — these would be missing in Lambda"
+    )
+    assert "sgp4" in imported, (
+        "expected the filter to import sgp4; if the conversion moved, this test is "
+        "no longer exercising the dependency it exists to guard"
+    )
