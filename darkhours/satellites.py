@@ -473,6 +473,67 @@ def _entry_launch_date(entry) -> Optional[date]:
         return None
 
 
+def _group_passes_into_trains(all_passes: list[dict]) -> list["StarlinkTrain"]:
+    """Collapse individual satellite passes into train groups.
+
+    *all_passes* must be sorted by rise time. A train is a run of passes whose rise
+    times are within _TRAIN_GAP_S of each other and whose rise azimuths are within
+    _TRAIN_AZ_TOLERANCE of the lead's, with at least _TRAIN_MIN_COUNT members.
+
+    Split out of starlink_train_passes so the grouping can be tested without
+    propagating real orbits: it had no direct test, which is how the cursor bug
+    below survived.
+    """
+    # Every pass gets a chance to lead a train, and only passes actually
+    # placed in a reported train are consumed.
+    #
+    # The cursor used to jump to wherever the forward scan stopped
+    # (``i = j``), which swallowed every pass in the scanned window — both
+    # the ones skipped for rising on a different azimuth and every member of
+    # a group too small to qualify. Two trains crossing the same window rise
+    # on different azimuths (Starlink flies 43°, 53°, 70° and 97°
+    # inclinations), so the second was silently dropped. The ``else i + 1``
+    # guard on that line could never fire: j starts at i + 1 and only
+    # increases, so ``j > i`` was always true.
+    trains: list[StarlinkTrain] = []
+    claimed: set[int] = set()
+    i = 0
+    while i < len(all_passes):
+        if i in claimed:
+            i += 1
+            continue
+        lead    = all_passes[i]
+        group   = [lead]
+        members = [i]
+        j       = i + 1
+        while j < len(all_passes):
+            cand = all_passes[j]
+            gap  = (cand["rise_time"] - group[-1]["rise_time"]).total_seconds()
+            if gap > _TRAIN_GAP_S:
+                break
+            if (j not in claimed
+                    and _az_diff(cand["rise_az"], lead["rise_az"]) <= _TRAIN_AZ_TOLERANCE):
+                group.append(cand)
+                members.append(j)
+            j += 1
+
+        if len(group) >= _TRAIN_MIN_COUNT:
+            trains.append(StarlinkTrain(
+                satellite_count = len(group),
+                first_rise      = lead["rise_time"],
+                last_rise       = group[-1]["rise_time"],
+                peak_alt_deg    = round(max(p["peak_alt"] for p in group), 1),
+                lead_az_deg     = round(lead["rise_az"], 1),
+                duration_min    = round(sum(p["dur_min"] for p in group) / len(group), 1),
+                moon_sep_deg    = lead["moon_sep"],
+                sky_dark        = lead["sky_dark"],
+                launch_date     = lead["launch_date"],
+            ))
+            claimed.update(members)
+        i += 1
+    return trains
+
+
 def starlink_train_passes(
     train_tles: list[tuple[str, str, str]],
     lat:        float,
@@ -567,37 +628,7 @@ def starlink_train_passes(
 
         all_passes.sort(key=lambda p: p["rise_time"])
 
-        # ── Group into trains ────────────────────────────────────────────────
-        trains: list[StarlinkTrain] = []
-        i = 0
-        while i < len(all_passes):
-            lead  = all_passes[i]
-            group = [lead]
-            j     = i + 1
-            while j < len(all_passes):
-                cand = all_passes[j]
-                gap  = (cand["rise_time"] - group[-1]["rise_time"]).total_seconds()
-                if gap > _TRAIN_GAP_S:
-                    break
-                if _az_diff(cand["rise_az"], lead["rise_az"]) <= _TRAIN_AZ_TOLERANCE:
-                    group.append(cand)
-                j += 1
-
-            if len(group) >= _TRAIN_MIN_COUNT:
-                trains.append(StarlinkTrain(
-                    satellite_count = len(group),
-                    first_rise      = lead["rise_time"],
-                    last_rise       = group[-1]["rise_time"],
-                    peak_alt_deg    = round(max(p["peak_alt"] for p in group), 1),
-                    lead_az_deg     = round(lead["rise_az"], 1),
-                    duration_min    = round(sum(p["dur_min"] for p in group) / len(group), 1),
-                    moon_sep_deg    = lead["moon_sep"],
-                    sky_dark        = lead["sky_dark"],
-                    launch_date     = lead["launch_date"],
-                ))
-            i = j if j > i else i + 1
-
-        return trains
+        return _group_passes_into_trains(all_passes)
 
     except Exception as e:
         log.warning("Starlink train computation failed: %s", e, exc_info=True)
