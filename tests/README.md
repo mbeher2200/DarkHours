@@ -1,6 +1,6 @@
 # Test Suite
 
-877 tests across 39 files (as of 2026-07-23). A default run is offline and
+1212 tests across 50 files (as of 2026-08-26). A default run is offline and
 deterministic — everything external is opt-in via markers.
 
 ## How to run
@@ -14,6 +14,9 @@ python3 -m pytest -q -m "not eph"
 
 # Coverage report
 python3 -m pytest --cov=darkhours --cov-report=term-missing -q
+
+# Known-site classification basket (opt-in, requires the local raster grids)
+PYNIGHTSKY_RASTER_TESTS=1 python3 -m pytest -q -m raster
 
 # Real AWS integration tests (opt-in, requires credentials + resource env vars)
 PYNIGHTSKY_BACKEND=aws python3 -m pytest -q -m aws
@@ -30,6 +33,7 @@ PYNIGHTSKY_LIVE=1 python3 -m pytest -q -m live
 | `eph` | Locally by default | `de421.bsp` ephemeris file in the package directory |
 | `aws` | Only when explicitly opted in | `PYNIGHTSKY_BACKEND=aws` + live DynamoDB/S3 + credentials + cache/raster env vars |
 | `live` | Only with `PYNIGHTSKY_LIVE=1` | Network access to the real providers (Open-Meteo, 7Timer, Celestrak, Nominatim, AWS Location) |
+| `raster` | Only with `PYNIGHTSKY_RASTER_TESTS=1` | The ~15 GB VIIRS + Falchi grids built under `~/.darkhours/grid` |
 
 Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 

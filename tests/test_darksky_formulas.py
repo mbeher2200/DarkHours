@@ -33,9 +33,12 @@ class TestRadianceToSqm:
         expected = round(21.7 - 2.5 * math.log10(L + 0.6), 1)
         assert radiance_to_sqm(L) == pytest.approx(expected, abs=0.05)
 
-    def test_result_rounded_to_one_decimal(self):
+    def test_returns_the_unrounded_regression_value(self):
+        """The Bortle thresholds are themselves fixed-decimal, so the conversion must
+        not pre-quantise onto them. Display rounding belongs in lookup()."""
         sqm = radiance_to_sqm(2.5)
-        assert sqm == round(sqm, 1)
+        assert sqm == pytest.approx(21.7 - 2.5 * math.log10(2.5 + 0.6), abs=1e-12)
+        assert sqm != round(sqm, 1)
 
     def test_monotone_decreasing(self):
         """Higher radiance (more light) → lower SQM (brighter sky)."""
@@ -73,9 +76,17 @@ class TestLuminanceToSqm:
         sqm = luminance_to_sqm(-1.0)
         assert sqm == pytest.approx(22.08, abs=0.05)
 
-    def test_result_rounded_to_one_decimal(self):
+    def test_returns_the_unrounded_model_value(self):
         sqm = luminance_to_sqm(0.5)
-        assert sqm == round(sqm, 1)
+        expected = 22.08 - 2.5 * math.log10((0.5 + 0.252) / 0.252)
+        assert sqm == pytest.approx(expected, abs=1e-12)
+        assert sqm != round(sqm, 1)
+
+    def test_both_branches_carry_the_same_precision(self):
+        """The La <= 0 branch always returned the full-precision constant; the model
+        branch now matches it, so the two exits agree."""
+        assert luminance_to_sqm(0.0) == 22.08
+        assert luminance_to_sqm(0.0) == pytest.approx(22.08, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -152,3 +163,49 @@ class TestSqmToZone:
 
     def test_returns_string(self):
         assert isinstance(sqm_to_zone(20.0), str)
+
+
+# ---------------------------------------------------------------------------
+# Classifier parity — scalar sqm_to_bortle vs the vectorized _sqm_to_bortle_array
+# ---------------------------------------------------------------------------
+
+class TestClassifierParity:
+    """A standing invariant, not a regression guard.
+
+    These two helpers have always agreed on identical input; what differed was the
+    SQM each was handed (see tests/test_darksky_classification.py, which covers the
+    composition). Pinned so a future edit to either table or either lookup keeps them
+    in step.
+    """
+
+    def test_agree_across_the_stored_value_range(self):
+        """Domain starts well below 17.0: radiance_to_sqm is unbounded below and real
+        readings reach ~14."""
+        import numpy as np
+
+        from darkhours.darksky import _sqm_to_bortle_array
+
+        xs = np.arange(13.0, 22.4, 0.001)
+        scalar = np.array([sqm_to_bortle(float(x))[0] for x in xs], dtype=np.int8)
+        assert np.array_equal(scalar, _sqm_to_bortle_array(xs))
+
+    def test_agree_on_exact_threshold_values(self):
+        """`>=` against `searchsorted(side="right")` — equality is the only place the
+        two implementations could diverge, and arange never lands on a threshold."""
+        import numpy as np
+
+        from darkhours.darksky import _BORTLE, _sqm_to_bortle_array
+
+        xs = np.array([t for t, _, _ in _BORTLE], dtype=np.float64)
+        scalar = np.array([sqm_to_bortle(float(x))[0] for x in xs], dtype=np.int8)
+        assert np.array_equal(scalar, _sqm_to_bortle_array(xs))
+
+    def test_nan_is_the_one_documented_asymmetry(self):
+        """The array path reserves 0 for ocean/nodata; the scalar path has no such
+        sentinel and falls through to 9. Callers must not feed it NaN."""
+        import numpy as np
+
+        from darkhours.darksky import _sqm_to_bortle_array
+
+        assert sqm_to_bortle(float("nan"))[0] == 9
+        assert int(_sqm_to_bortle_array(np.array([np.nan]))[0]) == 0

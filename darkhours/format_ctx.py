@@ -107,7 +107,7 @@ def lp_str(info: dict | None) -> str | None:
         return "Light pollution data unavailable"
     if info.get("sqm") is None:
         return None
-    return (f"SQM {info['sqm']}  ·  Zone {info['lp_zone']}"
+    return (f"SQM {info['sqm']:.2f}  ·  Zone {info['lp_zone']}"
             f"  ·  Bortle {info['bortle_class']}"
             f"  ({info['bortle_desc']})  [{info['source']}]")
 

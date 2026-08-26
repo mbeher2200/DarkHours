@@ -19,7 +19,7 @@ export function NearbyResults(
   { data: NearbyResult; imperial: boolean; originLat: number; originLon: number; onSelectLocation?: (lat: number, lon: number) => void },
 ) {
   const { origin_bortle, origin_sqm, radius_miles, results, light_domes, best_available } = data
-  const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(1)})` : ''
+  const sqmStr = origin_sqm != null ? ` (SQM ${origin_sqm.toFixed(2)})` : ''
   // Drive-time routing only runs on the AWS backend; on local it's never attempted and
   // every place carries drive_minutes=null for that reason alone. Only treat a null as
   // "routing tried and failed" (e.g. ferry-only crossing) when routing is active at all —
@@ -226,7 +226,7 @@ export function NearbyResults(
                             </div>
                           </td>
                           <td className={`wx-num nearby-bortle-col ${nearbyBortleClass(p.bortle_class)}`}>{p.bortle_class}</td>
-                          <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(1) : '—'}</td>
+                          <td className="wx-num nearby-sqm-col">{p.sqm != null ? p.sqm.toFixed(2) : '—'}</td>
                           <td className="wx-num nearby-dist-col">{distOf(p)}</td>
                           {routingActive && <td className="wx-num nearby-drive-col">{formatDriveTime(p.drive_minutes) ?? '—'}</td>}
                           <td className="wx-num nearby-dir-col">{p.direction} {mapLinkNode(p)}</td>

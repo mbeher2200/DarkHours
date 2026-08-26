@@ -87,7 +87,7 @@ python darkhours.py --location "Sedona, AZ" --date 2018-08-12 --targets --weathe
 ```
 Date:               2018-08-12
 Location:           Sedona, Coconino County, Arizona, United States  (34.8689°, -111.7614°)
-Light Pollution:    SQM 18.7  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]
+Light Pollution:    SQM 18.70  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]
 Moon:               New Moon  |  4.2% illuminated  |  363,111 km
 Meteor Showers:     Perseids · Peak night · ZHR 100
 Clear Dark Sky Hours:  6h 12m  ( 9:00 PM – 10:00 PM,  11:00 PM –  4:12 AM MST)  ·  avg 3.4h  ±2.7h over lunar cycle
@@ -147,16 +147,23 @@ Prime Targets  ( 7:18 PM –  5:45 AM MST):
   Triangulum Galaxy        4:12 AM @ 84°  130°(SE)                      Dark sky  10:58 PM @ 21° –  4:12 AM @ 84°
   Whirlpool Galaxy         8:51 PM @ 41°  305°(NW)                      Dark sky   8:51 PM @ 41° – 10:58 PM @ 21°
 
-Nearby Skies  (60 mi radius):
+Nearby Skies  (25 mi radius):
 
-  Nearest:  Bortle 1  ·  15 mi ENE  (Coconino, AZ)
+  Nearest:  Bortle 2  ·  3 mi E  (Cow Pies)
+  Darkest:  Bortle 1  ·  22 mi ESE  (Happy Jack Ranger Station)
 
-  Area                                 Bortle   SQM  Distance  Direction
-  -----------------------------------  ------  ----  --------  ---------
-  Coconino, AZ                              1  22.0     15 mi        ENE
-  Red Rock-Secret Mountain Wilderness       1  22.0     15 mi         NW
-  Wet Beaver Wilderness                     1  22.0     20 mi         SE
-  Sycamore Canyon Wilderness                1  22.0     20 mi        WNW
+  Area                          Bortle    SQM  Distance  Direction
+  ----------------------------  ------  -----  --------  ---------
+  Cow Pies                           2  21.74      3 mi          E
+  Sedona Overlook                    2  21.73      3 mi        NNE
+  Schnebley Hill Vista               2  21.80      4 mi        ENE
+  Encinoso Picnic Area               2  21.81      4 mi        NNE
+  Canyon Overlook                    2  21.81      4 mi          N
+  Vultee Arch                        2  21.82      5 mi        NNW
+  Bear Mtn                           2  21.72      6 mi        WNW
+  Fay Canyon Arch                    2  21.71      6 mi        WNW
+  Schnebly Hill Road Dispersed       2  21.88      7 mi        ENE
+  Happy Jack Ranger Station          1  22.00     22 mi        ESE
 ```
 
 ### Satellite passes
@@ -168,7 +175,7 @@ python darkhours.py --location "Sedona, AZ" --satellites
 ```
 Date:               2026-05-30
 Location:           Sedona, Coconino County, Arizona, United States  (34.8689°, -111.7614°)
-Light Pollution:    SQM 18.7  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]
+Light Pollution:    SQM 18.70  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]
 Moon:               Waxing Gibbous  |  99.9% illuminated  |  405,972 km  ·  *** Micromoon ***
 Clear Dark Sky Hours:  None (moon up all night)  ·  avg 2.8h  ±2.1h over lunar cycle
 Night Quality Score:  0.0/10  (Lunar 0.0 · Dark Hours 0.0 · Weather 9.0 · Bortle 3.3)
@@ -206,7 +213,7 @@ python darkhours.py --location "Sedona, AZ" --calendar --date 2026-06
 
 ```
 Calendar — Sedona, Coconino County, Arizona, United States
-Light Pollution:    SQM 18.7  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]  ·  Score 3.3/10
+Light Pollution:    SQM 18.70  ·  Zone 7a  ·  Bortle 7  (Suburban/urban transition)  [VIIRS 2025]  ·  Score 3.3/10
 June 2026
 
   Date        Night Quality Score  Dark Hours  Weather  Moon
@@ -528,7 +535,7 @@ One row per night across a calendar month. The Moon column shows the lunar inter
 
 ```
 Calendar — Grand Canyon Village, Coconino County, Arizona, United States
-Light Pollution:    SQM 21.9  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
+Light Pollution:    SQM 21.90  ·  Zone 2a  ·  Bortle 2  (Truly dark sky)  [Falchi 2016]  ·  Score 8.9/10
 March 2026
 
   Date        Night Quality Score  Dark Hours  Weather  Moon

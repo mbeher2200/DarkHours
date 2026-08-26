@@ -321,7 +321,7 @@ def print_targets(report: NightReport, ctx: FormatCtx) -> None:
             if lp and lp.get("bortle_class") is not None:
                 bc      = lp["bortle_class"]
                 sqm     = lp.get("sqm")
-                sqm_str = f", SQM {sqm:.1f}" if sqm is not None else ""
+                sqm_str = f", SQM {sqm:.2f}" if sqm is not None else ""
                 print(f"{label}:  none — site light pollution (Bortle {bc}{sqm_str})"
                       f" exceeds astrophotography contrast limits for all catalog objects.\n")
             else:
@@ -734,7 +734,7 @@ def print_nearby(result: dict | None, ctx: FormatCtx) -> None:
 
     origin = result["origin_bortle"]
     sqm    = result["origin_sqm"]
-    sqm_s  = f"  (SQM {sqm:.1f})" if sqm is not None else ""
+    sqm_s  = f"  (SQM {sqm:.2f})" if sqm is not None else ""
 
     if origin <= 1:
         print(f"  Origin is already Bortle {origin}{sqm_s} — optimal dark sky conditions.\n")
@@ -775,7 +775,7 @@ def print_nearby(result: dict | None, ctx: FormatCtx) -> None:
         (
             r["name"] or f"{r['lat']:.2f}°, {r['lon']:.2f}°",
             str(r["bortle_class"]),
-            f"{r['sqm']:.1f}" if r["sqm"] is not None else "—",
+            f"{r['sqm']:.2f}" if r["sqm"] is not None else "—",
             ctx.fmt_dist(r["distance_miles"]),
             r["direction"],
         )

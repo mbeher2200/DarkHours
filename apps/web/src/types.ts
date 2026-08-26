@@ -7,12 +7,16 @@ export interface SkyEvent {
 }
 
 export interface LightPollution {
+  /** Quantised for display. bortle_class/lp_zone come from the unrounded value, so at
+   *  a threshold this figure can read as the adjacent class — the class is authoritative. */
   sqm: number | null
   bortle_class: number | null
   bortle_desc: string | null
   lp_zone: string | null
   below_detection: boolean
   source: string | null
+  /** Unrounded SQM the classification was derived from. */
+  sqm_raw?: number | null
 }
 
 export interface ScoreComponents {
