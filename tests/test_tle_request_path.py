@@ -179,16 +179,25 @@ _DESIGNATOR = f"{_TODAY.year}-042"
 
 
 def _synthetic_group(n_sats: int, designator_suffix: str = "042") -> str:
-    """A GROUP=starlink-shaped block. The real one is ~1.8 MB / ~10,700 satellites."""
-    yy  = _TODAY.year % 100
-    out = []
+    """A GROUP=starlink-shaped GP CSV response. The real one is ~1.7 MB / ~11,000 rows.
+
+    CSV, not TLE: FORMAT=TLE omits every object with a 6-digit catalog number, which
+    since 2026-07-11 means every recent launch — the reason this filter reported zero.
+    """
+    cols = ["OBJECT_NAME", "OBJECT_ID", "EPOCH", "MEAN_MOTION", "ECCENTRICITY",
+            "INCLINATION", "RA_OF_ASC_NODE", "ARG_OF_PERICENTER", "MEAN_ANOMALY",
+            "EPHEMERIS_TYPE", "CLASSIFICATION_TYPE", "NORAD_CAT_ID",
+            "ELEMENT_SET_NO", "REV_AT_EPOCH", "BSTAR", "MEAN_MOTION_DOT",
+            "MEAN_MOTION_DDOT"]
+    designator = f"{_TODAY.year}-{designator_suffix}A"
+    out = [",".join(cols)]
     for i in range(n_sats):
         # Mean motion 15.90 → below every operational shell → raising phase.
-        out.append(f"STARLINK-{i:05d}")
-        out.append(f"1 {50000 + i:05d}U {yy:02d}{designator_suffix}A   26235.50000000  "
-                   f".00002182  00000+0  40768-4 0  9992")
-        out.append(f"2 {50000 + i:05d}  53.0000 100.0000 0001000  90.0000 270.0000 "
-                   f"15.90000000    10")
+        out.append(",".join([
+            f"STARLINK-{i:05d}", designator, "2026-08-25T12:00:00.000000",
+            "15.90000000", ".0001000", "53.0000", "100.0000", "90.0000", "270.0000",
+            "0", "U", str(50000 + i), "999", "100", ".0000408", ".00002182", "0",
+        ]))
     return "\n".join(out)
 
 
@@ -282,6 +291,43 @@ def test_cospar_designator_reads_a_launch_number_not_a_day_of_year():
     assert tle._cospar_designator(starlink) == "2026-159"
 
     assert tle._cospar_designator("1 25544U          24191.72490000") is None
+
+
+def test_six_digit_catalog_numbers_survive_the_filter():
+    """The bug, pinned.
+
+    Celestrak assigns 6-digit catalog numbers to everything catalogued since
+    2026-07-11 and does not render those objects in FORMAT=TLE at all. Asking for
+    TLE therefore returned a constellation frozen at the last 5-digit launch, no
+    launch inside the recency window matched, and the feature reported zero trains
+    every night for weeks while looking healthy.
+
+    A 5-character TLE catalog field cannot hold 100001, so the filter re-encodes it
+    Alpha-5 ("A0001") on the way into the cache. This asserts the number survives
+    that round trip rather than being silently truncated to 10000 — sgp4 parses a
+    raw 6-digit line without complaint and shifts every field one column.
+    """
+    from sgp4.api import Satrec
+
+    raw = _synthetic_group(1).replace(",50000,", ",100001,")
+    trains = tle._filter_train_tles(raw, _recent_launch_dates(days_ago=1))
+
+    assert len(trains) == 1
+    _name, line1, line2, _launched = trains[0]
+    assert Satrec.twoline2rv(line1, line2).satnum == 100001
+
+
+def test_tle_format_body_is_rejected_not_silently_empty():
+    """A FORMAT=TLE body reaching this filter means the URL regressed. It must raise:
+    returning [] is indistinguishable from a genuine night with no trains, which is
+    how the outage above stayed invisible."""
+    tle_text = "\n".join([
+        "STARLINK-1234",
+        "1 50000U 26042A   26235.50000000  .00002182  00000+0  40768-4 0  9992",
+        "2 50000  53.0000 100.0000 0001000  90.0000 270.0000 15.90000000    10",
+    ])
+    with pytest.raises(ValueError, match="not OMM CSV"):
+        tle._filter_train_tles(tle_text, _recent_launch_dates(days_ago=1))
 
 
 def test_filter_needs_launch_dates_and_fails_closed_without_them(caplog):

@@ -91,9 +91,32 @@ class TestCosparDesignator:
 # _filter_train_tles — Starlink raising-phase filter
 # ---------------------------------------------------------------------------
 
+def _omm_csv(*sats) -> str:
+    """Build a GP CSV response (OMM) from (name, designator, mean_motion) triples.
+
+    The real feed is FORMAT=CSV: FORMAT=TLE cannot carry the 6-digit catalog numbers
+    Celestrak assigns to anything catalogued since 2026-07-11, so a TLE request
+    silently omits every recent launch — which is exactly what made this filter
+    report zero trains.
+    """
+    cols = ["OBJECT_NAME", "OBJECT_ID", "EPOCH", "MEAN_MOTION", "ECCENTRICITY",
+            "INCLINATION", "RA_OF_ASC_NODE", "ARG_OF_PERICENTER", "MEAN_ANOMALY",
+            "EPHEMERIS_TYPE", "CLASSIFICATION_TYPE", "NORAD_CAT_ID",
+            "ELEMENT_SET_NO", "REV_AT_EPOCH", "BSTAR", "MEAN_MOTION_DOT",
+            "MEAN_MOTION_DDOT"]
+    rows = [",".join(cols)]
+    for i, (name, designator, mm) in enumerate(sats):
+        rows.append(",".join([
+            name, designator, "2026-08-25T12:00:00.000000", f"{mm:.8f}",
+            ".0001000", "53.0000", "100.0000", "90.0000", "270.0000",
+            "0", "U", str(50000 + i), "999", "100", ".0001000", ".00000000", "0",
+        ]))
+    return "\n".join(rows)
+
+
 def _make_train_block() -> str:
     """
-    Build a multi-TLE block with four synthetic Starlink satellites:
+    Four synthetic Starlinks:
       RECENT-HIGH   — launch 2026-040, 5 days ago,  MM=15.60 → INCLUDE
       RECENT-LOW    — launch 2026-040, 5 days ago,  MM=15.06 → EXCLUDE (on station)
       OLD-HIGH      — launch 2026-030, 30 days ago, MM=15.70 → EXCLUDE (stale batch)
@@ -103,20 +126,12 @@ def _make_train_block() -> str:
     safest treated as recent. It is the opposite: an undatable satellite at high mean
     motion is far more likely to be an old one on its way down.
     """
-    def _l1(n: int, designator: str) -> str:
-        intl = f"{designator}  "[:8] if designator else "        "
-        return f"1 {n:05d}U {intl}24001.50000000  .00000000  00000-0  00000-0 0  9999"
-
-    def _l2(n: int, mm: float) -> str:
-        prefix = f"2 {n:05d}  51.6000 180.0000 0001000  90.0000 270.0000 "
-        return prefix + f"{mm:.8f}00001 0"
-
-    return "\n".join([
-        "STARLINK-RECENT-HIGH",  _l1(10001, "26040A"), _l2(10001, 15.60),
-        "STARLINK-RECENT-LOW",   _l1(10002, "26040B"), _l2(10002, 15.06),
-        "STARLINK-OLD-HIGH",     _l1(10003, "26030A"), _l2(10003, 15.70),
-        "STARLINK-UNKNOWN-DATE", _l1(10004, ""),       _l2(10004, 15.55),
-    ])
+    return _omm_csv(
+        ("STARLINK-RECENT-HIGH",   "2026-040A", 15.60),
+        ("STARLINK-RECENT-LOW",    "2026-040B", 15.06),
+        ("STARLINK-OLD-HIGH",      "2026-030A", 15.70),
+        ("STARLINK-UNKNOWN-DATE",  "",          15.55),
+    )
 
 
 _TODAY        = date.today()
@@ -149,12 +164,18 @@ class TestFilterTrainTles:
             assert len(entry) == 4          # (name, line1, line2, launch_date)
             assert entry[3] == (_TODAY - timedelta(days=5)).isoformat()
 
-    def test_empty_block_returns_empty(self):
-        assert _filter_train_tles("", _LAUNCH_DATES) == []
+    def test_empty_body_raises_rather_than_reporting_no_trains(self):
+        """An empty body is a broken fetch, not a quiet night. Returning [] here is
+        indistinguishable from a real result and is how a 45-day outage stayed
+        invisible — the warmer reports `ok (0 trains)` either way."""
+        with pytest.raises(ValueError, match="not OMM CSV"):
+            _filter_train_tles("", _LAUNCH_DATES)
 
-    def test_malformed_block_skipped_gracefully(self):
-        block = "JUNK LINE\nNOT A TLE\nALSO JUNK"
-        assert _filter_train_tles(block, _LAUNCH_DATES) == []
+    def test_non_csv_body_raises(self):
+        """Celestrak answers some queries with a one-line 'No GP data found' under
+        HTTP 200. That must reach the caller's error path, not the filter's."""
+        with pytest.raises(ValueError, match="not OMM CSV"):
+            _filter_train_tles("No GP data found", _LAUNCH_DATES)
 
     def test_no_launch_dates_matches_nothing(self):
         assert _filter_train_tles(self.block, {}) == []

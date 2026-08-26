@@ -38,10 +38,18 @@ refuses any item over `_MAX_ITEM_BYTES` (380,000) and returns `False`.
 
 | Gate | Constant | Value | Source |
 |---|---|---|---|
-| mean motion ≥ | `_STARLINK_TRAIN_MM_MIN` | 15.2 rev/day | TLE line 2, cols 52-63 |
+| mean motion ≥ | `_STARLINK_TRAIN_MM_MIN` | 15.2 rev/day | OMM `MEAN_MOTION` |
 | launch within | `_STARLINK_RECENT_DAYS` | 21 days | SATCAT `LAUNCH_DATE` |
 
-Every operational Starlink shell is at or below ~15.12 rev/day (530–560 km).
+Measured against the 2026-08-26 feed (10,989 objects), the mean-motion gate at 15.2
+matches 9,603 — 89.4% of the constellation. Populated shells sit at 15.28, 15.32,
+15.33 and 15.34 rev/day (464–482 km), all above the threshold; 8,165 objects
+spanning launch years 2019–2026 fall in 15.25–15.35.
+
+Mean motion does not separate raising from decaying: a satellite being lowered for
+re-entry gains mean motion the same way a raising one has not yet lost it. Maximum
+among pre-2026 launches is 16.49, above the 16.10 maximum of the newest launch in
+the feed. `_STARLINK_RECENT_DAYS` is the only filter with separating power.
 
 Launch dates are **not** derivable from a TLE. The International Designator
 (line 1, cols 10-17) is `YYNNNPPP` where `NNN` is the launch's sequence number
@@ -49,23 +57,42 @@ within its year, not a day of the year: `1998-067A` is the ISS, launched
 1998-11-20. `_cospar_designator` returns `"YYYY-NNN"`; the date comes from SATCAT.
 
 An empty launch-date map fails the filter closed (0 trains, ERROR logged,
-`service=celestrak`) and skips the group fetch entirely.
+`service=celestrak`) and skips the group fetch entirely. A body that is not OMM CSV
+raises `ValueError` rather than filtering to an empty list.
 
 ## Upstream sources
 
 | Data | Endpoint | Update policy |
 |---|---|---|
 | tracked TLEs | `gp.php?CATNR=<id>&FORMAT=TLE` | 403 = unchanged since last download |
-| Starlink group | `gp.php?GROUP=starlink&FORMAT=TLE` | 2 h; 403 = unchanged |
+| Starlink group | `gp.php?GROUP=starlink&FORMAT=CSV` | 2 h; 403 = unchanged |
 | launch dates | `satcat/records.php?GROUP=starlink&FORMAT=CSV` | no download policy |
 
-GP element sets and SATCAT entries do not appear together. Observed 2026-08-23:
-SATCAT listed Starlink launches through 2026-08-12 (designators to `2026-184`,
-catalog numbers ≥ 100000), while GP data existed only through `2026-159`
-(2026-07-11). `GROUP=last-30-days` was empty, and `INTDES=`/`CATNR=` queries for
-the newer launches returned `No GP data found`. No trains are reportable while
-the newest GP launch is older than `_STARLINK_RECENT_DAYS`; `TleWarmItems` on
-`Key=starlink` is where that shows up.
+Objects catalogued from 2026-07-11 carry 6-digit catalog numbers. Celestrak does
+not render those in `FORMAT=TLE`; GP data for them is served in JSON/XML/CSV/KVN
+only. A `FORMAT=TLE` request returns the constellation truncated at the last
+5-digit launch.
+
+Measured 2026-08-26, same endpoint, same day:
+
+| Request | Objects | Newest launch | 6-digit |
+|---|---|---|---|
+| `GROUP=starlink&FORMAT=TLE` | 10,738 | `2026-159` | 0 |
+| `GROUP=starlink&FORMAT=CSV` | 10,989 | `2026-190` | 253 |
+
+The 2026-08-23 observations that `GROUP=last-30-days` was empty and `INTDES=` /
+`CATNR=` returned `No GP data found` were all `FORMAT=TLE` requests.
+`CATNR=100001&FORMAT=CSV` returns the object.
+
+Surviving rows are re-encoded as TLE line pairs on the way into the cache; catalog
+numbers ≥ 100000 become Alpha-5 (`100001` → `A0001`), which sgp4 and skyfield read
+back as the original integer. Nothing on the train path reads the catalog number.
+
+Objects with SpaceX provisional ids (9-digit, e.g. `799501431`) are not in GP and
+have no SATCAT row, so they carry no launch date and are filtered out. They appear
+once catalogued.
+
+`TleWarmItems` on `Key=starlink` is where a truncated feed shows up.
 
 ## Degradation (request path)
 
