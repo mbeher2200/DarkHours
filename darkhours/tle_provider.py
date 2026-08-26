@@ -315,8 +315,17 @@ def _as_launch_dates(value) -> dict[str, date]:
 # Starlink train TLE acquisition
 # ---------------------------------------------------------------------------
 
+# CSV, not TLE. Celestrak assigns 6-digit catalog numbers to objects catalogued
+# from 2026-07-11 onward, and does not render those in the legacy TLE format at
+# all — a 5-character catalog field cannot hold them and Celestrak declined the
+# Alpha-5 stopgap for GP output, publishing JSON/XML/CSV/KVN instead. A
+# FORMAT=TLE request therefore silently returns a constellation frozen at the
+# last 5-digit launch, which is what made this feature report zero trains every
+# night: no launch inside _STARLINK_RECENT_DAYS was in the response to match.
+# Measured 2026-08-26: TLE 10,738 objects, newest launch 2026-159; CSV 10,989
+# objects, newest launch 2026-190, 253 of them with 6-digit catalog numbers.
 _STARLINK_GROUP_URL       = ("https://celestrak.org/NORAD/elements/gp.php"
-                             "?GROUP=starlink&FORMAT=TLE")
+                             "?GROUP=starlink&FORMAT=CSV")
 
 # The cache holds the *filtered* train list, never the raw group response.
 #
@@ -416,27 +425,62 @@ def _parse_satcat_launch_dates(csv_text: str, today: date) -> dict[str, date]:
     return out
 
 
+# OMM columns _filter_train_tles cannot work without. Checked explicitly so a
+# body that is not the CSV we asked for fails loudly instead of filtering to an
+# empty list: Celestrak answers some queries with a one-line "No GP data found"
+# under HTTP 200, and an empty result here is indistinguishable from a genuine
+# night with no trains. That ambiguity is what let a 45-day outage pass as
+# healthy, since the warmer reports `ok (0 trains)` either way.
+_OMM_REQUIRED_COLUMNS = ("OBJECT_NAME", "OBJECT_ID", "MEAN_MOTION", "EPOCH")
+
+
+def _omm_row_to_tle(row: dict) -> tuple[str, str] | None:
+    """Render one OMM CSV row as (line1, line2), or None if sgp4 rejects it.
+
+    The cache and everything downstream still hold TLE line pairs, so only the
+    handful of rows that survive the filter are converted — not the ~11,000 in
+    the response. Catalog numbers of 100000+ come back Alpha-5 encoded (100001 →
+    ``A0001``), which sgp4 and skyfield both read back to the original integer;
+    nothing on the train path reads the catalog number anyway.
+    """
+    from sgp4 import exporter, omm as _omm     # lazy: warmer path only
+    from sgp4.api import Satrec
+
+    try:
+        sat = Satrec()
+        _omm.initialize(sat, row)
+        line1, line2 = exporter.export_tle(sat)
+    except Exception as e:                      # malformed row, never fatal
+        log.debug("Skipping unconvertible OMM row %s: %s", row.get("OBJECT_ID"), e)
+        return None
+    return line1, line2
+
+
 def _filter_train_tles(
     raw: str, launch_dates: dict[str, date]
 ) -> list[tuple[str, str, str, str]]:
     """
-    Parse a multi-TLE block and return only raising-phase Starlinks from recent launches.
+    Parse a GP CSV response and return only raising-phase Starlinks from recent launches.
 
     Two-part filter:
-      1. Mean motion ≥ _STARLINK_TRAIN_MM_MIN — the satellite is still below every
+      1. Mean motion >= _STARLINK_TRAIN_MM_MIN — the satellite is still below every
          operational shell, so it has not been handed over to service yet.
       2. The launch is within _STARLINK_RECENT_DAYS, per *launch_dates* — an older
          batch has spread around its orbit and no longer crosses the sky as a train
          even while it is still raising.
 
     Recency is the load-bearing half, and it is why this needs the SATCAT. Mean
-    motion alone is not a train signal: ~880 of the ~10,700 satellites in the group
-    are above the threshold at any moment, and most are old satellites being lowered
-    for re-entry rather than new ones being raised.
+    motion alone is not a train signal: most satellites above the threshold are old
+    ones being lowered for re-entry rather than new ones being raised, and a
+    descending satellite speeds up exactly like a climbing one.
 
     An empty *launch_dates* therefore fails closed. Without dates the two populations
     are indistinguishable, and emitting the raising-phase set unfiltered would put
     hundreds of decaying satellites on screen labelled as trains.
+
+    ``OBJECT_ID`` carries the full international designator ("2026-160A"); the first
+    eight characters are the launch key, the same key _parse_satcat_launch_dates
+    builds on the other side of this join.
 
     Ordered newest launch first so _STARLINK_MAX_TRAINS truncates the oldest batch
     rather than an arbitrary one.
@@ -444,6 +488,8 @@ def _filter_train_tles(
     The recency cutoff is evaluated here, at filter time, and the result is what gets
     cached — so it is frozen for up to one refresh interval (6 h) against a 21-day
     window. That drift is immaterial; caching the raw block instead is what was not.
+
+    Raises ValueError if *raw* is not the OMM CSV we asked for.
     """
     if not launch_dates:
         log.error("No Starlink launch dates available — cannot tell a train from a "
@@ -451,27 +497,37 @@ def _filter_train_tles(
                   extra={"service": "celestrak"})
         return []
 
+    reader = csv.DictReader(io.StringIO(raw))
+    missing = [c for c in _OMM_REQUIRED_COLUMNS if c not in (reader.fieldnames or ())]
+    if missing:
+        raise ValueError(
+            f"Starlink group response is not OMM CSV — missing {', '.join(missing)}; "
+            f"body starts {raw[:80]!r}"
+        )
+
     cutoff = datetime.now(timezone.utc).date() - timedelta(days=_STARLINK_RECENT_DAYS)
 
-    lines  = [l.strip() for l in raw.splitlines() if l.strip()]
     dated: list[tuple[date, tuple[str, str, str, str]]] = []
     raising = 0
-    i = 0
-    while i + 2 <= len(lines) - 1:
-        name, l1, l2 = lines[i], lines[i + 1], lines[i + 2]
-        if l1.startswith("1 ") and l2.startswith("2 "):
-            mm = _parse_mean_motion(l2)
-            if mm is not None and mm >= _STARLINK_TRAIN_MM_MIN:
-                raising += 1
-                launched = launch_dates.get(_cospar_designator(l1) or "")
-                if launched is not None and launched >= cutoff:
-                    dated.append((launched, (name, l1, l2, launched.isoformat())))
-            i += 3
-        else:
-            i += 1
+    for row in reader:
+        try:
+            mm = float(row["MEAN_MOTION"])
+        except (TypeError, ValueError):
+            continue
+        if mm < _STARLINK_TRAIN_MM_MIN:
+            continue
+        raising += 1
+        launched = launch_dates.get((row.get("OBJECT_ID") or "")[:8])
+        if launched is None or launched < cutoff:
+            continue
+        lines = _omm_row_to_tle(row)
+        if lines is None:
+            continue
+        name = (row.get("OBJECT_NAME") or "").strip() or "STARLINK"
+        dated.append((launched, (name, lines[0], lines[1], launched.isoformat())))
 
     dated.sort(key=lambda entry: entry[0], reverse=True)
-    log.debug("Filtered %d Starlink train candidates from group TLE (%d raising)",
+    log.debug("Filtered %d Starlink train candidates from group CSV (%d raising)",
               len(dated), raising)
     return [entry for _, entry in dated]
 
