@@ -40,6 +40,14 @@ def _prewarm() -> None:
             src.sample(dataset, 0.0, 0.0)
     except Exception as _e:
         log.debug("Raster pre-warm failed: %s", _e)
+    # global-land-mask (~933 MB materialised on import) — lazy since it is find_nearby-only,
+    # so warm it here, where find_nearby actually runs, rather than on the first job.
+    try:
+        from darkhours import darksky as _ds
+        if _ds._HAS_GLM:
+            _ds._land_mask_mod()
+    except Exception as _e:
+        log.debug("Land-mask pre-warm failed: %s", _e)
     # PAD-US H3 index (columnar load) used by find_nearby Tier 1.
     try:
         from darkhours import darksky as _ds
