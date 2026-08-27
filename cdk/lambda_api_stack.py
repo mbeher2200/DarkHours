@@ -1205,6 +1205,49 @@ function handler(event) {
         )
         worker_errors_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
 
+        # Throttles were graphed but never alarmed, and they are the specific failure mode
+        # this stack's concurrency config can produce: the API is capped at 25 and the
+        # worker at 12 against an SQS event source allowed 10 in parallel. Either function
+        # hitting its cap silently drops work — EventBridge warmup pings are async, so a
+        # throttled ping is retried and then discarded. Any throttle at all is actionable.
+        api_throttles_alarm = cloudwatch.Alarm(
+            self, "ApiThrottlesAlarm",
+            alarm_description="API Lambda throttled (reserved concurrency exhausted)",
+            metric=fn.metric_throttles(statistic="Sum", period=Duration.minutes(5)),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        api_throttles_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        worker_throttles_alarm = cloudwatch.Alarm(
+            self, "WorkerThrottlesAlarm",
+            alarm_description="Worker Lambda throttled (reserved concurrency exhausted)",
+            metric=worker.metric_throttles(statistic="Sum", period=Duration.minutes(5)),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        worker_throttles_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
+        # Sustained API slowness heading toward the CloudFront origin read timeout (60s),
+        # past which the viewer gets a 504 instead of a slow answer. Observed p99 is ~6.4s,
+        # so 20s is well clear of normal variance. A 15-minute period rather than 5 keeps
+        # low traffic from making p99 an alias for "one slow request".
+        api_duration_alarm = cloudwatch.Alarm(
+            self, "ApiDurationP99Alarm",
+            alarm_description="API Lambda p99 duration elevated (CloudFront 504 risk)",
+            metric=fn.metric_duration(statistic="p99", period=Duration.minutes(15)),
+            threshold=20_000,
+            evaluation_periods=2,
+            datapoints_to_alarm=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        api_duration_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
+
         # Highest-value new alarm: today the DLQ has zero live notification coverage. Any
         # message here means a job failed 3x (max_receive_count) and needs a human look.
         dlq_not_empty_alarm = cloudwatch.Alarm(
