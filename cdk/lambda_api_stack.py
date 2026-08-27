@@ -399,7 +399,13 @@ class LambdaApiStack(Stack):
         furl = fn.add_function_url(auth_type=lambda_.FunctionUrlAuthType.AWS_IAM)
 
         # --- CloudFront in front, with OAC SigV4-signing the IAM-auth Function URL ---
-        origin = origins.FunctionUrlOrigin.with_origin_access_control(furl)
+        # read_timeout: CloudFront's custom-origin default is 30s. An Init that overruns the
+        # 10s cap makes Lambda re-run init against the function timeout, so a cold start can
+        # cost ~10s aborted init + re-init + handler and cross 30s as a 504. 60s is the
+        # ceiling without a service-quota increase; the function itself times out at 120s.
+        origin = origins.FunctionUrlOrigin.with_origin_access_control(
+            furl, read_timeout=Duration.seconds(60),
+        )
 
         api_cache = cloudfront.CachePolicy(
             self, "ApiCachePolicy",
