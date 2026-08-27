@@ -46,6 +46,9 @@ aws sns subscribe --topic-arn <arn> --protocol email --notification-endpoint <yo
 | `WorkerErrorsAlarm` | ≥2 Worker Lambda errors in 5 min |
 | `DlqNotEmptyAlarm` | ≥1 message visible in the jobs dead-letter queue |
 | `CloudFront5xxErrorRateAlarm` | 5xx rate ≥20% over 2 consecutive 5-min periods |
+| `ApiThrottlesAlarm` | ≥1 API Lambda throttle in 5 min (reserved concurrency 25) |
+| `WorkerThrottlesAlarm` | ≥1 Worker Lambda throttle in 5 min (reserved concurrency 12) |
+| `ApiDurationP99Alarm` | API p99 duration ≥20 s over 2 consecutive 15-min periods |
 
 **`PyNightSkyProviderHealth` stack:**
 
