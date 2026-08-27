@@ -162,7 +162,14 @@ class LambdaApiStack(Stack):
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements-api.txt "
                         "-t /asset-output "
-                        "&& cp -r darkhours apps cache /asset-output/",
+                        "&& cp -r darkhours apps cache /asset-output/ "
+                        # pip byte-compiles what it installs, but this cp does not, so the
+                        # app's own modules shipped as bare .py and recompiled on every cold
+                        # start (/var/task is read-only, so the .pyc never persists).
+                        # unchecked-hash: mtimes do not survive packaging, so a timestamp
+                        # .pyc would be treated as stale and recompiled anyway.
+                        "&& python3 -m compileall -q --invalidation-mode unchecked-hash "
+                        "/asset-output/darkhours /asset-output/apps",
                     ],
                 ),
             ),
@@ -302,7 +309,14 @@ class LambdaApiStack(Stack):
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements.txt "
                         "python-json-logger aws-xray-sdk -t /asset-output "
-                        "&& cp -r darkhours apps cache /asset-output/",
+                        "&& cp -r darkhours apps cache /asset-output/ "
+                        # pip byte-compiles what it installs, but this cp does not, so the
+                        # app's own modules shipped as bare .py and recompiled on every cold
+                        # start (/var/task is read-only, so the .pyc never persists).
+                        # unchecked-hash: mtimes do not survive packaging, so a timestamp
+                        # .pyc would be treated as stale and recompiled anyway.
+                        "&& python3 -m compileall -q --invalidation-mode unchecked-hash "
+                        "/asset-output/darkhours /asset-output/apps",
                     ],
                 ),
             ),
