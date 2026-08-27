@@ -76,14 +76,6 @@ def _prewarm() -> None:
 
 
 if "LAMBDA_TASK_ROOT" in os.environ:
-    try:
-        from aws_xray_sdk.core import patch_all as _xray_patch_all
-        logging.getLogger("aws_xray_sdk.core.patcher").setLevel(logging.WARNING)
-        logging.getLogger("aws_xray_sdk.core.lambda_launcher").setLevel(logging.ERROR)
-        _xray_patch_all()
-    except ImportError:
-        pass
-
     # Best-effort prewarm in a BACKGROUND DAEMON THREAD at module init: doing it
     # synchronously here blew Lambda's init budget (INIT_REPORT timeout). This covers
     # the case where the first event on a cold container is a real job. The scheduled

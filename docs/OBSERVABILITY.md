@@ -23,7 +23,6 @@ Console link: `aws cloudformation describe-stacks --stack-name PyNightSkyLambda
 | CloudFront | Requests, 4xx/5xx rate, origin latency, cache hit rate |
 | WAF | Blocked requests, per rule (IP reputation, known-bad-inputs, 3 rate limits) |
 | Application | `PyNightSky/UpstreamErrors` (log-derived: AWS Location/Celestrak/7Timer failures) |
-| X-Ray | Text widget linking to the Service Map console |
 
 ## Alarms
 
@@ -82,11 +81,6 @@ aws cloudwatch set-alarm-state --alarm-name <deployed alarm name> --state-value 
 | `aws-waf-logs-pynightsky` | 30 days | Full WAF request log |
 
 `LOG_LEVEL` env var (default `INFO`) controls verbosity on both Lambdas.
-
-## X-Ray
-
-`Tracing.ACTIVE` on the **API** and **Worker** Lambda only. Not enabled on the TLE warmer or
-the provider-health monitor.
 
 ## Custom metrics
 

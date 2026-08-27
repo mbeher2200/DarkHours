@@ -115,7 +115,7 @@ test/scan use, which is also why `Dockerfile.worker` is in the repo at all):
 - `docs/OSM_POI_INDEX.md` — routable OSM POI H3 index for POI-first `find_nearby`.
 - `docs/TARGETS.md` — target catalog schema + meteor-shower ZHR decay model.
 - `docs/OBSERVABILITY.md` — CloudWatch dashboard, alarms + SNS notification wiring, log groups,
-  X-Ray scope, and the Application Insights shadow-alarm gap left open on purpose.
+  and the Application Insights shadow-alarm gap left open on purpose.
 - `docs/CIRCUIT_BREAKER.md` — provider circuit breaker: design, per-host keys, flags,
   detection-latency budget, and monitor-driven recovery wiring (IAM grant + env var
   deployed and confirmed live, PR #137 — one open item remains: organic end-to-end
