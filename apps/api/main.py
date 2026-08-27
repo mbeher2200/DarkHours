@@ -36,12 +36,21 @@ from apps import jobs
 from .serializers import night_report_to_dict
 
 
+# Mangum builds a fresh LifespanCycle inside __call__, so this lifespan runs on EVERY
+# invocation rather than once at container init. Without this guard each request spawned a
+# thread and re-ran the DynamoDB probe below, an unmemoized GetItem. Set before the thread
+# starts, not inside it, so a request arriving mid-warm doesn't spawn a second one.
+_prewarm_started = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-warm expensive resources in a daemon thread so the lifespan yields
-    # immediately and Lambda Web Adapter gets its readiness signal without delay.
-    # Previously this ran synchronously and caused LWA's 10s probe to time out.
-    if "LAMBDA_TASK_ROOT" in os.environ:
+    # Pre-warm expensive resources in a daemon thread so the lifespan yields immediately.
+    # This cannot reduce @initDuration: under Mangum it runs on the request path, not in
+    # Lambda's Init phase. Its only value is overlapping the warm with the first request.
+    global _prewarm_started
+    if "LAMBDA_TASK_ROOT" in os.environ and not _prewarm_started:
+        _prewarm_started = True
         import threading
 
         def _prewarm() -> None:
