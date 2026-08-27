@@ -35,22 +35,6 @@ from darkhours.predictor import assemble_night
 from apps import jobs
 from .serializers import night_report_to_dict
 
-# X-Ray tracing: LAMBDA_TASK_ROOT is always set inside Lambda but never in local dev
-# or tests, so this guard keeps tests clean and avoids patching urllib/boto3 locally.
-_xray_enabled = False
-if "LAMBDA_TASK_ROOT" in os.environ:
-    try:
-        from aws_xray_sdk.core import xray_recorder, patch_all as _xray_patch_all
-        xray_recorder.configure(context_missing="LOG_ERROR")
-        # Suppress INFO noise from the patcher ("successfully patched module ...") and
-        # the init-phase lambda_launcher WARNINGs ("Subsegment discarded ...").
-        logging.getLogger("aws_xray_sdk.core.patcher").setLevel(logging.WARNING)
-        logging.getLogger("aws_xray_sdk.core.lambda_launcher").setLevel(logging.ERROR)
-        _xray_patch_all()
-        _xray_enabled = True
-    except ImportError:
-        pass
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -129,14 +113,6 @@ class _AccessLog(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(_AccessLog)
-
-if _xray_enabled:
-    try:
-        from aws_xray_sdk.ext.starlette.middleware import XRayMiddleware
-        app.add_middleware(XRayMiddleware, recorder=xray_recorder)
-    except ImportError:
-        pass
-
 
 # ── input bounds (data sanity + abuse/DoS guards) ────────────────────────────
 _MIN_DATE = date(1900, 1, 1)        # de421.bsp ephemeris coverage (~1900–2050)

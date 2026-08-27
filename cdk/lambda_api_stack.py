@@ -175,7 +175,7 @@ class LambdaApiStack(Stack):
             ),
             memory_size=3008,
             timeout=Duration.seconds(120),
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=api_log_group,
             # Reserved concurrency caps the blast radius of a retry storm, bad crawler, or
             # runaway bug: without it this function draws uncapped from the account's shared
@@ -308,7 +308,7 @@ class LambdaApiStack(Stack):
                     command=[
                         "bash", "-c",
                         "pip install --no-cache-dir -r requirements.txt "
-                        "python-json-logger aws-xray-sdk -t /asset-output "
+                        "python-json-logger -t /asset-output "
                         "&& cp -r darkhours apps cache /asset-output/ "
                         # pip byte-compiles what it installs, but this cp does not, so the
                         # app's own modules shipped as bare .py and recompiled on every cold
@@ -322,7 +322,7 @@ class LambdaApiStack(Stack):
             ),
             memory_size=3008,
             timeout=Duration.seconds(900),                # 15 min: large multi-night trips
-            tracing=lambda_.Tracing.ACTIVE,
+            tracing=lambda_.Tracing.DISABLED,
             log_group=worker_log_group,
             # See the Api function's reserved_concurrent_executions comment above for the
             # cost-blast-radius rationale. 12 gives ~1.5x headroom over the worst peak
@@ -1426,20 +1426,6 @@ function handler(event) {
                 title="Weather provider latency & DB write failures",
                 left=[_provider_metric("HTTPVerificationLatency", stat="Average")],
                 right=[_provider_metric("DynamoDBWriteFailure")],
-            ),
-        )
-
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown=(
-                    "### X-Ray traces\n"
-                    "Trace-level latency isn't a native dashboard widget — see the "
-                    f"[X-Ray Service Map](https://{self.region}.console.aws.amazon.com/"
-                    f"cloudwatch/home?region={self.region}#xray:service-map) "
-                    "(API + Worker Lambda are traced; the TLE warmer is not)."
-                ),
-                width=24,
-                height=3,
             ),
         )
 

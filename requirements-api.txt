@@ -3,4 +3,3 @@
 fastapi==0.141.1
 mangum==0.21.0
 python-json-logger==4.2.0
-aws-xray-sdk==2.15.0
