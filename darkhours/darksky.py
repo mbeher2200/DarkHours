@@ -48,15 +48,35 @@ from . import _http
 
 log = logging.getLogger(__name__)
 
-try:
-    from global_land_mask import globe as _glm
-    _HAS_GLM = True
-except ImportError:
-    log.warning(
-        "global-land-mask not installed; water pre-filtering disabled. "
-        "Run `pip install global-land-mask` to enable early water coordinate filtering."
-    )
-    _HAS_GLM = False
+# global-land-mask materialises a (21600, 43200) bool array (~933 MB) at import, so it is
+# loaded on first use instead. Only find_nearby needs it, yet both Lambdas paid it during
+# init. _glm/_HAS_GLM stay module-level and writable because tests monkeypatch both.
+_glm = None
+_HAS_GLM = True          # optimistic; flipped to False if the package turns out to be absent
+_glm_lock = threading.Lock()
+
+
+def _land_mask_mod():
+    """Return global_land_mask.globe, importing it on first use.
+
+    Returns None (and flips ``_HAS_GLM``) when the package is missing. Callers must test
+    ``_HAS_GLM`` *before* calling this, so a monkeypatched False short-circuits without
+    triggering the import.
+    """
+    global _glm, _HAS_GLM
+    if _glm is None and _HAS_GLM:
+        with _glm_lock:
+            if _glm is None and _HAS_GLM:
+                try:
+                    from global_land_mask import globe
+                    _glm = globe
+                except ImportError:
+                    _HAS_GLM = False
+                    log.warning(
+                        "global-land-mask not installed; water pre-filtering disabled. "
+                        "Run `pip install global-land-mask` to enable early water coordinate filtering."
+                    )
+    return _glm
 
 _HAS_H3 = False
 try:
@@ -1175,7 +1195,9 @@ def _find_light_domes_from_array(
             if land_mask is not None:
                 arr = np.where(land_mask, arr, np.nan)
             else:
-                arr = np.where(_glm.is_land(lat_grid, lon_grid), arr, np.nan)
+                _mod = _land_mask_mod()
+                if _mod is not None:
+                    arr = np.where(_mod.is_land(lat_grid, lon_grid), arr, np.nan)
         sqm_arr = np.where(arr > 0, 21.7 - 2.5 * np.log10(arr + 0.6), np.nan)
     bortle_arr = _sqm_to_bortle_array(sqm_arr)
 
@@ -1290,7 +1312,9 @@ def _extract_dark_sky_candidates(
 
     # ── Land mask (compute once, reused in dark_mask below) ───────────────────
     if land_mask is None and _HAS_GLM:
-        land_mask = _glm.is_land(lat_grid, lon_grid)
+        _mod = _land_mask_mod()
+        if _mod is not None:
+            land_mask = _mod.is_land(lat_grid, lon_grid)
 
     # ── Composite Bortle array ────────────────────────────────────────────────
     # VIIRS primary: any pixel with measurable radiance.
@@ -2554,7 +2578,9 @@ def find_nearby(lat: float, lon: float, radius_miles:int) -> dict | None:
             _lat_grid, _lon_grid = _window_pixel_grid(
                 "viirs", _min_lat, _max_lat, _min_lon, _max_lon, _rows, _cols)
             if _HAS_GLM:
-                _land_mask = _glm.is_land(_lat_grid, _lon_grid)
+                _mod = _land_mask_mod()
+                if _mod is not None:
+                    _land_mask = _mod.is_land(_lat_grid, _lon_grid)
             _viirs_sqm_arr = _np.where(
                 viirs_arr > 0,
                 21.7 - 2.5 * _np.log10(viirs_arr + 0.6),

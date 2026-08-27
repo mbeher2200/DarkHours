@@ -29,7 +29,7 @@ def _reference_domes(arr, min_lat, max_lat, min_lon, max_lon, tier_min_bortle=8,
     lat_vals = np.linspace(max_lat, min_lat, rows)
     lon_vals = np.linspace(min_lon, max_lon, cols)
     lat_grid, lon_grid = np.meshgrid(lat_vals, lon_vals, indexing="ij")
-    masked = np.where(darksky._glm.is_land(lat_grid, lon_grid), arr, np.nan)
+    masked = np.where(darksky._land_mask_mod().is_land(lat_grid, lon_grid), arr, np.nan)
     sqm = np.where(masked > 0, 21.7 - 2.5 * np.log10(masked + 0.6), np.nan)
     bortle = darksky._sqm_to_bortle_array(sqm)
     tier = (bortle >= tier_min_bortle) & (bortle != 0)
@@ -70,7 +70,7 @@ def _step_profile(arr, min_lat, max_lat, min_lon, max_lon):
     t["meshgrid"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    masked = np.where(darksky._glm.is_land(lat_grid, lon_grid), arr, np.nan)
+    masked = np.where(darksky._land_mask_mod().is_land(lat_grid, lon_grid), arr, np.nan)
     t["is_land mask"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
