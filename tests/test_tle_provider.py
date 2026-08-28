@@ -9,6 +9,7 @@ import pytest
 
 from darkhours import tle_provider as tle_mod
 from darkhours.tle_provider import (
+    _STARLINK_RECENT_DAYS,
     _cospar_designator,
     _filter_train_tles,
     _parse_mean_motion,
@@ -117,10 +118,10 @@ def _omm_csv(*sats) -> str:
 def _make_train_block() -> str:
     """
     Four synthetic Starlinks:
-      RECENT-HIGH   — launch 2026-040, 5 days ago,  MM=15.60 → INCLUDE
-      RECENT-LOW    — launch 2026-040, 5 days ago,  MM=15.06 → EXCLUDE (on station)
-      OLD-HIGH      — launch 2026-030, 30 days ago, MM=15.70 → EXCLUDE (stale batch)
-      UNKNOWN-DATE  — blank designator,             MM=15.55 → EXCLUDE (undatable)
+      RECENT-HIGH   — launch 2026-040, inside the window, MM=15.60 → INCLUDE
+      RECENT-LOW    — launch 2026-040, inside the window, MM=15.06 → EXCLUDE (on station)
+      OLD-HIGH      — launch 2026-030, 30 days ago,       MM=15.70 → EXCLUDE (stale batch)
+      UNKNOWN-DATE  — blank designator,                   MM=15.55 → EXCLUDE (undatable)
 
     UNKNOWN-DATE used to be included on the theory that an unknown launch date was
     safest treated as recent. It is the opposite: an undatable satellite at high mean
@@ -136,7 +137,7 @@ def _make_train_block() -> str:
 
 _TODAY        = date.today()
 _LAUNCH_DATES = {
-    "2026-040": _TODAY - timedelta(days=5),
+    "2026-040": _TODAY - timedelta(days=_STARLINK_RECENT_DAYS - 1),
     "2026-030": _TODAY - timedelta(days=30),
 }
 
@@ -162,7 +163,7 @@ class TestFilterTrainTles:
     def test_each_result_carries_its_launch_date(self):
         for entry in self.results:
             assert len(entry) == 4          # (name, line1, line2, launch_date)
-            assert entry[3] == (_TODAY - timedelta(days=5)).isoformat()
+            assert entry[3] == (_TODAY - timedelta(days=_STARLINK_RECENT_DAYS - 1)).isoformat()
 
     def test_empty_body_raises_rather_than_reporting_no_trains(self):
         """An empty body is a broken fetch, not a quiet night. Returning [] here is
