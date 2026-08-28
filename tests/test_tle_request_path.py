@@ -250,14 +250,15 @@ def test_cached_starlink_trains_reads_an_empty_list_as_data_not_as_a_miss(monkey
 
 def test_cached_starlink_trains_round_trips_the_json_shape(monkeypatch):
     """The cache stores JSON, so tuples come back as lists — callers expect tuples."""
+    fresh_launch = (_TODAY - timedelta(days=1)).isoformat()
     cache = _StateCache(fresh={
-        tle._STARLINK_TRAINS_CACHE_KEY: [["S-1", "1 aaa", "2 bbb", "2026-08-12"]]
+        tle._STARLINK_TRAINS_CACHE_KEY: [["S-1", "1 aaa", "2 bbb", fresh_launch]]
     })
     monkeypatch.setattr(tle, "_cache", cache)
 
     trains, _, _ = tle.cached_starlink_trains()
 
-    assert trains == [("S-1", "1 aaa", "2 bbb", "2026-08-12")]
+    assert trains == [("S-1", "1 aaa", "2 bbb", fresh_launch)]
 
 
 def test_cached_starlink_trains_tolerates_a_three_element_row(monkeypatch):
@@ -266,9 +267,28 @@ def test_cached_starlink_trains_tolerates_a_three_element_row(monkeypatch):
     cache = _StateCache(fresh={tle._STARLINK_TRAINS_CACHE_KEY: [["S-1", "1 aaa", "2 bbb"]]})
     monkeypatch.setattr(tle, "_cache", cache)
 
-    trains, _, _ = tle.cached_starlink_trains()
+    assert tle._as_tle_tuples(cache.get(tle._STARLINK_TRAINS_CACHE_KEY)) == [
+        ("S-1", "1 aaa", "2 bbb", None)]
 
-    assert trains == [("S-1", "1 aaa", "2 bbb", None)]
+    # An undated row cannot be aged, so the read-path prune drops it.
+    trains, _, _ = tle.cached_starlink_trains()
+    assert trains == []
+
+
+def test_cached_starlink_trains_ages_out_stale_launches_on_read(monkeypatch):
+    """The window is enforced on read, not only when the warmer refreshes."""
+    inside  = (_TODAY - timedelta(days=1)).isoformat()
+    outside = (_TODAY - timedelta(days=tle._STARLINK_RECENT_DAYS + 1)).isoformat()
+    cache = _StateCache(fresh={tle._STARLINK_TRAINS_CACHE_KEY: [
+        ["S-new", "1 aaa", "2 bbb", inside],
+        ["S-old", "1 ccc", "2 ddd", outside],
+    ]})
+    monkeypatch.setattr(tle, "_cache", cache)
+
+    trains, stale, error = tle.cached_starlink_trains()
+
+    assert [t[0] for t in trains] == ["S-new"]
+    assert stale is False and error is None
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +388,7 @@ def test_filter_carries_the_launch_date_and_orders_newest_first():
     raw = _synthetic_group(2) + "\n" + _synthetic_group(2, designator_suffix="041")
     dates = {
         _DESIGNATOR:      _TODAY - timedelta(days=2),
-        older_designator: _TODAY - timedelta(days=9),
+        older_designator: _TODAY - timedelta(days=tle._STARLINK_RECENT_DAYS - 1),
     }
 
     trains = tle._filter_train_tles(raw, dates)
@@ -377,7 +397,7 @@ def test_filter_carries_the_launch_date_and_orders_newest_first():
     assert all(len(t) == 4 for t in trains)
     assert [t[3] for t in trains] == [
         (_TODAY - timedelta(days=2)).isoformat()] * 2 + [
-        (_TODAY - timedelta(days=9)).isoformat()] * 2
+        (_TODAY - timedelta(days=tle._STARLINK_RECENT_DAYS - 1)).isoformat()] * 2
 
 
 def test_satcat_parsing_keeps_recent_launches_keyed_by_designator():

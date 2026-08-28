@@ -268,14 +268,16 @@ def cached_starlink_trains() -> tuple[list[tuple[str, str, str, str | None]], bo
     """
     key = _STARLINK_TRAINS_CACHE_KEY
 
+    # Pruned on read: the list is built by the warmer, a separate hand-deployed stack, so
+    # a window change would otherwise stay inert here.
     trains = _cache.get(key)
     if trains is not None:
-        return _as_tle_tuples(trains), False, None
+        return _prune_expired_trains(_as_tle_tuples(trains)), False, None
 
     trains = _cache.get_stale(key)
     if trains is not None:
         log.warning("Serving expired Starlink train TLEs — the warmer has not refreshed them")
-        return _as_tle_tuples(trains), True, None
+        return _prune_expired_trains(_as_tle_tuples(trains)), True, None
 
     msg = "no cached Starlink train TLEs — the warmer has not populated them"
     log.error("%s", msg, extra={"service": "celestrak"})
@@ -351,7 +353,9 @@ _STARLINK_LAUNCH_DATES_CACHE_KEY = "tle|starlink|launch_dates"
 # dropped batches deployed directly at ~465 km — three of the four most recent
 # launches in the feed on 2026-08-23.
 _STARLINK_TRAIN_MM_MIN    = 15.2
-_STARLINK_RECENT_DAYS     = 21     # only launches within this window can form a visible train
+# A batch reads as a train for 1-3 nights after deployment, then spreads around the orbit
+# — while still raising, so the mean-motion filter alone keeps it.
+_STARLINK_RECENT_DAYS     = 4      # only launches within this window can form a visible train
 
 # The cached launch-date map is pruned to this window. The filter only ever asks
 # about _STARLINK_RECENT_DAYS; the wider margin keeps the item small (tens of
@@ -459,35 +463,12 @@ def _omm_row_to_tle(row: dict) -> tuple[str, str] | None:
 def _filter_train_tles(
     raw: str, launch_dates: dict[str, date]
 ) -> list[tuple[str, str, str, str]]:
-    """
-    Parse a GP CSV response and return only raising-phase Starlinks from recent launches.
+    """Return only raising-phase Starlinks from recent launches, newest first.
 
-    Two-part filter:
-      1. Mean motion >= _STARLINK_TRAIN_MM_MIN — the satellite is still below every
-         operational shell, so it has not been handed over to service yet.
-      2. The launch is within _STARLINK_RECENT_DAYS, per *launch_dates* — an older
-         batch has spread around its orbit and no longer crosses the sky as a train
-         even while it is still raising.
-
-    Recency is the load-bearing half, and it is why this needs the SATCAT. Mean
-    motion alone is not a train signal: most satellites above the threshold are old
-    ones being lowered for re-entry rather than new ones being raised, and a
-    descending satellite speeds up exactly like a climbing one.
-
-    An empty *launch_dates* therefore fails closed. Without dates the two populations
-    are indistinguishable, and emitting the raising-phase set unfiltered would put
-    hundreds of decaying satellites on screen labelled as trains.
-
-    ``OBJECT_ID`` carries the full international designator ("2026-160A"); the first
-    eight characters are the launch key, the same key _parse_satcat_launch_dates
-    builds on the other side of this join.
-
-    Ordered newest launch first so _STARLINK_MAX_TRAINS truncates the oldest batch
-    rather than an arbitrary one.
-
-    The recency cutoff is evaluated here, at filter time, and the result is what gets
-    cached — so it is frozen for up to one refresh interval (6 h) against a 21-day
-    window. That drift is immaterial; caching the raw block instead is what was not.
+    Keeps mean motion >= _STARLINK_TRAIN_MM_MIN and launches within
+    _STARLINK_RECENT_DAYS. Recency is the load-bearing half: a decaying satellite
+    speeds up exactly like a climbing one, so mean motion alone cannot tell them
+    apart and empty *launch_dates* fails closed.
 
     Raises ValueError if *raw* is not the OMM CSV we asked for.
     """
@@ -537,10 +518,7 @@ def _prune_expired_trains(
 ) -> list[tuple[str, str, str, str | None]]:
     """Drop cached entries whose launch has aged out of the train window.
 
-    Celestrak's 403 means the group has not changed, so there is nothing to
-    re-filter — but the 21-day window has still moved since the list was built, and
-    the raw block is deliberately not kept. Each entry carries its own launch date,
-    so the cached list can be aged without refetching anything.
+    Each entry carries its own launch date, so the list ages without refetching.
     """
     cutoff = datetime.now(timezone.utc).date() - timedelta(days=_STARLINK_RECENT_DAYS)
     kept: list[tuple[str, str, str, str | None]] = []
