@@ -11,8 +11,11 @@ single-digit milliseconds, and the SQS worker does all the work.
   4 minutes (`cdk/lambda_api_stack.py`); a Record-less event makes the worker run
   its prewarm synchronously.
 - **Background prewarm** (`apps/worker/handler.py::_prewarm`, daemon thread on
-  cold start): warms the raster grids, PAD-US + OSM POI indexes, the DynamoDB
-  connection pool, and the ephemeris.
+  cold start): warms the raster grids, the global-land-mask module, PAD-US + OSM POI
+  indexes, the DynamoDB connection pool, and the ephemeris. The land mask is imported
+  lazily (`darksky._land_mask_mod`) because it materialises a ~933 MB array and only
+  `find_nearby` calls `is_land`; on a cold container that load lands in the handler
+  rather than in init.
 - **Columnar PAD-US index.** Sorted-uint64 `.npz` + `np.searchsorted`
   (`darksky._load_padus_h3_index`). See `docs/PADUS_INDEX.md`.
 - **Rasterio-free raster reads.** Window reads are tiled-grid S3 byte-range GETs,
