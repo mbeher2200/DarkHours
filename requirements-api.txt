@@ -1,5 +1,5 @@
 # Runtime dependencies for the API zip Lambda = engine runtime + web layer.
 -r requirements.txt
 fastapi==0.141.1
-mangum==0.21.0
+mangum==0.22.0
 python-json-logger==4.2.0
