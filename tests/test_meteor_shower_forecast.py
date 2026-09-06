@@ -218,3 +218,94 @@ def test_perseids_peak_night_end_to_end(monkeypatch):
     assert per["site_sqm"] == _BORTLE_INFO["sqm"]
     # Results are sorted most-active-first.
     assert results[0]["realistic_rate_per_hour"] >= results[-1]["realistic_rate_per_hour"]
+
+
+# ---------------------------------------------------------------------------
+# meteor_shower_forecast_range
+# ---------------------------------------------------------------------------
+
+def _mock_forecast_by_date(monkeypatch, per_date: dict):
+    """per_date: {date: [result_dict, ...]} — stands in for meteor_shower_forecast."""
+    monkeypatch.setattr(predictor, "meteor_shower_forecast",
+                         lambda d, lat, lon: per_date.get(d, []))
+
+
+def _result(name, rate, zhr=100, zhr_effective=50.0):
+    return {
+        "name": name, "note": "note", "zhr": zhr, "zhr_effective": zhr_effective,
+        "peak_time_utc": None, "radiant_alt_deg": 45.0, "lm_factor": 0.9,
+        "realistic_rate_per_hour": rate, "site_sqm": 21.5,
+    }
+
+
+def test_range_raises_when_end_before_start():
+    with pytest.raises(ValueError, match="before start date"):
+        predictor.meteor_shower_forecast_range(date(2026, 8, 12), date(2026, 8, 1), 35.7, -80.9)
+
+
+def test_range_empty_when_no_showers_any_night(monkeypatch):
+    _mock_forecast_by_date(monkeypatch, {})
+    results = predictor.meteor_shower_forecast_range(date(2026, 8, 1), date(2026, 8, 3), 35.7, -80.9)
+    assert results == []
+
+
+def test_range_single_day_matches_single_night_call_plus_best_date(monkeypatch):
+    d = date(2026, 8, 12)
+    _mock_forecast_by_date(monkeypatch, {d: [_result("Perseids", 82.7)]})
+
+    results = predictor.meteor_shower_forecast_range(d, d, 35.7, -80.9)
+    assert len(results) == 1
+    assert results[0]["name"] == "Perseids"
+    assert results[0]["realistic_rate_per_hour"] == 82.7
+    assert results[0]["best_date"] == "2026-08-12"
+
+
+def test_range_keeps_highest_rate_night_per_shower(monkeypatch):
+    d1, d2, d3 = date(2026, 8, 10), date(2026, 8, 12), date(2026, 8, 14)
+    _mock_forecast_by_date(monkeypatch, {
+        d1: [_result("Perseids", 40.0)],
+        d2: [_result("Perseids", 82.7)],   # peak night — should win
+        d3: [_result("Perseids", 55.0)],
+    })
+
+    results = predictor.meteor_shower_forecast_range(d1, d3, 35.7, -80.9)
+    assert len(results) == 1
+    assert results[0]["realistic_rate_per_hour"] == 82.7
+    assert results[0]["best_date"] == "2026-08-12"
+
+
+def test_range_combines_showers_active_on_different_nights(monkeypatch):
+    d1, d2 = date(2026, 8, 1), date(2026, 8, 2)
+    _mock_forecast_by_date(monkeypatch, {
+        d1: [_result("OnlyFirstNight", 10.0)],
+        d2: [_result("OnlySecondNight", 20.0)],
+    })
+
+    results = predictor.meteor_shower_forecast_range(d1, d2, 35.7, -80.9)
+    names = {r["name"] for r in results}
+    assert names == {"OnlyFirstNight", "OnlySecondNight"}
+    assert next(r for r in results if r["name"] == "OnlyFirstNight")["best_date"] == "2026-08-01"
+    assert next(r for r in results if r["name"] == "OnlySecondNight")["best_date"] == "2026-08-02"
+
+
+def test_range_sorted_most_active_first(monkeypatch):
+    d = date(2026, 8, 12)
+    _mock_forecast_by_date(monkeypatch, {
+        d: [_result("Low", 5.0), _result("High", 90.0)],
+    })
+
+    results = predictor.meteor_shower_forecast_range(d, d, 35.7, -80.9)
+    assert [r["name"] for r in results] == ["High", "Low"]
+
+
+@pytest.mark.eph
+def test_range_end_to_end_perseids_beats_delta_aquariids(monkeypatch):
+    monkeypatch.setattr(predictor._ds, "lookup", lambda lat, lon: dict(_BORTLE_INFO))
+
+    results = predictor.meteor_shower_forecast_range(
+        date(2026, 8, 1), date(2026, 8, 20), 35.7, -80.9,
+    )
+
+    assert results[0]["name"] == "Perseids"
+    assert results[0]["best_date"] == "2026-08-12"
+    assert results[0]["note"] == "Peak night"

@@ -590,6 +590,38 @@ def meteor_shower_forecast(target: date, lat: float, lon: float) -> list:
     return results
 
 
+def meteor_shower_forecast_range(start: date, end: date, lat: float, lon: float) -> list:
+    """
+    Realistic per-observer meteor-shower forecast across a date range.
+
+    Runs meteor_shower_forecast() for every night from start to end (inclusive)
+    and, per shower, keeps whichever night in the range scored the highest
+    realistic_rate_per_hour — the best night to watch that shower from this
+    site. Adds "best_date" (ISO date string) to each result noting which
+    night that was.
+
+    Raises ValueError if end is before start.
+
+    Returns a list of dicts (same shape as meteor_shower_forecast, plus
+    "best_date"), most-active-first.
+    """
+    if end < start:
+        raise ValueError(f"end date {end} is before start date {start}")
+
+    best_by_name: dict = {}
+    current = start
+    while current <= end:
+        for shower in meteor_shower_forecast(current, lat, lon):
+            existing = best_by_name.get(shower["name"])
+            if existing is None or shower["realistic_rate_per_hour"] > existing["realistic_rate_per_hour"]:
+                best_by_name[shower["name"]] = {**shower, "best_date": current.isoformat()}
+        current += timedelta(days=1)
+
+    results = list(best_by_name.values())
+    results.sort(key=lambda r: r["realistic_rate_per_hour"], reverse=True)
+    return results
+
+
 def assemble_night(
     lat: float,
     lon: float,
