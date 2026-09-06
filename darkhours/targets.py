@@ -706,6 +706,7 @@ def visible_targets(
     sky_sqm: float | None = None,
     tz: "ZoneInfo | None" = None,
     aod: float | None = None,
+    target_types: "set[str] | None" = None,
 ) -> list:
     """
     Return targets visible during the night.
@@ -717,8 +718,12 @@ def visible_targets(
 
     aod — night-representative aerosol optical depth for the moonlight
     scattering model; None means reference clear sky.
+    target_types — restrict the catalog to these entry["type"] values (e.g.
+    {"meteor_shower"}); None (default) computes the full catalog.
     """
     catalog = load_targets()
+    if target_types is not None:
+        catalog = [e for e in catalog if e["type"] in target_types]
     if not catalog:
         return []
 

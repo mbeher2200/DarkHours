@@ -17,6 +17,7 @@ from . import aurora as _aur
 from . import darksky as _ds
 from . import feature_flags as _ff
 from . import light_dome as _ld
+from . import location as loc
 from . import moon_events as _me
 from . import ports as _ports
 from . import scoring
@@ -31,7 +32,10 @@ from .milky_way import (
     BT_K_MOON as _BT_K_MOON,
     BT_STEP_MIN as _BT_STEP_MIN,
 )
-from .moonlight import ks_moon_credit, ks_delta_mag, nelm_from_sqm, KS_CRESCENT_EXEMPTION_PCT
+from .moonlight import (
+    ks_moon_credit, ks_delta_mag, nelm_from_sqm,
+    KS_CRESCENT_EXEMPTION_PCT, KS_NATURAL_SKY,
+)
 from . import weather as wx
 
 log = logging.getLogger(__name__)
@@ -493,6 +497,97 @@ def _apply_condition_vectors(
                 target.viability = "degraded"
             else:
                 target.viability = "ok"
+
+
+def meteor_shower_forecast(target: date, lat: float, lon: float) -> list:
+    """
+    calculates observer-specific meteor-shower forecast for a given date at given coordinates
+
+    For every shower active on `target`, combines the date-decayed ZHR
+    (targets.effective_zhr) with this site's light pollution (darksky.lookup's
+    SQM), the radiant's altitude during astronomical darkness, and moonlight
+    brightening (the K&S model). Provides a more realistic expectation than ZHR.
+
+    Returns a list of dicts, most-active-first:
+        [{"name": str, "note": str, "zhr": int, "zhr_effective": float | None,
+          "peak_time_utc": str | None, "radiant_alt_deg": float | None,
+          "lm_factor": float | None, "realistic_rate_per_hour": float,
+          "site_sqm": float}, ...]
+    """
+    active = _tgt.active_meteor_showers(target)
+    if not active:
+        return []
+
+    tz = loc.timezone_for(lat, lon)
+    events = se.sky_events(lat, lon, target)
+    sunset = next(
+        (e["time"] for e in events
+         if e["label"] == "Sunset" and e["time"].astimezone(tz).date() == target),
+        None,
+    )
+    if sunset is None:
+        raise ValueError(f"No sunset found for {target} at {lat:.4f}, {lon:.4f}")
+    sunrise = se.find_event(events, "Sunrise", after=sunset)
+    if sunrise is None:
+        raise ValueError(f"No sunrise found after sunset on {target}")
+    night_start = se.find_event(events, "Astronomical night begins", after=sunset, before=sunrise) or sunset
+    night_end   = se.find_event(events, "Astronomical night ends", after=night_start, before=sunrise) or sunrise
+
+    _, illumination_pct = se.moon_phase_info(sunset)
+
+    site = _ds.lookup(lat, lon)
+    sky_sqm = site["sqm"] if site is not None else KS_NATURAL_SKY
+
+    visible = _tgt.visible_targets(
+        lat, lon, sunset, sunrise, illumination_pct,
+        night_start=night_start, night_end=night_end,
+        min_elevation=0.0,  # keep every active shower, even a barely-rising radiant
+        sky_sqm=sky_sqm, tz=tz,
+        target_types={"meteor_shower"},
+    )
+    by_name = {t.name: t for t in visible}
+
+    results = []
+    for entry in active:
+        vt = by_name.get(entry["name"])
+        zhr_effective = entry["zhr_effective"]
+        radiant_alt_deg = None
+        lm_factor = None
+        realistic_rate = 0.0
+
+        window = max(vt.windows, key=lambda w: w.peak_alt_deg) if vt and vt.windows else None
+        if window is not None and window.peak_alt_deg > 0 and zhr_effective is not None:
+            radiant_alt_deg = round(window.peak_alt_deg, 1)
+            base_rate = zhr_effective * math.sin(math.radians(window.peak_alt_deg))
+            r = vt.population_index
+            if r is not None:
+                delta = 0.0
+                if window.moon_sep_at_peak_deg is not None and window.moon_alt_at_peak_deg is not None:
+                    delta = ks_delta_mag(
+                        illumination_pct,
+                        window.moon_sep_at_peak_deg,
+                        window.moon_alt_at_peak_deg,
+                        sky_sqm,
+                        target_alt_deg=window.peak_alt_deg,
+                    )
+                lm = nelm_from_sqm(sky_sqm - delta)
+                lm_factor = round(min(1.0, r ** (lm - 6.5)), 3)
+            realistic_rate = round(base_rate * (lm_factor if lm_factor is not None else 1.0), 1)
+
+        results.append({
+            "name": entry["name"],
+            "note": entry["note"],
+            "zhr": entry["zhr"],
+            "zhr_effective": zhr_effective,
+            "peak_time_utc": entry["peak_time_utc"],
+            "radiant_alt_deg": radiant_alt_deg,
+            "lm_factor": lm_factor,
+            "realistic_rate_per_hour": realistic_rate,
+            "site_sqm": sky_sqm,
+        })
+
+    results.sort(key=lambda r: r["realistic_rate_per_hour"], reverse=True)
+    return results
 
 
 def assemble_night(

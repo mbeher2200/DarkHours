@@ -61,6 +61,7 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 | `test_mw_brightness.py` | `milky_way.py` | — | Milky Way brightness/visibility factors |
 | `test_targets_helpers.py` | `targets.py` | — | RA/dec parsing; visibility-window segment detection |
 | `test_meteor_shower_decay.py` | `targets.py` | — | `effective_zhr()` IMO decay model, half-window solver, catalog constants |
+| `test_meteor_shower_forecast.py` | `predictor.py` | — / `eph` | `meteor_shower_forecast()`: date+coords→realistic per-shower rate (ZHR × radiant altitude × site-SQM/moonlight limiting-magnitude), edge cases, Perseids end-to-end smoke test |
 | `test_aurora_model.py` | `aurora.py` | — | Geomagnetic latitude, Kp viewline, visibility tiers, look bearing |
 | `test_aurora_provider.py` | `aurora.py` | — | SWPC 3-day/27-day fetch, parse, cache, night rollup |
 | `test_satellites.py` | `satellites.py` | `eph` | Visible-window clamp; rise ≤ peak ≤ set; shadow-exit-after-culmination pass |
