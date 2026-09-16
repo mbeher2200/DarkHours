@@ -1,15 +1,22 @@
 {
+	"id": "/",
 	"name": "DarkHours",
 	"short_name": "DarkHours",
 	"description": "Precision Landscape Astrophotography Planning. Bortle class, ephemeris data, clear dark hours, weather conditions, and deep sky object viability in a single view.",
+	"lang": "en",
+	"dir": "ltr",
 	"start_url": "/",
 	"scope": "/",
-	"display": "browser",
+	"display": "standalone",
 	"background_color": "#E8EAEE",
 	"theme_color": "#E8EAEE",
+	"categories": ["weather", "travel", "photo"],
 	"icons": [
-		{ "src": "/favicon-16.png", "sizes": "16x16", "type": "image/png" },
-		{ "src": "/favicon-32.png", "sizes": "32x32", "type": "image/png" },
-		{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+		{ "src": "/favicon-16.png", "sizes": "16x16", "type": "image/png", "purpose": "any" },
+		{ "src": "/favicon-32.png", "sizes": "32x32", "type": "image/png", "purpose": "any" },
+		{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+		{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+		{ "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+		{ "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
 	]
 }

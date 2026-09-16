@@ -105,10 +105,11 @@ eclipse detection.
 One tap re-renders the entire interface — every color, chart, and image — in pure
 red, so checking the forecast at 2 AM doesn't cost you your dark adaptation.
 
-<!-- source: apps/web/src/App.tsx, api.ts -->
+<!-- source: apps/web/src/App.tsx, api.ts, apps/web/public/manifest.json -->
 ## Built for the field
 Shareable permalinks for any location and date, imperial/SI toggle, place
-autocomplete with recent searches, use-my-location, mobile-friendly layout. Free
+autocomplete with recent searches, use-my-location, mobile-friendly layout.
+Installs to your phone's home screen and opens full screen, no address bar. Free
 and open source; no account, no cookies.
 
 <!-- source: darkhours.py, tripbuilder.py, weather.py (ERA5) — CLI only -->

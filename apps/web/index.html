@@ -7,6 +7,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
+    <!-- Colors the browser UI, and the OS status bar of an installed (standalone)
+         window. Deliberately not paired with the legacy apple-mobile-web-app-*
+         meta tags: iOS reads display/theme_color straight off the manifest as of
+         15.4, and the manifest is the one surface worth keeping correct. The
+         tags would only add anything on iOS 14 and older, which stops at the
+         iPhone 6 — hardware this app's sky-dome canvas has no business on.
+         App.tsx rewrites this from the computed --bg on every red-mode toggle,
+         so night vision doesn't leave a lit status bar above a blacked-out app. -->
+    <meta name="theme-color" content="#E8EAEE" />
     <link rel="canonical" href="https://darkhours.app" />
     <link rel="alternate" type="application/rss+xml" title="DarkHours Blog" href="https://darkhours.app/blog/rss.xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
