@@ -73,9 +73,17 @@ The manifest is the only installability surface. iOS reads `display` and
 tags are deliberately absent.
 
 `<meta name="theme-color">` in `index.html` colors the OS status/title bar of an
-installed window. The manifest's static `theme_color` is the light-mode `--bg`;
-the red-mode effect in `App.tsx` rewrites the meta tag from the computed `--bg`
-on every toggle, so the bar follows the theme.
+installed window on Android and desktop. The manifest's static `theme_color` is
+the light-mode `--bg`; the red-mode effect in `App.tsx` rewrites the meta tag
+from the computed `--bg` on every toggle, so the bar follows the theme.
+
+iOS ignores the tag in a home-screen web app and fills the status bar with the
+page's own background instead, then picks the glyph color from it. So in red
+mode the bar is black (from `--bg`) but the clock/wifi/battery glyphs are white,
+and no web API can change that: iOS exposes no status-bar foreground control,
+and dark glyphs require a light bar. Users who want the glyphs red too need the
+system-wide red tint (Settings → Accessibility → Display & Text Size → Color
+Filters → Color Tint), which is outside the app's reach.
 
 ### Red night-vision mode
 
