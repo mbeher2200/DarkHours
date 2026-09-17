@@ -76,6 +76,17 @@ export default function App() {
         : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1e1e1e" rx="4"/><rect x="4" y="5" width="14" height="4" fill="#C85656" rx="1"/><rect x="4" y="11" width="20" height="4" fill="#D99B41" rx="1"/><rect x="4" y="17" width="10" height="4" fill="#3A8772" rx="1"/><rect x="4" y="23" width="24" height="4" fill="#5BC0DE" rx="1"/></svg>`
       link.href = `data:image/svg+xml;base64,${btoa(svg)}`
     }
+    // Installed as a PWA, <meta name="theme-color"> paints the OS status/title
+    // bar around the app. The manifest's theme_color is static, so red mode
+    // would leave a lit strip of #E8EAEE above a blacked-out app — exactly the
+    // dark-adaptation leak red mode exists to prevent. Read --bg back off the
+    // root (the class toggle above has already switched it) so this tracks the
+    // token instead of duplicating the hex.
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    if (themeColor) {
+      themeColor.content = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg').trim() || themeColor.content
+    }
   }, [redMode])
 
   // Debounced autocomplete: fetch suggestions as the user types a place name.

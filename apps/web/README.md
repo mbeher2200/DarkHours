@@ -58,6 +58,32 @@ No router and no state library — one state-driven view.
 | `public/stars.v1.bin` | `scripts/build_star_catalog.py` — ~12k-star binary catalog (HYG-derived, mag ≤ 6.7, RA/dec/mag/color quantized) |
 | `public/mw.v1.png` | `scripts/build_mw_texture.py` — Milky Way band texture (ESO/S. Brunier panorama-derived) |
 | `public/moon-phases/` | Moon-phase imagery (NASA SVS) |
+| `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png` | `scripts/build_app_icons.py` — PWA install icons (score-band mark; the maskable one is full-bleed with the bars inside the 80% safe zone) |
+
+### Installable (PWA)
+
+`public/manifest.json` declares `display: standalone`, `scope`/`start_url` `/`,
+and 192/512 + maskable icons: Chrome's installability criteria, which no longer
+include a service worker. Installed, the app runs without browser chrome. There
+is no offline mode and no cached shell, which costs nothing here: every view
+needs a live API call anyway.
+
+The manifest is the only installability surface. iOS reads `display` and
+`theme_color` from it as of 15.4, so the legacy `apple-mobile-web-app-*` meta
+tags are deliberately absent.
+
+`<meta name="theme-color">` in `index.html` colors the OS status/title bar of an
+installed window on Android and desktop. The manifest's static `theme_color` is
+the light-mode `--bg`; the red-mode effect in `App.tsx` rewrites the meta tag
+from the computed `--bg` on every toggle, so the bar follows the theme.
+
+iOS ignores the tag in a home-screen web app and fills the status bar with the
+page's own background instead, then picks the glyph color from it. So in red
+mode the bar is black (from `--bg`) but the clock/wifi/battery glyphs are white,
+and no web API can change that: iOS exposes no status-bar foreground control,
+and dark glyphs require a light bar. Users who want the glyphs red too need the
+system-wide red tint (Settings → Accessibility → Display & Text Size → Color
+Filters → Color Tint), which is outside the app's reach.
 
 ### Red night-vision mode
 

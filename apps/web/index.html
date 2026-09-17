@@ -7,6 +7,24 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
+    <!-- Colors the browser UI, and on Android/desktop the OS status or title bar
+         of an installed (standalone) window. App.tsx rewrites it from the computed
+         --bg on every red-mode toggle so night vision doesn't leave a lit bar above
+         a blacked-out app.
+
+         iOS ignores this tag in a home-screen web app — measured, not assumed: on
+         an iPhone 17 simulator a static #00FF00 here still rendered a black status
+         bar over a red-mode page, as did a #FF0000 written by script. iOS fills
+         that strip with the page's own background, so --bg already does the work
+         there, and it picks the glyph color itself from that background. Which is
+         why the clock and battery go white in red mode and cannot be made red:
+         iOS exposes no control over status-bar foreground, and the only way to get
+         dark glyphs is a light bar, which emits far more light than the glyphs do.
+
+         No legacy apple-mobile-web-app-* tags either. iOS honors the manifest's
+         display as of 15.4; the tags would only add anything on iOS 14 and older,
+         which stops at the iPhone 6. -->
+    <meta name="theme-color" content="#E8EAEE" />
     <link rel="canonical" href="https://darkhours.app" />
     <link rel="alternate" type="application/rss+xml" title="DarkHours Blog" href="https://darkhours.app/blog/rss.xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
