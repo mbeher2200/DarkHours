@@ -4,5 +4,5 @@
 # is only exercised when the container image (Dockerfile.worker) is used for the
 # Trivy scan or the throwaway in-region perf-test recipe.
 -r requirements.txt
-awslambdaric==4.0.2
+awslambdaric==4.0.4
 python-json-logger==4.2.0
