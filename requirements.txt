@@ -1,7 +1,7 @@
 geopy==2.5.0
 skyfield==1.55
-timezonefinder==8.3.0
-boto3==1.43.90
+timezonefinder==9.0.0
+boto3==1.43.99
 # Declared rather than left transitive: botocore accepts urllib3 >=1.25.4,<3, so
 # an undeclared urllib3 can resolve to a different major in a dev venv than in a
 # deployed Lambda -- the leading suspect for the Lambda-only failures that
@@ -9,6 +9,6 @@ boto3==1.43.90
 # that split; the range still lets security patches land on the next deploy
 # rather than waiting on a bump. Declaring it is also what gets urllib3 into
 # Dependabot's weekly python-deps group at all. Every direct use is in _http.py.
-urllib3>=2.7,<3
+urllib3>=2.8.0,<3
 global-land-mask>=1.0
 h3>=4.5.0
