@@ -8,5 +8,5 @@
 geopandas
 pyarrow
 h3
-rasterio==1.5.1
+rasterio==1.5.2
 osmium          # pyosmium — parses .osm.pbf for scripts/osm_poi_builder.py
