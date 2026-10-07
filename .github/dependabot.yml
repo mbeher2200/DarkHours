@@ -10,6 +10,10 @@ updates:
     groups:
       python-deps:
         patterns: ["*"]
+    ignore:
+      # fastapi >=0.142 needs opentelemetry-api>=1.44; semgrep pins ~=1.37.
+      - dependency-name: "fastapi"
+        versions: [">=0.142"]
 
   # CDK Python dependencies
   - package-ecosystem: "pip"
