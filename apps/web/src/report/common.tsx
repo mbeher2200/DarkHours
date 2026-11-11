@@ -10,6 +10,11 @@ export function fmtNightDate(iso: string): string {
   })
 }
 
+// Compact date for tight controls, e.g. "Nov 12".
+export function fmtNightShort(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export function fmtPos(altDeg: number, azDeg: number): string {
   return `Az ${Math.round(azDeg)}° ${cardinal(azDeg)} · Alt ${Math.round(altDeg)}°`
 }

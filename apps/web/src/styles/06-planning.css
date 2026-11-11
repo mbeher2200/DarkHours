@@ -95,6 +95,27 @@
   padding: 8px 14px;
   font-size: 11px;
 }
+.nearby-radius-change {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.nearby-radius-change:hover,
+.nearby-radius-change[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 /* ── nearby dark-sky section ─────────────────────────────────────────────── */
 .nearby-body {
@@ -571,6 +592,9 @@ html.red-mode .heatmap-cell.hm-excellent .hm-score {
   white-space: nowrap;
 }
 .poi-maplink {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
   margin-left: 6px;
   font-size: 11px;
   color: var(--good);

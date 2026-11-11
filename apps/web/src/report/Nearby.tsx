@@ -80,16 +80,22 @@ export function NearbyResults(
     </span>
   )
   // Render a place name (as a link) with its category badge/warnings and a Maps link —
-  // used by the prose highlight/empty-state lines, which have no table row to attach a
-  // click handler to and so keep the original click-through-to-app-link behavior.
+  // used by the prose highlight/empty-state lines. A plain left-click takes the same
+  // in-app transition as a table row (keeps the selected date); modified clicks and
+  // middle-click fall through to the real href.
   const placeNode = (p: NearbyPlace) => {
     // No name/area passed here — the destination report re-derives the same POI name
     // itself from lat/lon against the trusted local index (darkhours.location
     // .reverse_geocode → darksky._poi_reverse_name), not from anything in the URL.
     const appLink = `?lat=${p.lat.toFixed(5)}&lon=${p.lon.toFixed(5)}`
+    const onClick = (e: React.MouseEvent) => {
+      if (!onSelectLocation || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      e.preventDefault()
+      onSelectLocation(p.lat, p.lon)
+    }
     return (
       <>
-        <a className="poi-namelink" href={appLink}>{placeStr(p)}</a>
+        <a className="poi-namelink" href={appLink} onClick={onClick}>{placeStr(p)}</a>
         {p.area_name && <span className="poi-area">{p.area_name}</span>}
         {poiMeta(p, true)}
       </>

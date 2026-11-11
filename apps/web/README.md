@@ -35,9 +35,9 @@ No router and no state library — one state-driven view.
 
 | Path | Role |
 |---|---|
-| `src/App.tsx` | Shell: search form (place typeahead + recent history, coordinate mode, geolocation), date picker + day nav, red-mode toggle, report scope, empty-state panel, URL-param permalinks (`?q=`/`?lat=&lon=&date=`) |
+| `src/App.tsx` | Shell: search form (place typeahead + recent history, coordinate mode, geolocation), date picker + day nav (a date pick or day step refetches in place; the report stays mounted, keyed by lat/lon), compact search bar once a report is shown, red-mode toggle, report scope, empty-state panel, loading skeleton, not-found error help, URL-param permalinks (`?q=`/`?lat=&lon=&date=`; a location change is a `pushState`, a date change a `replaceState`, `popstate` re-runs the URL), "Back to origin" after a nearby-site jump |
 | `src/api.ts` | All API calls. Sync `GET /night` (+ `date_only=true` partial refetch); async `GET /nearby` / `GET /calendar` → `202` + job id → polled `GET /jobs/{id}` with backoff |
-| `src/ReportCard.tsx` | Report orchestrator: score card, factor rows, alert banners (aurora/meteor, sorted by strength), moon phase, section nav, units toggle, copy-link, clear-dark-hours computation, 30-min promise caches for auto-fetched outlook/nearby |
+| `src/ReportCard.tsx` | Report orchestrator: score card, factor rows, alert banners (aurora/meteor, sorted by strength), moon phase, sticky section nav with prev/next night, nearby radius control (changeable after a search), units toggle, copy-link, clear-dark-hours computation, 30-min promise caches for auto-fetched outlook/nearby |
 | `src/report/NightTimeline.tsx` | Hour-by-hour weather table clipped to the night, sky-event dividers, live "▶ Now" row (30 s tick) with the WAQI live-haze badge, provenance footer |
 | `src/report/Targets.tsx` | Prime-target table with viability blockers (clouded out / moon washout / lost in light dome / low radiant), effective windows with clip markers, meteor-shower card |
 | `src/report/MilkyWay.tsx` | Milky Way card: local score, arch window, core altitude/azimuth, arch angle, galactic-plane waypoints accordion |
@@ -49,7 +49,7 @@ No router and no state library — one state-driven view.
 | `src/OutlookTelemetryRibbon.tsx` | 30-day outlook contribution-calendar heatmap with per-night drill-in |
 | `src/format.ts`, `src/report/icons.tsx`, `src/shared.tsx` | Formatting/units, weather + moon iconography, shared widgets |
 | `src/rum.ts` | CloudWatch RUM telemetry (performance/errors/http; no cookies) |
-| `src/styles/01…11-*.css` | Layered hand-written CSS (tokens → red mode → per-section → responsive) |
+| `src/styles/01…13-*.css` | Layered hand-written CSS (tokens → red mode → per-section → responsive) |
 
 ### Static assets & generators
 

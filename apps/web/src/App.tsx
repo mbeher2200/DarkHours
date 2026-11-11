@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, lazy, Suspense, type FormEvent } from 'react'
 import './App.css'
-import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, X } from 'lucide-react'
+import { LocateFixed, ChevronLeft, ChevronRight, Clock, MapPin, Pencil, ArrowLeft, X } from 'lucide-react'
 import { ApiRequestError, fetchNight, fetchSuggestions, type NightQuery } from './api'
 import { tonightIso, toIsoDate, defaultImperial, availabilityFor } from './format'
 import DatePicker from './DatePicker'
@@ -28,6 +28,59 @@ interface HistoryEntry {
   lon?: string
 }
 
+// Sample locations offered on the empty state and on a not-found error.
+// Tuple: [button label, geocoder query, one-line hook].
+const SAMPLE_REPORTS: [string, string, string][] = [
+  ['Sedona, AZ',         'Sedona, Arizona',                          'Bortle 7 suburb — the dark-sky finder at work'],
+  ['Death Valley, CA',   'Death Valley, California',                 'Bortle 1 — pristine desert benchmark'],
+  ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania',  'Bortle 2 — the East Coast classic'],
+]
+
+type PlaceItem =
+  | { kind: 'suggestion'; label: string }
+  | { kind: 'history'; label: string; entry: HistoryEntry }
+
+interface Origin {
+  label: string
+  query: NightQuery
+}
+
+function sameLocation(a: NightQuery | null, b: NightQuery | null): boolean {
+  if (!a || !b) return false
+  if (a.location || b.location) return a.location === b.location
+  return a.lat === b.lat && a.lon === b.lon
+}
+
+// True when the page URL already addresses the same place as `q` (date ignored).
+function urlMatchesLocation(q: NightQuery): boolean {
+  const p = new URLSearchParams(window.location.search)
+  if (q.location) return p.get('q') === q.location
+  return !p.get('q') && p.get('lat') !== null && p.get('lon') !== null
+    && Number(p.get('lat')) === q.lat && Number(p.get('lon')) === q.lon
+}
+
+function hasUrlQuery(): boolean {
+  if (typeof window === 'undefined') return false
+  const p = new URLSearchParams(window.location.search)
+  return !!p.get('q') || !!(p.get('lat') && p.get('lon'))
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="card report-skeleton" role="status">
+      <span className="report-skeleton-text">Scoring the night…</span>
+      <span className="skel skel-score" aria-hidden="true" />
+      <span className="skel skel-line" aria-hidden="true" />
+      <span className="skel skel-line skel-short" aria-hidden="true" />
+      <span className="skel skel-block" aria-hidden="true" />
+    </div>
+  )
+}
+
+function firstPart(displayName: string): string {
+  return displayName.split(',')[0].trim() || displayName
+}
+
 const HISTORY_KEY = 'search-history'
 const HISTORY_MAX = 12
 
@@ -51,6 +104,10 @@ export default function App() {
   const [date, setDate] = useState('')
   useLayoutEffect(() => { setDate(d => d || tonightIso()) }, [])
   const [scopeOpen, setScopeOpen] = useState(true)
+  // True while the user has the full search form open on top of a shown report.
+  const [editing, setEditing] = useState(false)
+  // Set by the "expand" controls so the place field is focused only on a user tap.
+  const focusOnExpandRef = useRef(false)
   const [imperial, setImperial] = useState<boolean>(defaultImperial)
   const [locating, setLocating] = useState(false)
   const [redMode, setRedMode] = useState<boolean>(() => readLocalStorage('redMode') === '1')
@@ -59,6 +116,7 @@ export default function App() {
   const [activeIndex, setActiveIndex] = useState(-1)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const placeInputRef = useRef<HTMLInputElement>(null)
+  const latInputRef = useRef<HTMLInputElement>(null)
   const dropdownItemRefs = useRef<(HTMLButtonElement | null)[]>([])
   // The label most recently picked from the dropdown — used to suppress the
   // suggestion fetch that the resulting setPlace() would otherwise trigger.
@@ -116,13 +174,22 @@ export default function App() {
   // briefly painting the ~2000px marketing empty-state first (was the largest
   // source of real-user CLS). window is undefined during SSR prerender
   // (entry-server.tsx), which must always produce the empty-state, hence the guard.
-  const [loading, setLoading] = useState(() => {
-    if (typeof window === 'undefined') return false
-    const p = new URLSearchParams(window.location.search)
-    return !!p.get('q') || !!(p.get('lat') && p.get('lon'))
-  })
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(hasUrlQuery)
+  // True until the first deep-link request settles; lets the search card render
+  // compact from the first paint so it doesn't collapse (and shift) when the report lands.
+  const [booting, setBooting] = useState(hasUrlQuery)
+  const [errorState, setErrorState] = useState<{ message: string; notFound: boolean } | null>(null)
+  const error = errorState?.message ?? null
+  function setError(message: string | null, notFound = false) {
+    setErrorState(message ? { message, notFound } : null)
+  }
   const [report, setReport] = useState<NightReport | null>(null)
+  const [origin, setOrigin] = useState<Origin | null>(null)
+  // Query behind the report currently on screen; day shifts and calendar picks
+  // derive from this rather than from the (possibly edited) form fields.
+  const lastQueryRef = useRef<NightQuery | null>(null)
+  // Monotonic request counter: only the most recent runQuery may apply its result.
+  const reqRef = useRef(0)
   const [reportWeather, setReportWeather] = useState(false)
   const [reportTargets, setReportTargets] = useState(false)
   const [reportSatellites, setReportSatellites] = useState(false)
@@ -133,71 +200,126 @@ export default function App() {
     return { wxForecastUnavailable: wxUnavail, satUnavailable: satUnavail, isPastDate: days < 0 }
   })()
 
-  async function runQuery(q: NightQuery) {
+  async function runQuery(q: NightQuery, opts: { fromPop?: boolean; keepOrigin?: boolean } = {}) {
+    const id = ++reqRef.current
+    const prev = lastQueryRef.current
+    const locationChanged = !sameLocation(q, prev)
     setScopeOpen(false)
+    setEditing(false)
     setLoading(true)
     setError(null)
+    if (!opts.keepOrigin && locationChanged) setOrigin(null)
     warmReportCard() // overlap the ReportCard chunk fetch with the /night request below
     try {
       const r = await fetchNight(q)
+      if (id !== reqRef.current) return
       setReport(r)
+      lastQueryRef.current = q
       setReportWeather(!!q.weather)
       setReportTargets(!!q.targets)
       setReportSatellites(!!q.satellites)
       const entry: HistoryEntry = q.location
         ? { label: r.display_name, mode: 'place', location: q.location }
         : { label: r.display_name, mode: 'coords', lat: String(q.lat), lon: String(q.lon) }
-      setSearchHistory(prev => {
-        const next = [entry, ...prev.filter(h => h.label !== entry.label)].slice(0, HISTORY_MAX)
+      setSearchHistory(h => {
+        const next = [entry, ...h.filter(x => x.label !== entry.label)].slice(0, HISTORY_MAX)
         saveHistory(next)
         return next
       })
-      const p = new URLSearchParams()
-      if (q.location) p.set('q', q.location)
-      else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
-      if (q.date) p.set('date', q.date)
-      history.replaceState(null, '', '?' + p.toString())
+      if (!opts.fromPop) {
+        const p = new URLSearchParams()
+        if (q.location) p.set('q', q.location)
+        else { p.set('lat', String(q.lat)); p.set('lon', String(q.lon)) }
+        if (q.date) p.set('date', q.date)
+        // A new place gets its own history entry; a date change rewrites in place.
+        if (urlMatchesLocation(q)) {
+          history.replaceState(null, '', '?' + p.toString())
+        } else {
+          history.pushState(null, '', '?' + p.toString())
+          window.scrollTo(0, 0)
+        }
+      }
     } catch (err) {
-      setReport(null)
-      setError(err instanceof ApiRequestError ? err.message : 'Could not reach the server. Check your connection and try again.')
+      if (id !== reqRef.current) return
+      if (sameLocation(q, prev)) {
+        // Same place, failed refresh: keep the report and snap the date back to it.
+        if (prev?.date) setDate(prev.date)
+      } else {
+        setReport(null)
+        lastQueryRef.current = null
+      }
+      if (err instanceof ApiRequestError) {
+        setError(err.message, err.status === 404 || err.message.startsWith('Location not found'))
+      } else {
+        setError('Could not reach the server. Check your connection and try again.')
+      }
     } finally {
-      setLoading(false)
+      if (id === reqRef.current) {
+        setLoading(false)
+        setBooting(false)
+      }
     }
   }
 
-  // Restore query from URL params on first load and auto-submit
-  useEffect(() => {
+  // Build the default query for a URL's params (date falls back to tonight).
+  function queryFromUrl(): { query: NightQuery; place?: string; lat?: string; lon?: string; date?: string } | null {
     const p = new URLSearchParams(window.location.search)
     const q = p.get('q')
     const la = p.get('lat')
     const lo = p.get('lon')
     const d = p.get('date')
-    if (!q && !(la && lo)) return
-
+    if (!q && !(la && lo)) return null
     const targetDate = d || tonightIso()
     const { wxUnavail, satUnavail } = availabilityFor(targetDate)
-
-    if (d) setDate(d)
-
-    const query: NightQuery = {
-      date: targetDate,
-      weather: !wxUnavail,
-      targets: true,
-      satellites: !satUnavail,
-    }
+    const query: NightQuery = { date: targetDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
     if (q) {
-      setPlace(q)
-      setMode('place')
       query.location = q
-    } else {
-      setLat(la!)
-      setLon(lo!)
-      setMode('coords')
-      query.lat = Number(la)
-      query.lon = Number(lo)
+      return { query, place: q, date: d ?? undefined }
     }
-    runQuery(query)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    query.lat = Number(la)
+    query.lon = Number(lo)
+    return { query, lat: la!, lon: lo!, date: d ?? undefined }
+  }
+
+  const applyUrlRef = useRef<(fromPop: boolean) => void>(() => {})
+  useEffect(() => {
+    applyUrlRef.current = (fromPop: boolean) => {
+      const parsed = queryFromUrl()
+      if (!parsed) {
+        // URL has no query: back to the empty state.
+        reqRef.current++
+        lastQueryRef.current = null
+        setReport(null)
+        setError(null)
+        setOrigin(null)
+        setEditing(false)
+        setLoading(false)
+        setBooting(false)
+        return
+      }
+      if (parsed.date) setDate(parsed.date)
+      else setDate(tonightIso())
+      if (parsed.place !== undefined) {
+        setPlace(parsed.place)
+        setMode('place')
+      } else {
+        setLat(parsed.lat!)
+        setLon(parsed.lon!)
+        setMode('coords')
+      }
+      runQuery(parsed.query, { fromPop })
+    }
+  })
+
+  // Initial deep link: reuse the URL's own history entry (no push).
+  useEffect(() => { applyUrlRef.current(false) }, [])
+
+  // Browser Back/Forward: re-run whatever the URL now says, without touching history.
+  useEffect(() => {
+    const onPop = () => applyUrlRef.current(true)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -225,14 +347,16 @@ export default function App() {
     )
   }
 
-  function shiftDay(delta: number) {
-    const d = new Date(date + 'T00:00:00')
-    d.setDate(d.getDate() + delta)
-    const newDate = toIsoDate(d)
-    setDate(newDate)
+  // Fetch `newDate` for the place currently on screen. Falls back to the form
+  // fields when no report has been shown yet.
+  function goToDate(newDate: string) {
+    const base = lastQueryRef.current
     const { wxUnavail, satUnavail } = availabilityFor(newDate)
     const q: NightQuery = { date: newDate, weather: !wxUnavail, targets: true, satellites: !satUnavail }
-    if (mode === 'place') {
+    if (base) {
+      if (base.location) q.location = base.location
+      else { q.lat = base.lat; q.lon = base.lon }
+    } else if (mode === 'place') {
       if (!place.trim()) return
       q.location = place.trim()
     } else {
@@ -241,31 +365,92 @@ export default function App() {
       q.lat = la
       q.lon = lo
     }
+    setDate(newDate)
     runQuery(q)
   }
 
+  function shiftDay(delta: number) {
+    const from = lastQueryRef.current?.date || date
+    const d = new Date(from + 'T00:00:00')
+    d.setDate(d.getDate() + delta)
+    goToDate(toIsoDate(d))
+  }
+
   // Jump to an alternate location (e.g. a "Find Sky Nearby" result) without losing
-  // the currently-viewed date or doing a full page reload — reuses the same
-  // runQuery path as every other in-app query trigger.
+  // the currently-viewed date or doing a full page reload. Remembers the place
+  // being left so the user can return to it.
   function selectNearbyLocation(la: number, lo: number) {
+    const from = lastQueryRef.current
+    if (report && from) setOrigin({ label: firstPart(report.display_name), query: from })
     setMode('coords')
     setLat(String(la))
     setLon(String(lo))
     const { wxUnavail, satUnavail } = availabilityFor(date)
-    runQuery({ lat: la, lon: lo, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+    runQuery({ lat: la, lon: lo, date, weather: !wxUnavail, targets: true, satellites: !satUnavail }, { keepOrigin: true })
+  }
+
+  function backToOrigin() {
+    if (!origin) return
+    const { query } = origin
+    if (query.location) { setMode('place'); setPlace(query.location) }
+    else { setMode('coords'); setLat(String(query.lat)); setLon(String(query.lon)) }
+    const { wxUnavail, satUnavail } = availabilityFor(date)
+    runQuery({ ...query, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
   }
 
   // Bubble-up target for ReportCard's "View Details" drill-in (a date-only
-  // fetch for the same location). Never touches `loading`, so the
-  // `report && !loading` gate below never flips and ReportCard stays mounted —
-  // Night Timeline/Satellite Ephemeris update in place instead of unmounting.
+  // fetch for the same location). Never touches `loading`, so the report
+  // stays mounted and Night Timeline/Satellite Ephemeris update in place.
   function handleDateDetail(next: NightReport, nextDate: string) {
     setReport(next)
     setDate(nextDate)
+    if (lastQueryRef.current) lastQueryRef.current = { ...lastQueryRef.current, date: nextDate }
     const p = new URLSearchParams(window.location.search)
     p.set('date', nextDate)
     history.replaceState(null, '', '?' + p.toString())
   }
+
+  function selectItem(item: PlaceItem) {
+    setPlaceDropdown(false)
+    setActiveIndex(-1)
+    const { wxUnavail, satUnavail } = availabilityFor(date)
+    if (item.kind === 'suggestion') {
+      lastPickedRef.current = item.label   // suppress the refetch from setPlace
+      setSuggestions([])
+      setMode('place')
+      setPlace(item.label)
+      runQuery({ location: item.label, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+      return
+    }
+    const h = item.entry
+    setMode(h.mode)
+    if (h.mode === 'place') {
+      setPlace(h.location!)
+      runQuery({ location: h.location!, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+    } else {
+      setLat(h.lat!)
+      setLon(h.lon!)
+      runQuery({ lat: Number(h.lat), lon: Number(h.lon), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
+    }
+  }
+
+  function expandSearch() {
+    focusOnExpandRef.current = true
+    setEditing(true)
+  }
+
+  // Focus the first field after the user expands the compact card (never on load).
+  useEffect(() => {
+    if (!editing || !focusOnExpandRef.current) return
+    focusOnExpandRef.current = false
+    ;(placeInputRef.current ?? latInputRef.current)?.focus()
+  }, [editing])
+
+  // Initial autofocus for the empty search page; skipped on deep links so a
+  // shared report link doesn't pop the mobile keyboard.
+  useEffect(() => {
+    if (!hasUrlQuery()) placeInputRef.current?.focus()
+  }, [])
 
   function quickSearch(location: string) {
     setMode('place')
@@ -302,6 +487,74 @@ export default function App() {
 
     await runQuery(q)
   }
+
+  // Compact search card: the report (or a deep-link load) is the focus, the
+  // form collapses to one row plus the date controls until the user edits.
+  const compact = !editing && (!!report || booting)
+  const compactLabel = report?.display_name
+    || (mode === 'place' ? place.trim() : (lat && lon ? `${lat}, ${lon}` : ''))
+    || 'Loading…'
+
+  // One-shot action (geolocate, then search), so it sits beside the location
+  // fields rather than in the mode toggle. The text label shows until a report
+  // exists; after that the icon alone is enough.
+  const locateBtn = (
+    <button
+      type="button"
+      className={`locate-btn${report ? ' locate-btn--icon' : ''}`}
+      onClick={useMyLocation}
+      disabled={locating || loading}
+      aria-label="Use my location"
+      title="Use my location"
+    >
+      <LocateFixed size={22} strokeWidth={2.25} className="locate-btn-icon" aria-hidden="true" />
+      {!report && <span className="locate-btn-label">{locating ? 'Locating…' : 'Use my location'}</span>}
+    </button>
+  )
+
+  // Day arrows show only before a report exists: after that the report's sticky nav carries them.
+  const dateNav = (
+    <div className="date-nav-row">
+      {!report && !compact && (
+        <button type="button" className="day-nav" onClick={() => shiftDay(-1)} disabled={loading || locating} aria-label="Previous day">
+          <ChevronLeft size={18} strokeWidth={2.5} />
+        </button>
+      )}
+      <DatePicker
+        value={date}
+        min="1900-01-01"
+        max="2050-12-31"
+        onChange={(d) => {
+          if (report && lastQueryRef.current) { goToDate(d) } else { setDate(d); setScopeOpen(true) }
+        }}
+      />
+      {!report && !compact && (
+        <button type="button" className="day-nav" onClick={() => shiftDay(1)} disabled={loading || locating} aria-label="Next day">
+          <ChevronRight size={18} strokeWidth={2.5} />
+        </button>
+      )}
+    </div>
+  )
+
+  const sampleLinks = (
+    <div className="es-quickstart-btns">
+      {SAMPLE_REPORTS.map(([label, query, hook]) => (
+        <a
+          key={query}
+          className="es-qs-btn"
+          href={`/?q=${encodeURIComponent(query)}`}
+          onClick={(e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+            e.preventDefault()
+            quickSearch(query)
+          }}
+        >
+          <span className="es-qs-name">{label}</span>
+          <span className="es-qs-hook">{hook}</span>
+        </a>
+      ))}
+    </div>
+  )
 
   return (
     <div className="app">
@@ -344,12 +597,38 @@ export default function App() {
       </header>
 
       <main>
-      <form className="card query" onSubmit={onSubmit}>
+      <form className={`card query${compact ? ' query-compact' : ''}`} onSubmit={onSubmit}>
+        {compact && (
+          <>
+            <div className="qc-row">
+              <button
+                type="button"
+                className="qc-place"
+                onClick={expandSearch}
+                aria-expanded={false}
+                aria-controls="query-fields"
+                title={compactLabel}
+              >
+                <MapPin size={14} strokeWidth={2} className="qc-place-icon" aria-hidden="true" />
+                <span className="qc-place-label">{compactLabel}</span>
+              </button>
+              <button
+                type="button"
+                className="qc-edit"
+                onClick={expandSearch}
+                aria-expanded={false}
+                aria-controls="query-fields"
+              >
+                <Pencil size={12} strokeWidth={2.2} aria-hidden="true" />
+                Edit search
+              </button>
+            </div>
+            {dateNav}
+          </>
+        )}
+        {!compact && (
+        <div id="query-fields" className="query-fields">
         <div className="location-header">
-          {/* Not a role="tablist": "Use my location" is an action button, not a
-              third tab, and mixing the two breaks the ARIA tabs contract
-              (a tablist's children must all be role="tab"). role="group" plus
-              aria-pressed on the two mode buttons describes this correctly. */}
           <div className="mode-toggle" role="group" aria-label="Location input mode">
             <button
               type="button"
@@ -358,15 +637,6 @@ export default function App() {
               onClick={() => setMode('place')}
             >
               Search a place
-            </button>
-            <button
-              type="button"
-              className="geo-btn"
-              onClick={useMyLocation}
-              disabled={locating || loading}
-            >
-              <LocateFixed size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
-              {locating ? 'Locating…' : 'Use my location'}
             </button>
             <button
               type="button"
@@ -384,39 +654,13 @@ export default function App() {
           // While actively typing (≥3 chars) show live geocoder suggestions;
           // otherwise fall back to filtered recent searches.
           const useSuggest = q.length >= 3 && suggestions.length > 0
-          type Item =
-            | { kind: 'suggestion'; label: string }
-            | { kind: 'history'; label: string; entry: HistoryEntry }
-          const items: Item[] = useSuggest
+          const items: PlaceItem[] = useSuggest
             ? suggestions.map(s => ({ kind: 'suggestion' as const, label: s }))
             : searchHistory
                 .filter(h => !q || h.label.toLowerCase().includes(q.toLowerCase()))
                 .map(h => ({ kind: 'history' as const, label: h.label, entry: h }))
           const showDropdown = placeDropdown && items.length > 0
 
-          const selectItem = (item: Item) => {
-            setPlaceDropdown(false)
-            setActiveIndex(-1)
-            const { wxUnavail, satUnavail } = availabilityFor(date)
-            if (item.kind === 'suggestion') {
-              lastPickedRef.current = item.label   // suppress the refetch from setPlace
-              setSuggestions([])
-              setMode('place')
-              setPlace(item.label)
-              runQuery({ location: item.label, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
-              return
-            }
-            const h = item.entry
-            setMode(h.mode)
-            if (h.mode === 'place') {
-              setPlace(h.location!)
-              runQuery({ location: h.location!, date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
-            } else {
-              setLat(h.lat!)
-              setLon(h.lon!)
-              runQuery({ lat: Number(h.lat), lon: Number(h.lon), date, weather: !wxUnavail, targets: true, satellites: !satUnavail })
-            }
-          }
           return (
           <div
             className="field place-field-wrap"
@@ -428,7 +672,9 @@ export default function App() {
             }}
           >
             <label htmlFor="place-input" className="field-label">Place</label>
-            <div className="place-input-row">
+            <div className="place-locate-row">
+              {locateBtn}
+              <div className="place-input-row">
               <input
                 id="place-input"
                 ref={placeInputRef}
@@ -447,7 +693,6 @@ export default function App() {
                   }
                 }}
                 maxLength={200}
-                autoFocus
                 autoComplete="off"
                 role="combobox"
                 aria-expanded={showDropdown}
@@ -473,6 +718,7 @@ export default function App() {
                   <X size={13} strokeWidth={2.5} />
                 </button>
               )}
+              </div>
             </div>
             {showDropdown && (
               <div
@@ -531,9 +777,11 @@ export default function App() {
           )
         })() : (
           <div className="coords">
+            {locateBtn}
             <label className="field">
               <span>Latitude</span>
               <input
+                ref={latInputRef}
                 type="number"
                 step="any"
                 placeholder="40.7"
@@ -556,15 +804,7 @@ export default function App() {
 
         <div className="field">
           <label htmlFor="dp-trigger" className="field-label">Date</label>
-          <div className="date-nav-row">
-            <button type="button" className="day-nav" onClick={() => shiftDay(-1)} disabled={loading || locating} aria-label="Previous day">
-              <ChevronLeft size={18} strokeWidth={2.5} />
-            </button>
-            <DatePicker value={date} min="1900-01-01" max="2050-12-31" onChange={(d) => { setDate(d); setScopeOpen(true) }} />
-            <button type="button" className="day-nav" onClick={() => shiftDay(1)} disabled={loading || locating} aria-label="Next day">
-              <ChevronRight size={18} strokeWidth={2.5} />
-            </button>
-          </div>
+          {dateNav}
         </div>
 
         <div className="scope-row">
@@ -611,12 +851,40 @@ export default function App() {
         <button type="submit" className="submit" disabled={loading}>
           {loading ? 'Scoring…' : 'Score the night'}
         </button>
+        {report && (
+          <button
+            type="button"
+            className="qc-collapse"
+            onClick={() => setEditing(false)}
+            aria-expanded={true}
+            aria-controls="query-fields"
+          >
+            Hide search
+          </button>
+        )}
+        </div>
+        )}
       </form>
 
-      {error && <div className="card error">{error}</div>}
-      {!!report && !loading && report.date !== date && (
-        <div className="stale-notice">
-          Date changed to {date}. Press "Score the night" to refresh.
+      {error && (
+        <div className="card error" role="alert">
+          <p className="error-msg">{error}</p>
+          {errorState?.notFound && (
+            <div className="error-help">
+              <p>
+                Check the spelling, add a state or country, or{' '}
+                <button
+                  type="button"
+                  className="error-link"
+                  onClick={() => { setMode('coords'); setError(null); setEditing(true) }}
+                >
+                  switch to coordinates
+                </button>
+                . Or try a sample report:
+              </p>
+              {sampleLinks}
+            </div>
+          )}
         </div>
       )}
       {!report && !loading && !error && (
@@ -730,54 +998,43 @@ export default function App() {
 
           <div className="es-quickstart">
             <span className="es-quickstart-label">View a sample report</span>
-            <div className="es-quickstart-btns">
-              {([
-                ['Sedona, AZ',         'Sedona, Arizona',                          'Bortle 7 suburb — the dark-sky finder at work'],
-                ['Death Valley, CA',   'Death Valley, California',                 'Bortle 1 — pristine desert benchmark'],
-                ['Cherry Springs, PA', 'Cherry Springs State Park, Pennsylvania',  'Bortle 2 — the East Coast classic'],
-              ] as [string, string, string][]).map(([label, query, hook]) => (
-                <a
-                  key={query}
-                  className="es-qs-btn"
-                  href={`/?q=${encodeURIComponent(query)}`}
-                  onClick={(e) => {
-                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-                    e.preventDefault()
-                    quickSearch(query)
-                  }}
-                >
-                  <span className="es-qs-name">{label}</span>
-                  <span className="es-qs-hook">{hook}</span>
-                </a>
-              ))}
-            </div>
+            {sampleLinks}
           </div>
         </div>
       )}
-      {report && !loading && (
-        <Suspense fallback={<div className="card report-loading">Loading report…</div>}>
-          <ReportCard
-            report={report}
-            showWeather={reportWeather}
-            showTargets={reportTargets}
-            showSatellites={reportSatellites}
-            imperial={imperial}
-            onToggleUnits={toggleUnits}
-            onDateDetail={handleDateDetail}
-            onSelectLocation={selectNearbyLocation}
-            redMode={redMode}
-          />
-        </Suspense>
+      {!report && loading && <ReportSkeleton />}
+      {origin && report && (
+        <button type="button" className="origin-back" onClick={backToOrigin} disabled={loading}>
+          <ArrowLeft size={14} strokeWidth={2.2} aria-hidden="true" />
+          Back to {origin.label}
+        </button>
+      )}
+      {report && (
+        <div className={`report-wrap${loading ? ' is-refreshing' : ''}`} aria-busy={loading}>
+          <Suspense fallback={<ReportSkeleton />}>
+            <ReportCard
+              key={`${report.lat},${report.lon}`}
+              report={report}
+              showWeather={reportWeather}
+              showTargets={reportTargets}
+              showSatellites={reportSatellites}
+              imperial={imperial}
+              onToggleUnits={toggleUnits}
+              onDateDetail={handleDateDetail}
+              onSelectLocation={selectNearbyLocation}
+              onShiftDay={shiftDay}
+              busy={loading}
+              redMode={redMode}
+            />
+          </Suspense>
+        </div>
       )}
       </main>
 
-      {/* Hidden while loading: this is the last element on the page, so
-          showing/hiding it never displaces anything else, but leaving it
-          mounted meant it sat on-screen at its short "waiting" position and
-          then jumped to its real (much lower) position once the report
-          rendered — a CDP trace confirmed that single jump was ~87% of this
-          page's real-user CLS. Nothing here is needed mid-load. */}
-      {!loading && (
+      {/* Hidden only while the first report is loading: it is the last element on
+          the page, so it would otherwise sit at its short "waiting" position and
+          jump once the report renders. Stays put during refetches. */}
+      {!(loading && !report) && (
       <footer className="colophon">
         <div className="colophon-label">Data</div>
         <div className="colophon-sources">

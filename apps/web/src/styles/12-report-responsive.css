@@ -392,3 +392,52 @@
     min-width: 0;
   }
 }
+
+/* ── Touch hit areas ─────────────────────────────────────────────────────────
+   Small controls get an invisible ::after that extends the tappable box to
+   ~40px without changing layout. The directions arrow extends mostly to the
+   right/vertical so it never reaches the place-name link to its left. */
+@media (max-width: 640px), (pointer: coarse) {
+  .poi-maplink::after,
+  .place-mappin::after,
+  .copy-link-btn::after,
+  .report-head-actions .units-toggle button::after,
+  .info-tip::after {
+    content: '';
+    position: absolute;
+  }
+  .poi-maplink::after {
+    top: -14px;
+    bottom: -14px;
+    left: -4px;
+    right: -24px;
+  }
+  .nearby-dir-col .poi-maplink::after {
+    top: -10px;
+    bottom: -10px;
+  }
+  .place-mappin::after {
+    inset: -12px;
+  }
+  .copy-link-btn::after {
+    inset: -4px;
+  }
+  .report-head-actions .units-toggle button {
+    position: relative;
+  }
+  .report-head-actions .units-toggle button::after {
+    top: -8px;
+    bottom: -8px;
+    left: -1px;
+    right: -1px;
+  }
+  .info-tip {
+    position: relative;
+  }
+  .info-tip::after {
+    top: -12px;
+    bottom: -12px;
+    left: -6px;
+    right: -6px;
+  }
+}
