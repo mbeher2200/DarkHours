@@ -13,15 +13,6 @@
   color: var(--poor);
   background: rgba(217, 83, 79, 0.07);
 }
-/* Suspense fallback while the ReportCard chunk (and its data) load. The real
-   report is always taller than one viewport, so reserving a full viewport
-   here keeps the footer below the fold in both the loading and loaded state
-   instead of jumping onscreen and back off as the chunk swaps in — that jump
-   was the single largest source of the site's real-user CLS. */
-.report-loading {
-  min-height: 100vh;
-}
-
 /* ── query form ───────────────────────────────────────────── */
 .query {
   display: flex;
@@ -87,6 +78,12 @@
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.15s;
+}
+.place-clear-btn::after {
+  /* Invisible hit-area extension: 21px glyph box grows to 41px square. */
+  content: '';
+  position: absolute;
+  inset: -10px;
 }
 .place-clear-btn:hover {
   color: var(--text-h);
@@ -162,20 +159,6 @@
   white-space: nowrap;
 }
 
-.geo-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  transition: color 0.15s;
-}
-.geo-btn:hover:not(:disabled) {
-  color: var(--text-h);
-}
-.geo-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 .mode-toggle {
   display: flex;
   gap: 4px;
@@ -264,8 +247,9 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 .coords {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: auto 1fr 1fr;
   gap: 12px;
+  align-items: end;
 }
 
 .scope-row {

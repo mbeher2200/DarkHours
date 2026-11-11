@@ -237,6 +237,7 @@ html.red-mode .es-divider {
   border-top-color: rgba(255, 0, 0, 0.25);
   border-bottom-color: transparent;
 }
+html.red-mode .locate-btn,
 html.red-mode .day-nav {
   border: 1px solid rgba(255, 0, 0, 0.20);
 }
@@ -314,11 +315,6 @@ html.red-mode .colophon {
   border-top-color: rgba(255, 0, 0, 0.18);
   box-shadow: none;
 }
-/* "Date changed — press Score the night" notice: blue tint/border → red. */
-html.red-mode .stale-notice {
-  background: rgba(255, 0, 0, 0.07);
-  border-color: rgba(255, 0, 0, 0.2);
-}
 /* Flatten card bevel in night vision — white highlight edge emits non-red light */
 html.red-mode .card {
   border: 1px solid var(--card-border);
@@ -363,4 +359,24 @@ html.red-mode .planning-tools-section {
 }
 .masthead p {
   display: none;
+}
+
+/* Report nav day control and nearby radius toggle */
+html.red-mode .report-nav-day {
+  border-left-color: rgba(255, 0, 0, 0.18);
+}
+html.red-mode .report-nav-day-btn {
+  color: var(--text-dim);
+}
+html.red-mode .report-nav-day-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+html.red-mode .nearby-radius-change {
+  border-color: rgba(255, 0, 0, 0.25);
+  color: var(--text-dim);
+}
+html.red-mode .nearby-radius-change:hover,
+html.red-mode .nearby-radius-change[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
 }

@@ -32,6 +32,8 @@
   margin-left: 0;
 }
 .copy-link-btn {
+  position: relative;
+  min-height: 32px;
   border: 1px solid var(--card-border);
   background: transparent;
   border-radius: 2px;
@@ -72,20 +74,30 @@ html.red-mode .copy-link-btn:hover {
   align-items: center;
   gap: 4px;
   margin: 0 -18px 10px;
-  padding: 4px 12px;
+  padding: 0 12px;
   background: var(--card);
   border-top: 1px solid rgba(var(--hairline-rgb), 0.08);
   border-bottom: 1px solid rgba(var(--hairline-rgb), 0.14);
+}
+/* Section links scroll horizontally; the day control beside them stays pinned. */
+.report-nav-links {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.report-nav::-webkit-scrollbar {
+.report-nav-links::-webkit-scrollbar {
   display: none;
 }
 .report-nav-link {
+  flex: none;
+  min-height: 40px;
   background: none;
   border: 0;
-  padding: 3px 7px;
+  padding: 0 7px;
   cursor: pointer;
   font-family: var(--mono);
   font-size: 10px;
@@ -98,9 +110,48 @@ html.red-mode .copy-link-btn:hover {
 .report-nav-link:hover {
   color: var(--accent);
 }
+/* Previous / next night control, pinned at the right end of the sticky nav. */
+.report-nav-day {
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 6px;
+  border-left: 1px solid rgba(var(--hairline-rgb), 0.14);
+}
+.report-nav-day-btn {
+  min-width: 40px;
+  min-height: 40px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.report-nav-day-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+.report-nav-day-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.report-nav-day-label {
+  min-width: 46px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  color: var(--text);
+}
 /* Jump targets land just below the sticky bar, not underneath it. */
 #report-planning, #report-timeline, #report-targets, #report-satellites {
-  scroll-margin-top: 34px;
+  scroll-margin-top: 48px;
 }
 html.red-mode .report-nav {
   background: var(--card);
@@ -123,6 +174,7 @@ html.red-mode .report-nav-link {
   margin: 0;
 }
 .place-mappin {
+  position: relative;
   display: inline-flex;
   align-items: center;
   margin-left: 7px;
@@ -150,15 +202,6 @@ html.red-mode .report-nav-link {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin: 0;
-}
-.stale-notice {
-  background: rgba(var(--tint-rgb), 0.07);
-  border: 1px solid rgba(var(--tint-rgb), 0.18);
-  border-radius: 2px;
-  padding: 10px 16px;
-  font-size: 13px;
-  color: var(--accent);
-  text-align: center;
 }
 .overall {
   display: grid;

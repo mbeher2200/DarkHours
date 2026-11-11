@@ -6,7 +6,7 @@ import { MoonPhaseSvg, InfoTip } from './shared'
 import { fetchNearby, fetchCalendar, fetchNightDateOnly, ApiRequestError } from './api'
 import OutlookTelemetryRibbon from './OutlookTelemetryRibbon'
 import CalendarRangePicker, { type CalendarPickerState } from './CalendarRangePicker'
-import { fmtNightDate, MetaRow } from './report/common'
+import { fmtNightDate, fmtNightShort, MetaRow } from './report/common'
 import { WeatherTable } from './report/NightTimeline'
 import { SatellitePasses } from './report/Satellites'
 import { MilkyWayAbsent, MilkyWayCard } from './report/MilkyWay'
@@ -17,11 +17,13 @@ import { LightDomePanel } from './report/LightDomePanel'
 
 const AUTO_CALENDAR_DAYS = 30
 
-// ReportCard remounts on every /night fetch incl. same-location day nav
-// (App.tsx's `report && !loading` gate), which would re-hit /calendar each
-// time. Module-scope promise cache, keyed by location, dedupes that (and
-// StrictMode's double-invoke). TTL matches server _WX_CACHE_TTL (30 min,
-// predictor.py) — no other invalidation, so a long-lived tab needs one.
+// ReportCard stays mounted while `report` changes in place for the same
+// lat/lon (App keys it by location), and remounts only when the location
+// changes. The calendar effect re-runs when its anchor date moves and on a
+// return to a previously viewed location; this module-scope promise cache,
+// keyed by location + start date, dedupes those (and StrictMode's
+// double-invoke). TTL matches server _WX_CACHE_TTL (30 min, predictor.py) —
+// no other invalidation, so a long-lived tab needs one.
 const _AUTO_CALENDAR_TTL_MS = 30 * 60 * 1000
 const _autoCalendarCache = new Map<string, { promise: Promise<CalendarResult>; at: number }>()
 
@@ -35,11 +37,11 @@ function autoFetchCalendar(lat: number, lon: number, start: string): Promise<Cal
   return p
 }
 
-// Same remount problem as the calendar cache above, applied to Find Sky Nearby.
+// Same idea as the calendar cache above, applied to Find Sky Nearby.
 // Nearby search stays manual/opt-in (no auto-fire) — this only restores a
-// search the user already ran for this location, instead of dropping back to
-// the two radius buttons on every day-nav click. Keyed by lat,lon,radius for
-// the fetch cache; lat,lon alone for "which radius did they last pick here".
+// search the user already ran for this location when the card remounts (e.g.
+// after visiting another location and coming back). Keyed by lat,lon,radius
+// for the fetch cache; lat,lon alone for "which radius did they last pick here".
 const _nearbyFetchCache = new Map<string, Promise<NearbyResult>>()
 const _nearbyLastRadius = new Map<string, number>()
 
@@ -71,6 +73,8 @@ export default function ReportCard({
   onDateDetail,
   onSelectLocation,
   redMode,
+  onShiftDay,
+  busy = false,
 }: {
   report: NightReport
   showWeather?: boolean
@@ -81,6 +85,10 @@ export default function ReportCard({
   onDateDetail?: (next: NightReport, date: string) => void
   onSelectLocation?: (lat: number, lon: number) => void
   redMode?: boolean
+  /** Load the previous (-1) / next (+1) night for the same location. */
+  onShiftDay?: (delta: number) => void
+  /** True while a /night refetch is in flight. */
+  busy?: boolean
 }) {
   const [nearbyState, setNearbyState] = useState<
     | { phase: 'idle' }
@@ -92,36 +100,48 @@ export default function ReportCard({
     return radius != null ? { phase: 'loading', radius } : { phase: 'idle' }
   })
 
-  const [draftRadius, setDraftRadius] = useState<number>(20)
+  const [draftRadius, setDraftRadius] = useState<number>(
+    () => _nearbyLastRadius.get(nearbyLocKey(report.lat, report.lon)) ?? 20,
+  )
+  // Slider panel visibility after a search has run (always shown while idle).
+  const [radiusOpen, setRadiusOpen] = useState(false)
+  // Only the latest nearby request may write state (radius changed twice quickly).
+  const nearbyReqRef = useRef(0)
 
   async function handleFindNearby(radius: number) {
+    const token = ++nearbyReqRef.current
+    setRadiusOpen(false)
+    setDraftRadius(radius)
     setNearbyState({ phase: 'loading', radius })
     try {
       const data = await fetchNearbyCached(report.lat, report.lon, radius)
-      setNearbyState({ phase: 'done', data })
+      if (nearbyReqRef.current === token) setNearbyState({ phase: 'done', data })
     } catch (err) {
-      setNearbyState({
-        phase: 'error',
-        message: err instanceof ApiRequestError ? err.message : 'Nearby search failed.',
-      })
+      if (nearbyReqRef.current === token) {
+        setNearbyState({
+          phase: 'error',
+          message: err instanceof ApiRequestError ? err.message : 'Nearby search failed.',
+        })
+      }
     }
   }
 
   useEffect(() => {
     const radius = _nearbyLastRadius.get(nearbyLocKey(report.lat, report.lon))
     if (radius == null) return
-    let cancelled = false
+    const token = ++nearbyReqRef.current
     fetchNearbyCached(report.lat, report.lon, radius).then(data => {
-      if (!cancelled) setNearbyState({ phase: 'done', data })
+      if (nearbyReqRef.current === token) setNearbyState({ phase: 'done', data })
     }).catch(err => {
-      if (!cancelled) {
+      if (nearbyReqRef.current === token) {
         setNearbyState({
           phase: 'error',
           message: err instanceof ApiRequestError ? err.message : 'Nearby search failed.',
         })
       }
     })
-    return () => { cancelled = true }
+    const req = nearbyReqRef
+    return () => { req.current++ }
   }, [report.lat, report.lon])
 
   const [calendarState, setCalendarState] = useState<CalendarPickerState>({ phase: 'idle' })
@@ -226,6 +246,21 @@ export default function ReportCard({
   }
 
   const isFetchingDetails = dateFetch.phase === 'fetching'
+
+  // A date-detail error belongs to the date it was raised for; drop it once
+  // the report moves to another date in place.
+  const [seenDate, setSeenDate] = useState(report.date)
+  if (seenDate !== report.date) {
+    setSeenDate(report.date)
+    if (dateFetch.phase === 'error') setDateFetch({ phase: 'idle' })
+  }
+
+  function shiftDay(delta: number) {
+    detailTokenRef.current++ // abandon any in-flight date-detail fetch
+    setDateFetch({ phase: 'idle' })
+    onShiftDay?.(delta)
+  }
+  const dayShiftDisabled = busy || isFetchingDetails
   const prevReportRef = useRef(report)
   const [cathodeSnap, setCathodeSnap] = useState(false)
   const snapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -465,13 +500,36 @@ export default function ReportCard({
         </div>
       </header>
 
-      {navSections.length > 1 && (
+      {(navSections.length > 1 || onShiftDay) && (
         <nav className="report-nav" aria-label="Report sections">
-          {navSections.map(([id, label]) => (
-            <button key={id} type="button" className="report-nav-link" onClick={() => jumpTo(id)}>
-              {label}
-            </button>
-          ))}
+          {navSections.length > 1 && (
+            <div className="report-nav-links">
+              {navSections.map(([id, label]) => (
+                <button key={id} type="button" className="report-nav-link" onClick={() => jumpTo(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {onShiftDay && (
+            <div className="report-nav-day" role="group" aria-label="Change night">
+              <button
+                type="button"
+                className="report-nav-day-btn"
+                aria-label="Previous night"
+                disabled={dayShiftDisabled}
+                onClick={() => shiftDay(-1)}
+              >‹</button>
+              <span className="report-nav-day-label" aria-live="polite">{fmtNightShort(r.date)}</span>
+              <button
+                type="button"
+                className="report-nav-day-btn"
+                aria-label="Next night"
+                disabled={dayShiftDisabled}
+                onClick={() => shiftDay(1)}
+              >›</button>
+            </div>
+          )}
         </nav>
       )}
 
@@ -556,7 +614,17 @@ export default function ReportCard({
             <h4 className="planning-tool-title">Find Sky Nearby</h4>
             <p className="planning-tool-subtitle">Search for better sky in other locations</p>
             <div className="nearby-body">
-              {nearbyState.phase === 'idle' && (
+              {(nearbyState.phase === 'done' || nearbyState.phase === 'error') && (
+                <button
+                  type="button"
+                  className="nearby-radius-change"
+                  aria-expanded={radiusOpen}
+                  onClick={() => setRadiusOpen(o => !o)}
+                >
+                  {radiusOpen ? 'Cancel' : 'Change radius'}
+                </button>
+              )}
+              {(nearbyState.phase === 'idle' || radiusOpen) && (
                 <div className="nearby-radius-control">
                   <span className="nearby-radius-label">Radius</span>
                   <div className="nearby-radius-slider">

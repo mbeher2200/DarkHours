@@ -1,0 +1,281 @@
+/* ── compact search card (shown once a report exists) ─────── */
+.query-compact {
+  gap: 10px;
+  padding: 12px 14px;
+}
+.qc-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.qc-place {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-h);
+  background: var(--field-bg);
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  border-left: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.75);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.qc-place-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+.qc-place-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qc-edit {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid rgba(var(--hairline-rgb), 0.55);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.qc-place:hover,
+.qc-edit:hover {
+  color: var(--text-h);
+}
+.qc-place:focus-visible,
+.qc-edit:focus-visible,
+.qc-collapse:focus-visible,
+.origin-back:focus-visible,
+.error-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.query-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.qc-collapse {
+  align-self: center;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.qc-collapse:hover {
+  color: var(--text);
+}
+
+/* ── back to the place the user jumped from ───────────────── */
+.origin-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  max-width: 100%;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid rgba(var(--hairline-rgb), 0.55);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.origin-back:hover:not(:disabled) {
+  color: var(--text-h);
+}
+.origin-back:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── report kept mounted during a refetch ─────────────────── */
+.report-wrap {
+  transition: opacity 0.15s ease;
+}
+.report-wrap.is-refreshing {
+  opacity: 0.55;
+}
+.report-wrap.is-refreshing > * {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-wrap {
+    transition: none;
+  }
+}
+
+/* ── first-load skeleton ──────────────────────────────────── */
+/* Full-viewport min-height keeps the footer below the fold both while the
+   skeleton shows and after the report replaces it. */
+.report-skeleton {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.report-skeleton-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.skel {
+  display: block;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--field-bg) 0%,
+    rgba(var(--tint-rgb), 0.12) 50%,
+    var(--field-bg) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.6s linear infinite;
+}
+.skel-score { height: 96px; width: 40%; }
+.skel-line { height: 14px; width: 100%; }
+.skel-short { width: 60%; }
+.skel-block { height: 220px; width: 100%; }
+@keyframes skel-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
+
+/* ── error card help ──────────────────────────────────────── */
+.error-msg {
+  margin: 0;
+}
+.error-help {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+.error-help p {
+  margin: 0;
+}
+.error-link {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ── "Use my location" action, beside the place / coordinate fields ── */
+.place-locate-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.place-locate-row .place-input-row {
+  flex: 1;
+  min-width: 0;
+}
+.locate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 46px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.80);
+  border-left: 1px solid rgba(255, 255, 255, 0.80);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.22);
+  border-right: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 2px;
+  background: var(--field-bg);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.locate-btn--icon {
+  padding: 0;
+}
+.locate-btn-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.locate-btn--icon {
+  min-width: 50px;
+}
+.locate-btn:hover:not(:disabled) {
+  color: var(--text-h);
+}
+.locate-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.locate-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  /* Two-line label keeps the place input wide enough to read its placeholder. */
+  .locate-btn:not(.locate-btn--icon) {
+    padding: 0 8px;
+  }
+  .locate-btn-label {
+    max-width: 64px;
+    line-height: 1.25;
+    text-align: left;
+  }
+  /* Coordinates stack on narrow screens; the button takes its own full row. */
+  .coords .locate-btn {
+    width: 100%;
+  }
+}
+@media (max-width: 640px) {
+  .coords .locate-btn-label {
+    max-width: none;
+  }
+}
