@@ -8,7 +8,7 @@ pixel.
 
 - **Source of truth:** OpenStreetMap (a Geofabrik US `.osm.pbf` extract).
 - **Artifact:** `cache/osm_pois.npz` — **committed** (a `.gitignore` exception; staged
-  into the worker Lambda zip). ~0.7 MB, ~39k POIs.
+  into the worker and API Lambda zips). ~0.7 MB, ~39k POIs.
 - **Builder:** `scripts/osm_poi_builder.py` (offline; needs `requirements-build.txt`).
 - **Refresh:** `scripts/update_pois.sh` (download → build → clean up the `.pbf`).
 - **Runtime:** `darksky._load_poi_h3_index` / `_extract_poi_candidates`.
