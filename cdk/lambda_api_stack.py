@@ -86,8 +86,9 @@ def _stage_api_src() -> str:
     """Stage the source the API zip Lambda needs as the CDK bundling input.
 
     Stages engine + apps (minus worker/warmer entrypoints), de421.bsp ephemeris, and
-    the light-dome + PAD-US .npz indexes. Omits osm_pois.npz (only find_nearby /
-    worker uses it). requirements-api.txt is installed by CDK bundling on top.
+    the light-dome + PAD-US + OSM-POI .npz indexes (reverse_geocode names a
+    coordinate from the POI index). requirements-api.txt is installed by CDK
+    bundling on top.
     """
     stage = _REPO / "cdk" / ".api_build"
     if stage.exists():
@@ -97,7 +98,7 @@ def _stage_api_src() -> str:
     shutil.copytree(_REPO / "darkhours", stage / "darkhours", ignore=ig)
     shutil.copytree(_REPO / "apps", stage / "apps", ignore=ig)
     (stage / "cache").mkdir()
-    for _npz in ("darkhours_padus_h3.npz", "lightdome_h3.npz"):
+    for _npz in ("darkhours_padus_h3.npz", "osm_pois.npz", "lightdome_h3.npz"):
         shutil.copy(_REPO / "cache" / _npz, stage / "cache" / _npz)
     # requirements-api.txt has `-r requirements.txt`; both must be present for pip.
     shutil.copy(_REPO / "requirements.txt", stage / "requirements.txt")
