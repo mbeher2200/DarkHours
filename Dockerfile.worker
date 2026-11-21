@@ -5,7 +5,7 @@
 # ephemeris) and reads the light-pollution grids from S3 with numpy+boto3 (no GDAL),
 # so it's a container (not the tiny warmer zip). Staying on AL2023 + non-root avoids
 # Trivy DS-0002 (the AWS Lambda base image would run as root).
-FROM amazonlinux:2023.12.20261021.0@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6
+FROM amazonlinux:2023.12.20261112.0@sha256:8ee95c4096d455555cb208d1dcea7b759235afab02253351d566d22d904f2198
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
