@@ -21,6 +21,16 @@ def record(provider: str, status: str, detail: str = "") -> None:
         _records[provider] = entry
 
 
+def aws_error_detail(e: BaseException) -> str:
+    """Detail string for an AWS SDK failure: the service error code (e.g.
+    "ThrottlingException") for a botocore ClientError, else the exception class
+    name (e.g. "EndpointConnectionError"). The full message stays in the logs."""
+    resp = getattr(e, "response", None)
+    err = resp.get("Error") if isinstance(resp, dict) else None
+    code = err.get("Code") if isinstance(err, dict) else None
+    return str(code)[:120] if code else type(e).__name__
+
+
 def snapshot() -> dict[str, dict]:
     """Return provider → status dict for the health endpoint. Stale records are flagged."""
     now = time.time()

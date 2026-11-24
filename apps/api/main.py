@@ -189,6 +189,16 @@ def _check_cache_health() -> dict:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+_GEOCODER_UNAVAILABLE_DETAIL = "Location search is temporarily unavailable. Please try again shortly."
+
+
+def _geocoder_unavailable(e: RuntimeError) -> HTTPException:
+    """502 for a failed geocode/suggest call. The client gets a fixed message; the
+    provider's error text goes to the server log only."""
+    _resolve_log.warning("Geocoder unavailable: %s", e)
+    return HTTPException(502, _GEOCODER_UNAVAILABLE_DETAIL)
+
+
 def _parse_date(s: str | None, field: str = "date") -> date:
     if not s:
         return datetime.now(timezone.utc).date()
@@ -228,7 +238,7 @@ def _resolve(location: str | None, lat: float | None, lon: float | None,
         except ValueError as e:
             raise HTTPException(404, str(e))      # not found
         except RuntimeError as e:
-            raise HTTPException(502, str(e))      # geocoder unreachable
+            raise _geocoder_unavailable(e)        # geocoder unreachable
         _resolve_log.info(
             "resolve timing mode=name | tz=%dms rev=%dms total=%dms",
             -1, -1, round((time.monotonic() - _t0) * 1000),
@@ -365,7 +375,7 @@ def suggest(q: str = Query(..., min_length=1, max_length=_MAX_NAME_LEN)):
     try:
         return {"suggestions": _suggest_cached(q)}
     except RuntimeError as e:
-        raise HTTPException(502, str(e))   # geocoder unreachable
+        raise _geocoder_unavailable(e)   # geocoder unreachable
 
 
 def _accepted(job_id: str) -> JSONResponse:

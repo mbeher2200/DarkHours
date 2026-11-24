@@ -483,3 +483,32 @@ def test_suggest_empty_result_is_still_cached(monkeypatch):
     r2 = client.get("/suggest", params={"q": "xyz"})
     assert r2.json() == {"suggestions": []}
     assert calls == ["xyz"], "an empty-list result must still be a cache hit, not re-fetched"
+
+
+# ---------------------------------------------------------------------------
+# Geocoder failures: fixed 502 detail, provider text kept server-side
+# ---------------------------------------------------------------------------
+
+_PROVIDER_TEXT = "PROVIDER-ERROR-TEXT-NOT-FOR-CLIENT"
+
+
+def _raise_provider_error(*a, **kw):
+    raise RuntimeError(_PROVIDER_TEXT)
+
+
+def test_night_geocoder_failure_returns_fixed_detail(monkeypatch):
+    monkeypatch.setattr(main_mod._loc, "resolve", _raise_provider_error)
+    r = client.get("/night", params={"location": "Flagstaff"})
+    assert r.status_code == 502
+    assert r.json() == {"detail": main_mod._GEOCODER_UNAVAILABLE_DETAIL}
+    assert _PROVIDER_TEXT not in r.text
+
+
+def test_suggest_geocoder_failure_returns_fixed_detail(monkeypatch):
+    main_mod._suggest_cached.cache_clear()
+    _fake_shared_cache(monkeypatch)
+    monkeypatch.setattr(main_mod._loc, "suggest", _raise_provider_error)
+    r = client.get("/suggest", params={"q": "Fla"})
+    assert r.status_code == 502
+    assert r.json() == {"detail": main_mod._GEOCODER_UNAVAILABLE_DETAIL}
+    assert _PROVIDER_TEXT not in r.text
