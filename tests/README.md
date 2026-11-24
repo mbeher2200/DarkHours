@@ -90,6 +90,7 @@ Unmarked tests are hermetic: no network, no ephemeris, no rasters.
 |------|-----------------|---------|-------------------|
 | `test_adapters.py` | `cache.py` / `location.py` / `ports.py` | — | Local vs Dynamo cache/geocode contract parity (moto), `S3RasterSource` |
 | `test_aws_location.py` | `location.py` / `darksky.py` | — | AWS Location geocoding + GeoRoutes drive times (mocked boto3), per-leg cache |
+| `test_provider_health.py` | `provider_health.py` / `location.py` / `darksky.py` | — | AWS Location / GeoRoutes failures record the SDK error code as the provider detail |
 | `test_api.py` | `apps/api/main.py` | — / `eph` | All endpoints, input validation, DoS guards, error paths |
 | `test_jobs.py` | `apps/jobs.py` | — | Inline/SQS job lifecycle, worker handler, 202→done flow |
 | `test_warmer.py` | `apps/warmer` | — | TLE warmer handler: warm-all-ok, failure reporting, stale detection ; deployment bundle covers every third-party import |

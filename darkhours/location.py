@@ -265,7 +265,7 @@ def _geocode_via_aws(name: str, query: str) -> dict | None:
         _ph.record("aws_location", "ok")
         _cb.on_success("aws_location")
     except Exception as e:
-        _ph.record("aws_location", "error", str(e)[:120])
+        _ph.record("aws_location", "error", _ph.aws_error_detail(e))
         _cb.on_failure("aws_location")
         log.error("AWS Location geocode error for %r: %s", name, e, extra={"service": "aws-location"})
         raise RuntimeError(f"Geocoding error: {e}")
@@ -298,7 +298,7 @@ def _suggest_via_aws(query: str, max_results: int) -> list[str]:
         _ph.record("aws_location", "ok")
         _cb.on_success("aws_location")
     except Exception as e:
-        _ph.record("aws_location", "error", str(e)[:120])
+        _ph.record("aws_location", "error", _ph.aws_error_detail(e))
         _cb.on_failure("aws_location")
         log.error("AWS Location suggest error for %r: %s", query, e,
                   extra={"service": "aws-location"})

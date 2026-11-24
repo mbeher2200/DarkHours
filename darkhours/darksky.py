@@ -916,7 +916,7 @@ def _aws_drive_times(origin_lat: float, origin_lon: float, clusters: list) -> No
                 _ph.record("aws_georoutes", "ok")
                 _cb.on_success("aws_georoutes")
             except Exception as e:
-                _ph.record("aws_georoutes", "error", str(e)[:120])
+                _ph.record("aws_georoutes", "error", _ph.aws_error_detail(e))
                 _cb.on_failure("aws_georoutes")
                 log.debug("GeoRoutes calculate_routes failed: %s", e)
                 continue
@@ -1726,7 +1726,7 @@ def _aws_location_settlement(lat: float, lon: float) -> str | None:
         _ph.record("aws_location", "ok")
         _cb.on_success("aws_location")
     except Exception as e:
-        _ph.record("aws_location", "error", str(e)[:120])
+        _ph.record("aws_location", "error", _ph.aws_error_detail(e))
         _cb.on_failure("aws_location")
         log.debug("AWS Location reverse geocode failed for (%.4f, %.4f): %s", lat, lon, e)
         return None
